@@ -1,0 +1,3 @@
+[submodule "git-co-author-enhanced"]
+	path = git-co-author-enhanced
+	url = git@github.com:hnrobert/git-co-author-enhanced.git
