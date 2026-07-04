@@ -1,2 +1,3 @@
-# vscode-git-co-author-enhanced
-Support Git Author switching / co-author / SSH Identity management in vscode
+# vscode-git-colabor
+
+Support Git Author switching / co-author / SSH Identity management in VS Code — via the `git colabor` CLI (bundled) and a VS Code extension.

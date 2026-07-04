@@ -1,0 +1,14 @@
+{
+  "name": "vscode-git-colabor-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Git co-author + multi-identity + SSH key management — CLI + VS Code extension",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test",
+    "test:e2e": "pnpm -r run test:e2e"
+  },
+  "packageManager": "pnpm@10.13.1"
+}
