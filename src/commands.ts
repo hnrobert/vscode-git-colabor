@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { CliClient } from './cli/CliClient.js';
 import type { GitApi } from './git-ext/GitApi.js';
 import type { Secrets } from './secrets/Secrets.js';
+import type { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
 import type { DiagnosticJson, IdentityJson, JsonResult } from './types.js';
 
 export type CommandDeps = {
@@ -11,35 +12,47 @@ export type CommandDeps = {
   git: GitApi;
   secrets: Secrets;
   log: vscode.LogOutputChannel;
+  provider?: IdentityTreeProvider;
 };
 
 export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
-  const reg = (cmd: string, fn: () => Promise<void> | Thenable<void> | void) =>
+  const reg = (cmd: string, fn: (...args: unknown[]) => Promise<void> | Thenable<void> | void) =>
     context.subscriptions.push(
-      vscode.commands.registerCommand(cmd, () => {
-        Promise.resolve(fn()).catch((e) => deps.log.error(e instanceof Error ? e.message : String(e)));
+      vscode.commands.registerCommand(cmd, (...args: unknown[]) => {
+        Promise.resolve(fn(...args)).catch((e) =>
+          deps.log.error(e instanceof Error ? e.message : String(e)),
+        );
       }),
     );
 
+  const refresh = async (): Promise<void> => {
+    await deps.provider?.reload();
+  };
+
   reg('gitColabor.doctor', () => doctor(deps));
-  reg('gitColabor.useIdentity', () => useIdentity(deps));
-  reg('gitColabor.addIdentity', () => addIdentity(deps));
-  reg('gitColabor.removeIdentity', () => removeIdentity(deps));
-  reg('gitColabor.logoutIdentity', () => logoutIdentity(deps));
-  reg('gitColabor.selectCoAuthors', () => notImplemented(deps, 'selectCoAuthors', 'M4'));
-  reg('gitColabor.soloCoAuthors', () => soloCoAuthors(deps));
-  reg('gitColabor.addCoAuthor', () => addCoAuthor(deps));
-  reg('gitColabor.suggestCoAuthors', () => notImplemented(deps, 'suggestCoAuthors', 'M4'));
+  reg('gitColabor.useIdentity', () => useIdentity(deps).then(refresh));
+  reg('gitColabor.addIdentity', () => addIdentity(deps).then(refresh));
+  reg('gitColabor.removeIdentity', () => removeIdentity(deps).then(refresh));
+  reg('gitColabor.logoutIdentity', () => logoutIdentity(deps).then(refresh));
+  reg('gitColabor.selectCoAuthors', () => selectCoAuthors(deps).then(refresh));
+  reg('gitColabor.soloCoAuthors', () => soloCoAuthors(deps).then(refresh));
+  reg('gitColabor.addCoAuthor', () => addCoAuthor(deps).then(refresh));
+  reg('gitColabor.suggestCoAuthors', () => notImplemented(deps, 'suggestCoAuthors', 'M5'));
   reg('gitColabor.openCoAuthorsFile', () => openCoAuthorsFile());
-  reg('gitColabor.revertRepo', () => revertRepo(deps));
+  reg('gitColabor.revertRepo', () => revertRepo(deps).then(refresh));
   reg('gitColabor.showAudit', () => showAudit(deps));
   reg('gitColabor.reload', async () => {
-    deps.log.info('reload requested (TreeView ships in M4)');
+    await refresh();
     vscode.window.showInformationMessage('Git Colabor: reloaded.');
   });
   reg('gitColabor.openSettings', () =>
     vscode.commands.executeCommand('workbench.action.openSettings', '@ext:hnrobert.vscode-git-colabor'),
   );
+
+  // Tree-item click targets (invoked with an argument from the TreeItem command).
+  reg('gitColabor._useIdentityById', (id) => useIdentityById(deps, String(id)));
+  reg('gitColabor._addCoAuthor', (key) => addCoAuthorByKey(deps, String(key)));
+  reg('gitColabor._removeCoAuthor', (email) => removeCoAuthorByEmail(deps, String(email)));
 }
 
 function requireRepo(deps: CommandDeps): string | undefined {
@@ -101,8 +114,13 @@ async function useIdentity(deps: CommandDeps): Promise<void> {
   if (!cwd) return;
   const identity = await pickIdentity(deps, 'Select identity to use in this repo');
   if (!identity) return;
-  const data = await run<{ applied: { userName: string } }>(deps, ['identity', 'use', identity.id, '--source', 'ext'], { cwd });
-  if (data) vscode.window.showInformationMessage(`Active identity: ${identity.name} <${identity.email}>`);
+  await run(deps, ['identity', 'use', identity.id, '--source', 'ext'], { cwd });
+}
+
+async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
+  const cwd = requireRepo(deps);
+  if (!cwd) return;
+  await run(deps, ['identity', 'use', id, '--source', 'ext'], { cwd });
 }
 
 async function addIdentity(deps: CommandDeps): Promise<void> {
@@ -111,15 +129,11 @@ async function addIdentity(deps: CommandDeps): Promise<void> {
   const email = await vscode.window.showInputBox({ prompt: 'Identity email', placeHolder: 'alice@example.com' });
   if (!email) return;
   const key = await vscode.window.showInputBox({ prompt: 'SSH private key path (optional)', placeHolder: '~/.ssh/id_ed25519' });
-  const pc = await vscode.window.showInputBox({
-    prompt: 'Passphrase command (optional, e.g. op read "op://Private/ssh/pass")',
-    placeHolder: 'op read ...',
-  });
+  const pc = await vscode.window.showInputBox({ prompt: 'Passphrase command (optional)', placeHolder: 'op read "op://Private/ssh/pass"' });
   const args = ['identity', 'add', '--name', name, '--email', email];
   if (key && key.trim()) args.push('--key', key.trim());
   if (pc && pc.trim()) args.push('--passphrase-command', pc.trim());
-  const data = await run<{ identity: IdentityJson }>(deps, args);
-  if (data) vscode.window.showInformationMessage(`Added identity "${data.identity.name}".`);
+  await run(deps, args);
 }
 
 async function removeIdentity(deps: CommandDeps): Promise<void> {
@@ -131,8 +145,7 @@ async function removeIdentity(deps: CommandDeps): Promise<void> {
     'Remove',
   );
   if (confirm !== 'Remove') return;
-  const data = await run<{ removed: string }>(deps, ['identity', 'rm', identity.id]);
-  if (data) vscode.window.showInformationMessage(`Removed identity ${data.removed}.`);
+  await run(deps, ['identity', 'rm', identity.id]);
 }
 
 async function logoutIdentity(deps: CommandDeps): Promise<void> {
@@ -146,11 +159,35 @@ async function logoutIdentity(deps: CommandDeps): Promise<void> {
   }
 }
 
+async function selectCoAuthors(deps: CommandDeps): Promise<void> {
+  const cwd = requireRepo(deps);
+  if (!cwd) return;
+  const data = await run<{
+    available: { key: string; name: string; email: string }[];
+    selected: { key: string; name: string; email: string }[];
+  }>(deps, ['identity', 'status'], { cwd });
+  if (!data) return;
+  const selectedKeys = new Set(data.selected.map((s) => s.key));
+  const picks = [...data.available, ...data.selected].map((a) => ({
+    label: a.name,
+    description: a.email,
+    picked: selectedKeys.has(a.key),
+    key: a.key,
+  }));
+  const chosen = await vscode.window.showQuickPick(picks, {
+    placeHolder: 'Select co-authors for this repo',
+    canPickMany: true,
+  });
+  if (!chosen) return;
+  const keys = chosen.map((c) => c.key);
+  if (keys.length === 0) await run(deps, ['coauthor', 'solo'], { cwd });
+  else await run(deps, ['coauthor', 'use', ...keys], { cwd });
+}
+
 async function soloCoAuthors(deps: CommandDeps): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
-  const data = await run<{ selected: unknown[] }>(deps, ['coauthor', 'solo'], { cwd });
-  if (data) vscode.window.showInformationMessage('Git Colabor: cleared co-authors.');
+  await run(deps, ['coauthor', 'solo'], { cwd });
 }
 
 async function addCoAuthor(deps: CommandDeps): Promise<void> {
@@ -160,8 +197,24 @@ async function addCoAuthor(deps: CommandDeps): Promise<void> {
   if (!name) return;
   const email = await vscode.window.showInputBox({ prompt: 'Co-author email', placeHolder: 'jane@example.com' });
   if (!email) return;
-  const data = await run<{ author: { name: string } }>(deps, ['coauthor', 'add', initials, name, email]);
-  if (data) vscode.window.showInformationMessage(`Added co-author "${data.author.name}".`);
+  await run(deps, ['coauthor', 'add', initials, name, email]);
+}
+
+async function addCoAuthorByKey(deps: CommandDeps, key: string): Promise<void> {
+  const cwd = requireRepo(deps);
+  if (!cwd) return;
+  const selected = deps.provider?.current?.selected ?? [];
+  const keys = [...new Set([...selected.map((s) => s.key), key])];
+  await run(deps, ['coauthor', 'use', ...keys], { cwd });
+}
+
+async function removeCoAuthorByEmail(deps: CommandDeps, email: string): Promise<void> {
+  const cwd = requireRepo(deps);
+  if (!cwd) return;
+  const selected = deps.provider?.current?.selected ?? [];
+  const remaining = selected.filter((s) => s.email !== email).map((s) => s.key);
+  if (remaining.length > 0) await run(deps, ['coauthor', 'use', ...remaining], { cwd });
+  else await run(deps, ['coauthor', 'solo'], { cwd });
 }
 
 async function revertRepo(deps: CommandDeps): Promise<void> {
@@ -173,12 +226,7 @@ async function revertRepo(deps: CommandDeps): Promise<void> {
     'Revert',
   );
   if (confirm !== 'Revert') return;
-  const data = await run<{ hadBackup: boolean }>(deps, ['identity', 'revert'], { cwd });
-  if (data) {
-    vscode.window.showInformationMessage(
-      data.hadBackup ? 'Git Colabor: reverted repo to pre-tool state.' : 'Git Colabor: repo was not managed.',
-    );
-  }
+  await run(deps, ['identity', 'revert'], { cwd });
 }
 
 async function showAudit(deps: CommandDeps): Promise<void> {

@@ -47,4 +47,13 @@ export class GitApi {
     const sel = this._api.repositories.find((r) => r.ui.selected);
     return (sel ?? this._api.repositories[0]).rootUri.fsPath;
   }
+
+  /** Subscribe to repository open/close + each repo's UI (selection) changes. */
+  subscribe(cb: () => void): vscode.Disposable {
+    const api = this._api;
+    if (!api) return { dispose() {} };
+    const disposables: vscode.Disposable[] = [api.onDidOpenRepository(cb), api.onDidCloseRepository(cb)];
+    for (const r of api.repositories) disposables.push(r.ui.onDidChange(cb));
+    return { dispose() { disposables.forEach((d) => d.dispose()); } };
+  }
 }

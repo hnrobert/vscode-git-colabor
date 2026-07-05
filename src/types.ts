@@ -17,3 +17,28 @@ export type IdentityJson = {
 };
 
 export type DiagnosticJson = { check: string; status: 'ok' | 'warn' | 'fail'; detail?: string };
+
+export type CoAuthorBriefJson = { key: string; name: string; email: string };
+
+export type HeldByJson = {
+  session: string;
+  since: string;
+  host: string;
+  osUser: string;
+  source: 'ext' | 'cli';
+};
+
+export type StatusIdentityJson = IdentityJson & { active?: boolean };
+
+/** Shape of `git colabor identity status --json` data. */
+export type StatusJson = {
+  repo: string | null;
+  inRepo: boolean;
+  managed: boolean;
+  managedBy: string | null;
+  heldBy: HeldByJson | null;
+  activeIdentity: IdentityJson | null;
+  identities: StatusIdentityJson[];
+  selected: CoAuthorBriefJson[];
+  available: CoAuthorBriefJson[];
+};
