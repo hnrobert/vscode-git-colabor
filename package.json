@@ -1,14 +1,137 @@
 {
-  "name": "vscode-git-colabor-workspace",
-  "private": true,
-  "version": "0.0.0",
-  "description": "Git co-author + multi-identity + SSH key management — CLI + VS Code extension",
+  "name": "vscode-git-colabor",
+  "displayName": "Git Colabor",
+  "publisher": "hnrobert",
+  "version": "0.1.0",
+  "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with git-mob-style co-authors.",
+  "license": "MIT",
+  "type": "module",
+  "categories": ["SCM Providers", "Other"],
+  "keywords": ["git", "co-author", "ssh", "identity", "pair-programming"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hnrobert/vscode-git-colabor.git"
+  },
+  "engines": {
+    "vscode": "^1.83.0"
+  },
+  "main": "dist/extension.cjs",
+  "extensionKind": ["workspace", "ui"],
+  "extensionDependencies": ["vscode.git"],
+  "activationEvents": ["onStartupFinished", "workspaceContains:**/.git"],
+  "contributes": {
+    "configuration": {
+      "title": "Git Colabor",
+      "properties": {
+        "gitColabor.user.name": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Overrides repo `user.name` in the extension context — **always wins** over git config. If empty, the active identity's name is used."
+        },
+        "gitColabor.user.email": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Overrides repo `user.email` in the extension context."
+        },
+        "gitColabor.defaultIdentity": {
+          "type": "string",
+          "default": "",
+          "description": "Identity id to auto-activate when a repo opens and none is active."
+        },
+        "gitColabor.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to the CLI bundle (defaults to the bundled resources/cli.cjs)."
+        },
+        "gitColabor.autoApplyOnRepoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Apply default/active identity when a repo opens."
+        },
+        "gitColabor.conflictWarningStaleMinutes": {
+          "type": "number",
+          "default": 5,
+          "description": "Advisory heldBy staleness threshold (minutes)."
+        },
+        "gitColabor.githubFetch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable GitHub username→noreply fetch when adding co-authors."
+        },
+        "gitColabor.postCommitSolo": {
+          "type": "boolean",
+          "default": false,
+          "description": "Clear selected co-authors after a commit (watches COMMIT_EDITMSG)."
+        },
+        "gitColabor.logLevel": {
+          "type": "string",
+          "enum": ["trace", "debug", "info", "warning", "error", "off"],
+          "default": "info",
+          "description": "Output channel log level."
+        }
+      }
+    },
+    "commands": [
+      { "command": "gitColabor.useIdentity", "title": "Use Identity…", "category": "Git Colabor", "icon": "$(account)" },
+      { "command": "gitColabor.addIdentity", "title": "Add Identity…", "category": "Git Colabor", "icon": "$(add)" },
+      { "command": "gitColabor.removeIdentity", "title": "Remove Identity…", "category": "Git Colabor", "icon": "$(remove)" },
+      { "command": "gitColabor.logoutIdentity", "title": "Logout Identity", "category": "Git Colabor" },
+      { "command": "gitColabor.selectCoAuthors", "title": "Select Co-authors…", "category": "Git Colabor" },
+      { "command": "gitColabor.soloCoAuthors", "title": "Solo (clear co-authors)", "category": "Git Colabor" },
+      { "command": "gitColabor.addCoAuthor", "title": "Add Co-author…", "category": "Git Colabor" },
+      { "command": "gitColabor.suggestCoAuthors", "title": "Suggest Co-authors", "category": "Git Colabor" },
+      { "command": "gitColabor.openCoAuthorsFile", "title": "Open .git-coauthors", "category": "Git Colabor" },
+      { "command": "gitColabor.revertRepo", "title": "Revert Repo Identity", "category": "Git Colabor" },
+      { "command": "gitColabor.showAudit", "title": "Show Audit Log", "category": "Git Colabor" },
+      { "command": "gitColabor.doctor", "title": "Doctor", "category": "Git Colabor" },
+      { "command": "gitColabor.reload", "title": "Reload", "category": "Git Colabor", "icon": "$(refresh)" },
+      { "command": "gitColabor.openSettings", "title": "Open Settings", "category": "Git Colabor" }
+    ],
+    "views": {
+      "scm": [{ "id": "gitColabor.identitiesView", "name": "Colabor: Identity & Co-authors" }]
+    },
+    "viewsWelcome": [
+      {
+        "view": "gitColabor.identitiesView",
+        "contents": "No git repository in the current workspace.\n[Add Identity](command:gitColabor.addIdentity)",
+        "when": "workbenchState == empty"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "gitColabor.useIdentity", "when": "view == gitColabor.identitiesView", "group": "navigation@1" },
+        { "command": "gitColabor.addIdentity", "when": "view == gitColabor.identitiesView", "group": "navigation@2" },
+        { "command": "gitColabor.reload", "when": "view == gitColabor.identitiesView", "group": "navigation@3" },
+        { "command": "gitColabor.openSettings", "when": "view == gitColabor.identitiesView", "group": "2_misc@1" }
+      ],
+      "view/item/context": [
+        { "command": "gitColabor.useIdentity", "when": "viewItem == identity", "group": "inline" },
+        { "command": "gitColabor.logoutIdentity", "when": "viewItem == active-identity", "group": "inline" },
+        { "command": "gitColabor.removeIdentity", "when": "viewItem =~ /^identity$|active-identity$/", "group": "inline" },
+        { "command": "gitColabor.selectCoAuthors", "when": "viewItem == coauthor-available", "group": "inline" },
+        { "command": "gitColabor.soloCoAuthors", "when": "viewItem == coauthor-selected", "group": "inline" }
+      ]
+    }
+  },
   "scripts": {
-    "build": "pnpm -r run build",
-    "typecheck": "pnpm -r run typecheck",
-    "lint": "pnpm -r run lint",
-    "test": "pnpm -r run test",
-    "test:e2e": "pnpm -r run test:e2e"
+    "build:cli": "pnpm -C git-colabor run build",
+    "build": "pnpm run build:cli && tsup && node build-scripts/copy-cli.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.83.0",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
   },
   "packageManager": "pnpm@10.13.1"
 }

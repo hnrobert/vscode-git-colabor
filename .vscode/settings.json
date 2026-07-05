@@ -1,16 +1,20 @@
 {
     "cSpell.words": [
+        "askpass",
         "colabor",
         "dotenv",
         "eslintcache",
         "jscoverage",
         "jspm",
         "nuxt",
+        "passphraseless",
+        "setsid",
         "stylelintcache",
         "Sveltekit",
         "vite",
         "vitepress",
         "vuepress",
+        "worktrees",
         "wscript"
     ]
 }

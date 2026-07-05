@@ -1,0 +1,24 @@
+# Exclude sources, configs, tooling, and the CLI submodule from the vsix.
+# The shipped CLI is pre-bundled under resources/ — no runtime node_modules needed.
+.gitignore
+.gitmodules
+.vscodeignore
+.editorconfig
+.npmrc
+plan.md
+*.code-workspace
+pnpm-lock.yaml
+tsconfig.json
+tsconfig.base.json
+tsup.config.ts
+vitest.config.ts
+eslint.config.js
+src/**
+tests/**
+build-scripts/**
+node_modules/**
+.git/**
+.vscode/**
+git-colabor/**
+**/*.ts
+**/*.map
