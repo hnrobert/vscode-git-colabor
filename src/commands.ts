@@ -114,13 +114,25 @@ async function useIdentity(deps: CommandDeps): Promise<void> {
   if (!cwd) return;
   const identity = await pickIdentity(deps, 'Select identity to use in this repo');
   if (!identity) return;
-  await run(deps, ['identity', 'use', identity.id, '--source', 'ext'], { cwd });
+  await applyUse(deps, identity.id, cwd);
 }
 
 async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
-  await run(deps, ['identity', 'use', id, '--source', 'ext'], { cwd });
+  await applyUse(deps, id, cwd);
+}
+
+async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<void> {
+  const r = await deps.cli.run(['identity', 'use', id, '--source', 'ext'], { cwd });
+  if (!r.ok) {
+    reportError(r);
+    return;
+  }
+  const heldBy = (r.data as { conflict?: { heldBy?: { session: string } } | null })?.conflict?.heldBy;
+  if (heldBy) {
+    vscode.window.showWarningMessage(`Git Colabor: repo was held by ${heldBy.session}; overridden.`);
+  }
 }
 
 async function addIdentity(deps: CommandDeps): Promise<void> {

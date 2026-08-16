@@ -49,7 +49,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const statusbar = new StatusBar();
   context.subscriptions.push(statusbar);
   const scmSync = new ScmSync(git);
-
   context.subscriptions.push(
     provider.onDidReload.event((s) => {
       statusbar.update(s);
@@ -59,7 +58,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerCommands(context, { cli, git, secrets, log: logger, provider });
 
-  // Watch the per-repo state file so terminal-CLI changes reflect in the UI (git-mob drift fix).
+  // refresh = re-seed state watcher + reload the tree
   let watchedRepo: string | undefined;
   const setupStateWatcher = (): void => {
     const root = git.selectedRepoRoot();
@@ -71,47 +70,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const stateFile = join(root, '.git', 'colabor', 'state.json');
     let t: NodeJS.Timeout | undefined;
     try {
-      stateWatcher = watch(stateFile).on('change', () => {
-        if (t) clearTimeout(t);
-        t = setTimeout(() => {
-          provider.reload().catch(() => {});
-        }, 300);
-      });
-      stateWatcher.on('error', () => {});
+      stateWatcher = watch(stateFile)
+        .on('change', () => {
+          if (t) clearTimeout(t);
+          t = setTimeout(() => {
+            provider.reload().catch(() => {});
+          }, 300);
+        })
+        .on('error', () => {});
     } catch {
-      // state file may not exist yet — re-setup runs again on next repo/refresh
+      // state file may not exist yet
     }
   };
-
   const refresh = (): void => {
     setupStateWatcher();
     provider.reload().catch((e) => logger.warn(`reload: ${e instanceof Error ? e.message : String(e)}`));
   };
+  const runReconcile = (): void => {
+    reconcile(cli, git, logger).catch((e) =>
+      logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  };
 
-  context.subscriptions.push(git.subscribe(refresh));
+  // repo open/close/selection: debounced reconcile (enforce setting-wins) + refresh
+  let gitTimer: NodeJS.Timeout | undefined;
+  context.subscriptions.push(
+    git.subscribe(() => {
+      if (gitTimer) clearTimeout(gitTimer);
+      gitTimer = setTimeout(() => {
+        runReconcile();
+        refresh();
+      }, 400);
+    }),
+  );
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.fileName.endsWith('.git-coauthors')) refresh();
     }),
   );
   context.subscriptions.push({ dispose() { stateWatcher?.close(); } });
-
-  const runReconcile = (): void => {
-    reconcile(cli, git, logger).catch((e) =>
-      logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
-    );
-  };
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('gitColabor')) {
+      if (e.affectsConfiguration('gitColabor.user') || e.affectsConfiguration('gitColabor.defaultIdentity')) {
         runReconcile();
         refresh();
       }
     }),
   );
 
-  refresh();
   runReconcile();
+  refresh();
 
   logger.info('git colabor activated');
 }
