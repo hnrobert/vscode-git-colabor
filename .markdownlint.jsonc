@@ -1,0 +1,6 @@
+{
+  // MD013/line-length — disabled: markdown prose in this repo is written as
+  // one line per paragraph (or per list item) and relies on editor soft-wrap.
+  // Do not hard-wrap; long lines are intentional.
+  "MD013": false
+}

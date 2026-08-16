@@ -3,6 +3,7 @@
 .gitignore
 .gitmodules
 .vscodeignore
+.markdownlint.jsonc
 .editorconfig
 .npmrc
 plan.md
