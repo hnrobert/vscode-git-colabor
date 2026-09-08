@@ -1,0 +1,93 @@
+name: CI
+
+# Checks for the extension package (repo root) and the bundled git-colabor
+# submodule in one run — the extension build compiles the submodule, so both
+# must pass together. Documentation-only changes never trigger a run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "build-scripts/**"
+      - "git-colabor/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
+      - "tsconfig.base.json"
+      - "tsup.config.ts"
+      - "vitest.config.ts"
+      - "eslint.config.js"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "build-scripts/**"
+      - "git-colabor/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
+      - "tsconfig.base.json"
+      - "tsup.config.ts"
+      - "vitest.config.ts"
+      - "eslint.config.js"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # cancel stale PR runs, never main
+
+jobs:
+  test:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      # .gitmodules points at git@github.com:; CI has no SSH key, so route it
+      # through HTTPS before checkout fetches the submodule.
+      - name: Rewrite submodule URLs to HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      # pnpm version comes from package.json `packageManager` — don't pass a
+      # `version` input, it conflicts and throws ERR_PNPM_BAD_PM_VERSION.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      # The repo and the CLI submodule are independent pnpm projects.
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -C git-colabor install --frozen-lockfile
+
+      - name: Typecheck
+        run: |
+          pnpm typecheck
+          pnpm -C git-colabor typecheck
+
+      - name: Lint
+        run: |
+          pnpm lint
+          pnpm -C git-colabor lint
+
+      - name: Test
+        run: |
+          pnpm test
+          pnpm -C git-colabor test
+          pnpm -C git-colabor test:e2e
+
+      - name: Build
+        run: pnpm build # build:cli → tsup → copy bundled CLI into resources/

@@ -23,9 +23,9 @@ Git Colabor = **one CLI (`git-colabor`, npm package + submodule)** + **one VS Co
 - [x] Root README rewrite; `CONTRIBUTING.md`; `CHANGELOG.md`
 - [x] Standalone `git-colabor/README.md` for the npm package
 - [ ] `@vscode/test-electron` integration suite (extension activation, identity apply/revert round-trip in a sandbox repo)
-- [ ] CI workflow: typecheck + lint + unit + e2e (root and submodule)
-- [ ] Publish extension `.vsix` → Marketplace + OpenVSX
-- [ ] Publish `git-colabor` CLI to npm
+- [x] CI workflow: typecheck + lint + unit + e2e (root and submodule) — `.github/workflows/ci.yml` in both repos, path-filtered
+- [ ] Publish extension `.vsix` → Marketplace + OpenVSX — `release.yml` ready; needs `VSCE_PAT` + `OVSX_PAT` secrets, then first dispatch
+- [ ] Publish `git-colabor` CLI to npm — `publish.yml` (OIDC trusted publishing) ready; needs Phase 1 (first local publish + npmjs trusted-publisher binding)
 - [ ] Tag `v0.1.0` in both repositories
 
 ## Deferred (post-0.1.0 candidates)

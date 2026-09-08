@@ -1,0 +1,170 @@
+name: Release
+
+# Manual release for the VS Code extension (this repo is the extension package).
+# Actions tab → "Run workflow" → enter a version (e.g. 0.2.0, leading "v" is
+# optional) and optionally check "beta" for a pre-release.
+#
+# The run: gate on checks → bump package.json → commit + tag + push → package
+# the .vsix → create a GitHub Release with the .vsix attached → publish to the
+# Visual Studio Marketplace and OpenVSX.
+#
+# Required secrets (repo → Settings → Secrets and variables → Actions):
+#   VSCE_PAT — Marketplace personal access token with the "Manage" scope
+#              (https://code.visualstudio.com/api/working-with-extensions/publishing)
+#   OVSX_PAT — OpenVSX access token (https://open-vsx.org → create token)
+#
+# The bundled CLI (git-colabor submodule) releases separately from its own
+# repository — this workflow publishes whatever submodule commit is checked out.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.2.0)"
+        required: true
+        type: string
+      beta:
+        description: "pre-release (beta)"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write # release commit + tag + GitHub Release
+
+concurrency:
+  group: release
+  cancel-in-progress: false # never interrupt a publish mid-flight
+
+jobs:
+  release:
+    name: Build and publish extension
+    runs-on: ubuntu-latest
+    steps:
+      # .gitmodules points at git@github.com:; CI has no SSH key, so route it
+      # through HTTPS before checkout fetches the submodule.
+      - name: Rewrite submodule URLs to HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history for the release tag
+          submodules: recursive
+
+      # pnpm version comes from package.json `packageManager` — don't pass a
+      # `version` input, it conflicts and throws ERR_PNPM_BAD_PM_VERSION.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      # The repo and the CLI submodule are independent pnpm projects.
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -C git-colabor install --frozen-lockfile
+
+      - name: Typecheck
+        run: |
+          pnpm typecheck
+          pnpm -C git-colabor typecheck
+
+      - name: Lint
+        run: |
+          pnpm lint
+          pnpm -C git-colabor lint
+
+      - name: Test
+        run: |
+          pnpm test
+          pnpm -C git-colabor test
+          pnpm -C git-colabor test:e2e
+
+      - name: Build
+        run: pnpm build # build:cli → tsup → copy bundled CLI into resources/
+
+      # Invalid semver fails the bump step below (pnpm version validates).
+      - name: Resolve version inputs
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BETA: ${{ inputs.beta }}
+        run: |
+          SEMVER="${INPUT_VERSION#v}" # tolerate "v0.2.0"
+          echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$SEMVER" >> "$GITHUB_OUTPUT"
+          if [ "$INPUT_BETA" = "true" ] || [[ "$SEMVER" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump package version, commit, tag, push
+        env:
+          SEMVER: ${{ steps.version.outputs.semver }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG already exists — pick a new version"
+            exit 1
+          fi
+          pnpm version "$SEMVER" --no-git-tag-version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          git add package.json
+          git commit -m "chore(release): $TAG"
+          git tag "$TAG"
+          git push origin "HEAD:$BRANCH" "$TAG"
+
+      - name: Package the extension
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            pnpm exec vsce package --no-dependencies --pre-release -o "git-colabor-${TAG}.vsix"
+          else
+            pnpm exec vsce package --no-dependencies -o "git-colabor-${TAG}.vsix"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: git-colabor-${{ steps.version.outputs.tag }}.vsix
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to Visual Studio Marketplace
+        env:
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            pnpm exec vsce publish --no-dependencies --pre-release -p "$VSCE_PAT"
+          else
+            pnpm exec vsce publish --no-dependencies -p "$VSCE_PAT"
+          fi
+
+      - name: Publish to OpenVSX
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            pnpm dlx ovsx publish "git-colabor-${TAG}.vsix" --pre-release -p "$OVSX_PAT"
+          else
+            pnpm dlx ovsx publish "git-colabor-${TAG}.vsix" -p "$OVSX_PAT"
+          fi
