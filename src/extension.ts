@@ -34,7 +34,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const git = new GitApi();
-  git.activate();
 
   const cli = new CliClient({
     cliPath: cliPath(context),
@@ -92,17 +91,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   };
 
-  // repo open/close/selection: debounced reconcile (enforce setting-wins) + refresh
+  // repo open/close/selection: debounced reconcile (enforce setting-wins) + refresh.
+  // The vscode.git API may not be ready when we activate (notably under
+  // Remote-SSH, where it can land in another extension-host process), so
+  // wire the subscriptions only after the API is acquired and retry on
+  // extension changes until it is.
+  let gitSub: vscode.Disposable | undefined;
   let gitTimer: NodeJS.Timeout | undefined;
-  context.subscriptions.push(
-    git.subscribe(() => {
+  const wireGitEvents = (): void => {
+    gitSub?.dispose();
+    gitSub = git.subscribe(() => {
       if (gitTimer) clearTimeout(gitTimer);
       gitTimer = setTimeout(() => {
         runReconcile();
         refresh();
       }, 400);
-    }),
-  );
+    });
+  };
+  context.subscriptions.push({ dispose() { gitSub?.dispose(); } });
+
+  if ((await git.activate()) === '') {
+    logger.info('vscode.git API acquired');
+    wireGitEvents();
+  } else {
+    // The git extension's activation can complete a moment after ours (it
+    // started only ~0.5s before us under Remote-SSH). Retry with backoff —
+    // extensions.onDidChange is useless here, it only fires on
+    // install/uninstall, never on activation.
+    const onAcquired = (): void => {
+      logger.info('vscode.git API acquired (late)');
+      wireGitEvents();
+      runReconcile();
+      refresh();
+    };
+    const tryLater = (delayMs: number, attemptsLeft: number): void => {
+      const t = setTimeout(() => {
+        void git
+          .activate()
+          .then((reason) => {
+            if (reason === '') return onAcquired();
+            if (attemptsLeft > 0) return tryLater(Math.min(delayMs * 2, 5000), attemptsLeft - 1);
+            logger.error(`vscode.git API never became available (${reason}); repo detection disabled`);
+          })
+          .catch((e) => logger.error(`git activate retry failed: ${e}`));
+      }, delayMs);
+      context.subscriptions.push({ dispose() { clearTimeout(t); } });
+    };
+    logger.warn('vscode.git API unavailable yet; retrying with backoff');
+    tryLater(500, 8); // 0.5s 1s 2s 4s 5s 5s 5s 5s ≈ 28s window
+  }
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.fileName.endsWith('.git-coauthors')) refresh();

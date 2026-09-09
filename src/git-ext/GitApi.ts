@@ -16,16 +16,34 @@ type GitApiShape = {
 export class GitApi {
   private _api: GitApiShape | undefined;
 
-  activate(): GitApiShape | undefined {
+  /**
+   * Acquire the vscode.git API. Idempotent and safe to retry: under
+   * Remote-SSH the git extension's activation can complete shortly after
+   * ours starts, so a failed attempt must leave state clean for the next
+   * one. Returns '' on success or a short reason for the log.
+   */
+  async activate(): Promise<string> {
+    if (this._api) return '';
     const ext = vscode.extensions.getExtension('vscode.git');
-    const getApi = ext?.exports?.getAPI;
-    if (typeof getApi !== 'function') return undefined;
+    if (!ext) return 'vscode.git not found';
     try {
-      this._api = getApi(1) as GitApiShape;
-    } catch {
-      this._api = undefined;
+      if (!ext.isActive) await ext.activate();
+    } catch (e) {
+      return `vscode.git activate() threw: ${e instanceof Error ? e.message : String(e)}`;
     }
-    return this._api;
+    const gitExports = ext.exports as { getAPI?: (version: number) => GitApiShape } | undefined;
+    if (!gitExports || typeof gitExports.getAPI !== 'function') {
+      return 'vscode.git exports has no getAPI (activation not finished?)';
+    }
+    try {
+      // Call getAPI ON the exports object — extracting the method would lose
+      // its receiver and throw "Cannot read properties of undefined
+      // (reading '_model')" because getAPI reads this._model internally.
+      this._api = gitExports.getAPI(1);
+      return '';
+    } catch (e) {
+      return `getAPI(1) threw: ${e instanceof Error ? e.message : String(e)}`;
+    }
   }
 
   get api(): GitApiShape | undefined {
