@@ -67,6 +67,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | `gitColabor.user.name` / `gitColabor.user.email` | `""` | **Always win** over any identity's name/email in repos you open (re-applied by the reconcile loop) |
 | `gitColabor.defaultIdentity` | `""` | Identity id auto-activated when a repo has none active |
 | `gitColabor.cliPath` | `""` | Override the bundled CLI path (`resources/cli.cjs`) |
+| `gitColabor.coAuthors` | `[]` | Remembered co-authors (`"Name <email>"` entries) — right-click an identity in the Identities group to save/remove it per user / machine / workspace layer; all layers (plus the `.git-coauthors` catalogue, all identities except the active one, and the repo's commit history) feed the Co-authors list |
 
 Declared but **not yet enforced** in 0.1.0 (tracked in [plan.md](plan.md)): `autoApplyOnRepoOpen` (always on for now), `conflictWarningStaleMinutes` (CLI default 5 min), `githubFetch`, `postCommitSolo`, `logLevel`.
 

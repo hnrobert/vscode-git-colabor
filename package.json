@@ -5,9 +5,19 @@
   "version": "0.1.0",
   "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with git-mob-style co-authors.",
   "license": "MIT",
+  "icon": "git-colabor/assets/images/git-co-author-enhanced-outline.png",
   "type": "module",
-  "categories": ["SCM Providers", "Other"],
-  "keywords": ["git", "co-author", "ssh", "identity", "pair-programming"],
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "co-author",
+    "ssh",
+    "identity",
+    "pair-programming"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/hnrobert/vscode-git-colabor.git"
@@ -16,9 +26,17 @@
     "vscode": "^1.83.0"
   },
   "main": "dist/extension.cjs",
-  "extensionKind": ["workspace", "ui"],
-  "extensionDependencies": ["vscode.git"],
-  "activationEvents": ["onStartupFinished", "workspaceContains:**/.git"],
+  "extensionKind": [
+    "workspace",
+    "ui"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:**/.git"
+  ],
   "contributes": {
     "configuration": {
       "title": "Git Colabor",
@@ -65,30 +83,142 @@
         },
         "gitColabor.logLevel": {
           "type": "string",
-          "enum": ["trace", "debug", "info", "warning", "error", "off"],
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warning",
+            "error",
+            "off"
+          ],
           "default": "info",
           "description": "Output channel log level."
+        },
+        "gitColabor.coAuthors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machineOverridable",
+          "markdownDescription": "Remembered identities as `\"Name <email>\"` entries (used as co-author candidates). Saved from the Identities group's right-click menu into the user / machine / workspace layers; all layers (deduped) feed the Co-authors list."
         }
       }
     },
     "commands": [
-      { "command": "gitColabor.useIdentity", "title": "Use Identity…", "category": "Git Colabor", "icon": "$(account)" },
-      { "command": "gitColabor.addIdentity", "title": "Add Identity…", "category": "Git Colabor", "icon": "$(add)" },
-      { "command": "gitColabor.removeIdentity", "title": "Remove Identity…", "category": "Git Colabor", "icon": "$(remove)" },
-      { "command": "gitColabor.logoutIdentity", "title": "Logout Identity", "category": "Git Colabor" },
-      { "command": "gitColabor.selectCoAuthors", "title": "Select Co-authors…", "category": "Git Colabor" },
-      { "command": "gitColabor.soloCoAuthors", "title": "Solo (clear co-authors)", "category": "Git Colabor" },
-      { "command": "gitColabor.addCoAuthor", "title": "Add Co-author…", "category": "Git Colabor" },
-      { "command": "gitColabor.suggestCoAuthors", "title": "Suggest Co-authors", "category": "Git Colabor" },
-      { "command": "gitColabor.openCoAuthorsFile", "title": "Open .git-coauthors", "category": "Git Colabor" },
-      { "command": "gitColabor.revertRepo", "title": "Revert Repo Identity", "category": "Git Colabor" },
-      { "command": "gitColabor.showAudit", "title": "Show Audit Log", "category": "Git Colabor" },
-      { "command": "gitColabor.doctor", "title": "Doctor", "category": "Git Colabor" },
-      { "command": "gitColabor.reload", "title": "Reload", "category": "Git Colabor", "icon": "$(refresh)" },
-      { "command": "gitColabor.openSettings", "title": "Open Settings", "category": "Git Colabor" }
+      {
+        "command": "gitColabor.useIdentity",
+        "title": "Use Identity…",
+        "category": "Git Colabor",
+        "icon": "$(account)"
+      },
+      {
+        "command": "gitColabor.addIdentity",
+        "title": "Add Identity…",
+        "category": "Git Colabor",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gitColabor.removeIdentity",
+        "title": "Remove Identity…",
+        "category": "Git Colabor",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "gitColabor.logoutIdentity",
+        "title": "Logout Identity",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.selectCoAuthors",
+        "title": "Select Co-authors…",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.soloCoAuthors",
+        "title": "Solo (clear co-authors)",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.addCoAuthor",
+        "title": "Add Co-author…",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.suggestCoAuthors",
+        "title": "Suggest Co-authors",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.openCoAuthorsFile",
+        "title": "Open .git-coauthors",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.revertRepo",
+        "title": "Revert Repo Identity",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.showAudit",
+        "title": "Show Audit Log",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.doctor",
+        "title": "Doctor",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.reload",
+        "title": "Reload",
+        "category": "Git Colabor",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitColabor.openSettings",
+        "title": "Open Settings",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._memorizeCoAuthor.user",
+        "title": "Save Identity to User Memory",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._forgetCoAuthor.user",
+        "title": "Remove Identity from User Memory",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._memorizeCoAuthor.machine",
+        "title": "Save Identity to Machine Memory",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._forgetCoAuthor.machine",
+        "title": "Remove Identity from Machine Memory",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._memorizeCoAuthor.workspace",
+        "title": "Save Identity to Workspace Memory",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._forgetCoAuthor.workspace",
+        "title": "Remove Identity from Workspace Memory",
+        "category": "Git Colabor"
+      }
     ],
     "views": {
-      "scm": [{ "id": "gitColabor.identitiesView", "name": "Colabor: Identity & Co-authors" }]
+      "scm": [
+        {
+          "id": "gitColabor.identitiesView",
+          "name": "Colabor: Identity & Co-authors",
+          "icon": "git-colabor/assets/images/git-co-author-enhanced-outline.png"
+        }
+      ]
     },
     "viewsWelcome": [
       {
@@ -99,16 +229,104 @@
     ],
     "menus": {
       "view/title": [
-        { "command": "gitColabor.useIdentity", "when": "view == gitColabor.identitiesView", "group": "navigation@1" },
-        { "command": "gitColabor.addIdentity", "when": "view == gitColabor.identitiesView", "group": "navigation@2" },
-        { "command": "gitColabor.reload", "when": "view == gitColabor.identitiesView", "group": "navigation@3" },
-        { "command": "gitColabor.openSettings", "when": "view == gitColabor.identitiesView", "group": "2_misc@1" }
+        {
+          "command": "gitColabor.useIdentity",
+          "when": "view == gitColabor.identitiesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitColabor.addIdentity",
+          "when": "view == gitColabor.identitiesView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitColabor.reload",
+          "when": "view == gitColabor.identitiesView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitColabor.openSettings",
+          "when": "view == gitColabor.identitiesView",
+          "group": "2_misc@1"
+        }
       ],
       "view/item/context": [
-        { "command": "gitColabor.useIdentity", "when": "viewItem == identity", "group": "inline" },
-        { "command": "gitColabor.logoutIdentity", "when": "viewItem == active-identity", "group": "inline" },
-        { "command": "gitColabor.removeIdentity", "when": "viewItem =~ /^identity$|active-identity$/", "group": "inline" },
-        { "command": "gitColabor.selectCoAuthors", "when": "viewItem == coauthor-group", "group": "inline" }
+        {
+          "command": "gitColabor.useIdentity",
+          "when": "viewItem =~ /^identity(-u)?(-m)?(-w)?$/",
+          "group": "inline"
+        },
+        {
+          "command": "gitColabor.logoutIdentity",
+          "when": "viewItem =~ /^active-identity(-u)?(-m)?(-w)?$/",
+          "group": "inline"
+        },
+        {
+          "command": "gitColabor.removeIdentity",
+          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-m)?(-w)?$/",
+          "group": "inline"
+        },
+        {
+          "command": "gitColabor.selectCoAuthors",
+          "when": "viewItem == coauthor-group",
+          "group": "inline"
+        },
+        {
+          "command": "gitColabor._memorizeCoAuthor.user",
+          "when": "viewItem =~ /^(identity|active-identity)(-m)?(-w)?$/",
+          "group": "9_memory@1"
+        },
+        {
+          "command": "gitColabor._forgetCoAuthor.user",
+          "when": "viewItem =~ /^(identity|active-identity)-u(-m)?(-w)?$/",
+          "group": "9_memory@1"
+        },
+        {
+          "command": "gitColabor._memorizeCoAuthor.machine",
+          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-w)?$/",
+          "group": "9_memory@2"
+        },
+        {
+          "command": "gitColabor._forgetCoAuthor.machine",
+          "when": "viewItem =~ /^(identity|active-identity)(-u)?-m(-w)?$/",
+          "group": "9_memory@2"
+        },
+        {
+          "command": "gitColabor._memorizeCoAuthor.workspace",
+          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-m)?$/",
+          "group": "9_memory@3"
+        },
+        {
+          "command": "gitColabor._forgetCoAuthor.workspace",
+          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-m)?-w$/",
+          "group": "9_memory@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gitColabor._memorizeCoAuthor.user",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._forgetCoAuthor.user",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._memorizeCoAuthor.machine",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._forgetCoAuthor.machine",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._memorizeCoAuthor.workspace",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._forgetCoAuthor.workspace",
+          "when": "false"
+        }
       ]
     }
   },

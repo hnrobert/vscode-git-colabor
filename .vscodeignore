@@ -23,5 +23,7 @@ node_modules/**
 .git/**
 .vscode/**
 git-colabor/**
+# exception: the extension/view icon lives in the submodule (single source)
+!git-colabor/assets/images/git-co-author-enhanced-outline.png
 **/*.ts
 **/*.map

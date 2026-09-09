@@ -9,6 +9,12 @@ const TRAILER_RE = /^Co-authored-by:[ \t]*(.*?)[ \t]*<([^>]+)>[ \t]*$/;
 
 const trailerLine = (a: ParsedAuthor): string => `Co-authored-by: ${a.name} <${a.email}>`;
 
+/** Parse a `Name <email>` memory entry; undefined when malformed. */
+export function parseAuthorString(s: string): ParsedAuthor | undefined {
+  const m = s.match(/^(.*?)\s*<([^>]+)>$/);
+  return m ? { name: m[1].trim(), email: m[2] } : undefined;
+}
+
 /** All co-author trailers in the message, in order (duplicates kept). */
 export function parseCoAuthors(text: string): ParsedAuthor[] {
   const out: ParsedAuthor[] = [];

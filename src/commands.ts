@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pickRepository } from './scm/Sync.js';
 import { appendTrailer, parseCoAuthors, removeTrailerOnce } from './scm/trailers.js';
+import { setCoAuthorMemory, type MemoryScope } from './config.js';
 import type { CliClient } from './cli/CliClient.js';
 import type { GitApi } from './git-ext/GitApi.js';
 import type { Secrets } from './secrets/Secrets.js';
@@ -54,6 +55,13 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   // Tree-item click targets (invoked with arguments from the TreeItem command).
   reg('gitColabor._useIdentityById', (id) => useIdentityById(deps, String(id)));
   reg('gitColabor._toggleCoAuthor', (name, email) => toggleCoAuthor(deps, String(name), String(email)));
+
+  // Right-click memory menu: save/remove an author per settings scope.
+  // Menus pass the TreeItem (not command arguments), so read the payload.
+  for (const scope of ['user', 'machine', 'workspace'] as const) {
+    reg(`gitColabor._memorizeCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, true));
+    reg(`gitColabor._forgetCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, false));
+  }
 }
 
 function requireRepo(deps: CommandDeps): string | undefined {
@@ -247,6 +255,22 @@ async function toggleCoAuthor(deps: CommandDeps, name: string, email: string): P
   } else {
     deps.log.info('box has trailers outside the catalogue; leaving CLI selection unchanged');
   }
+  deps.provider?.refresh();
+}
+
+/** Save or remove an identity in one settings-scope memory (user / machine / workspace). */
+async function memorizeFromItem(deps: CommandDeps, item: unknown, scope: MemoryScope, save: boolean): Promise<void> {
+  const author = (item as { payload?: { name: string; email: string } } | undefined)?.payload;
+  if (!author) {
+    deps.log.warn('memory command invoked without an identity payload');
+    return;
+  }
+  const ok = await setCoAuthorMemory(scope, author, save);
+  if (!ok) {
+    vscode.window.showWarningMessage(`Git Colabor: "${scope}" settings need a newer VS Code.`);
+    return;
+  }
+  deps.log.info(`${save ? 'saved' : 'removed'} identity ${author.name} <${author.email}> in ${scope} memory`);
   deps.provider?.refresh();
 }
 

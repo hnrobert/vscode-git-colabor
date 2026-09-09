@@ -2,20 +2,27 @@ import * as vscode from 'vscode';
 import { ColaborItem } from './items.js';
 import { pickRepository } from '../scm/Sync.js';
 import { parseCoAuthors } from '../scm/trailers.js';
+import { coAuthorMemories, coAuthorMemoryScopes } from '../config.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
 import type { StatusJson } from '../types.js';
+
+type Candidate = { name: string; email: string };
 
 /**
  * TreeDataProvider for the `gitColabor.identitiesView` SCM view. Renders the active identity,
  * the identity list, and one merged co-author list whose rows show `+`/`-` depending on whether
  * that author's trailer is present in the SCM commit-message input. Clicking a row toggles it.
+ * Candidates merge the `.git-coauthors` catalogue, remembered co-authors
+ * (user/machine/workspace settings), and the repo's historical commit authors.
  */
 export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem> {
   private readonly _onDidChange = new vscode.EventEmitter<ColaborItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChange.event;
 
   private status: StatusJson | undefined;
+  /** authors found in the repo's commit history (`coauthor suggest`) */
+  private historyCandidates: Candidate[] = [];
   /** fired after each reload with the latest status (for status bar / SCM sync) */
   readonly onDidReload = new vscode.EventEmitter<StatusJson | undefined>();
   /** most recent status (for the status bar) */
@@ -25,11 +32,21 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
 
-  /** Re-fetch `identity status` and refresh the tree. */
+  /** Re-fetch `identity status` + repo-history authors and refresh the tree. */
   async reload(): Promise<StatusJson | undefined> {
     const root = this.git.selectedRepoRoot();
     const r = await this.cli.run(['identity', 'status'], { cwd: root });
     this.status = r.ok ? (r.data as StatusJson) : undefined;
+    this.historyCandidates = [];
+    if (root && this.status?.inRepo) {
+      const sugg = await this.cli.run(['coauthor', 'suggest', '--json'], { cwd: root });
+      if (sugg.ok) {
+        this.historyCandidates = ((sugg.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
+          name: a.name,
+          email: a.email,
+        }));
+      }
+    }
     this._onDidChange.fire(undefined);
     this.onDidReload.fire(this.status);
     return this.status;
@@ -60,21 +77,12 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const s = this.status!;
     const items: ColaborItem[] = [];
 
-    if (s.activeIdentity) {
-      const a = s.activeIdentity;
-      items.push(
-        new ColaborItem(`${a.name} <${a.email}>`, 'active-identity', {
-          description: a.hasKey ? 'key ✓' : undefined,
-          tooltip: `Active identity${a.sshKeyFingerprint ? `\nkey: ${a.sshKeyFingerprint}` : ''}\nmanaged-by: ${s.managedBy ?? '?'}`,
-          icon: 'person',
-        }),
-      );
-    } else if (s.inRepo) {
-      items.push(
-        new ColaborItem('No identity active — pick one below', 'no-identity', { icon: 'warning' }),
-      );
-    } else {
+    // No top-level active-identity row — the Identities group below marks the
+    // active one with ✓; only guidance rows are shown at the top.
+    if (!s.inRepo) {
       items.push(new ColaborItem('Open a git repository to begin', 'no-identity', { icon: 'info' }));
+    } else if (!s.activeIdentity) {
+      items.push(new ColaborItem('No identity active — pick one below', 'no-identity', { icon: 'warning' }));
     }
 
     items.push(
@@ -89,7 +97,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       items.push(
         new ColaborItem('Co-authors', 'coauthor-group', {
           collapsible: vscode.TreeItemCollapsibleState.Expanded,
-          description: `${this.inputBoxEmails().size}/${s.selected.length + s.available.length} in message`,
+          description: `${this.inputBoxEmails().size}/${this.coAuthorCandidates().length} in message`,
           icon: 'organization',
         }),
       );
@@ -103,7 +111,12 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         description: `${i.email}${i.hasKey ? ' 🔑' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}`,
         icon: i.active ? 'check' : 'person',
+        payload: { name: i.name, email: i.email },
       });
+      // memory bits drive the right-click save/remove-as-co-author menu items
+      const saved = coAuthorMemoryScopes(i.email);
+      item.contextValue =
+        item.kind + (saved.user ? '-u' : '') + (saved.machine ? '-m' : '') + (saved.workspace ? '-w' : '');
       if (!i.active) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };
       }
@@ -112,19 +125,54 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   }
 
   /**
-   * One merged co-author list (selected first, then available, deduped by
-   * email). Each row's icon is `-` when the author's trailer is present in
-   * the SCM commit-message input, `+` otherwise; clicking toggles it.
+   * Merged, email-deduped co-author candidates, ordered by proximity:
+   * current selection → `.git-coauthors` catalogue → all known identities
+   * (minus the currently-active one — you don't co-author yourself) →
+   * remembered co-authors (all settings layers) → repo commit history.
+   */
+  private coAuthorCandidates(): Candidate[] {
+    const s = this.status;
+    if (!s) return [];
+    const seen = new Set<string>();
+    const merged: Candidate[] = [];
+    const push = (name: string, email: string): void => {
+      const id = email.toLowerCase();
+      if (seen.has(id)) return;
+      seen.add(id);
+      merged.push({ name, email });
+    };
+    const activeEmail = s.activeIdentity?.email.toLowerCase();
+    for (const a of s.selected) push(a.name, a.email);
+    for (const a of s.available) push(a.name, a.email);
+    for (const i of s.identities) {
+      if (i.email.toLowerCase() === activeEmail) continue;
+      push(i.name, i.email);
+    }
+    for (const a of coAuthorMemories()) push(a.name, a.email);
+    for (const a of this.historyCandidates) push(a.name, a.email);
+    return merged;
+  }
+
+  /**
+   * One merged co-author list. Each row's icon is `-` when the author's
+   * trailer is present in the SCM commit-message input, `+` otherwise;
+   * clicking toggles it. The contextValue carries which memory scopes
+   * (user/machine/workspace) remember the author, driving the right-click
+   * save/remove menu items.
    */
   private coAuthorItems(): ColaborItem[] {
+    const candidates = this.coAuthorCandidates();
+    if (candidates.length === 0) {
+      return [
+        new ColaborItem('No co-authors found — add them to .git-coauthors, save memories, or commit with others', 'no-identity', {
+          icon: 'info',
+        }),
+      ];
+    }
     const present = this.inputBoxEmails();
-    const merged = [...this.status!.selected, ...this.status!.available];
-    const seen = new Set<string>();
     const items: ColaborItem[] = [];
-    for (const a of merged) {
+    for (const a of candidates) {
       const id = a.email.toLowerCase();
-      if (seen.has(id)) continue;
-      seen.add(id);
       const isInMessage = present.has(id);
       const item = new ColaborItem(a.name, 'coauthor-item', {
         description: a.email,
