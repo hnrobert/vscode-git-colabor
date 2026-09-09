@@ -48,7 +48,7 @@ Key decisions:
 | `askpass/AskpassServer.ts` | `node:net` UNIX socket `<dataDir>/askpass-<sessionId>.sock` (dir `0700`, socket `0600`); one request per connection: `{"token","fingerprint"}` → passphrase bytes; silent close on any failure so callers fall through |
 | `secrets/Secrets.ts` | SecretStorage wrapper; keys `ssh-pass:<fingerprint>` |
 | `git-ext/GitApi.ts` | Minimal typed wrapper over `vscode.git` API v1: repositories, open/close/`ui.onDidChange` subscription, selected-repo resolution |
-| `tree/IdentityTreeProvider.ts`, `tree/items.ts` | SCM view `gitColabor.identitiesView`: active identity row, Identities group, Co-authoring (selected) + Co-authors (available) groups; item `contextValue` drives inline menus; clicks bind to internal commands |
+| `tree/IdentityTreeProvider.ts`, `tree/items.ts` | SCM view `gitColabor.identitiesView`: active identity row, Identities group, and **one merged Co-authors list** whose rows show `+`/`-` by whether the author's trailer is in the SCM input box (polled — the git API has no inputBox change event); clicking a row toggles the trailer |
 | `statusbar/StatusBar.ts` | `$(person) name · +N`; click → identity picker |
 | `scm/Sync.ts` | Idempotent reseed of `Co-authored-by:` trailers into the SCM input box (skip when the sorted-email key is unchanged) |
 | `reconcile/ReconcileController.ts` | Setting-wins enforcement (§6) |
@@ -124,7 +124,7 @@ sequenceDiagram
 | `vscode.git` subscription | repo open/close, selection change | 400 ms debounce → reconcile + refresh |
 | `provider.onDidReload` | every reload | status bar update + ScmSync reseed |
 
-ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value and re-appends the current selection — but computes a key from the sorted selected emails and skips the write when unchanged, so a user typing in the box is never clobbered mid-keystroke.
+ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value and re-appends the current selection — but computes a key from the sorted selected emails and skips the write when unchanged, so a user typing in the box is never clobbered mid-keystroke. In the other direction, the co-author tree rows read the box (`scm/trailers.ts` parses/appends/removes single trailers) and a 1.5 s poll refreshes the `+`/`-` markers as the user types; toggling a row edits the box directly and best-effort syncs `coauthor use`/`solo` so the commit template follows (skipped when the box holds trailers outside the catalogue).
 
 ## 8. Data model (what lives where)
 

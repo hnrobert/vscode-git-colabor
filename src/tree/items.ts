@@ -5,10 +5,8 @@ export type ItemKind =
   | 'no-identity'
   | 'identity'
   | 'identities-group'
-  | 'coauthor-selected'
-  | 'coauthor-selected-item'
-  | 'coauthor-available'
-  | 'coauthor-available-item';
+  | 'coauthor-group'
+  | 'coauthor-item';
 
 export type ItemOpts = {
   description?: string;

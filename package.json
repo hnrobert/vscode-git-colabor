@@ -108,8 +108,7 @@
         { "command": "gitColabor.useIdentity", "when": "viewItem == identity", "group": "inline" },
         { "command": "gitColabor.logoutIdentity", "when": "viewItem == active-identity", "group": "inline" },
         { "command": "gitColabor.removeIdentity", "when": "viewItem =~ /^identity$|active-identity$/", "group": "inline" },
-        { "command": "gitColabor.selectCoAuthors", "when": "viewItem == coauthor-available", "group": "inline" },
-        { "command": "gitColabor.soloCoAuthors", "when": "viewItem == coauthor-selected", "group": "inline" }
+        { "command": "gitColabor.selectCoAuthors", "when": "viewItem == coauthor-group", "group": "inline" }
       ]
     }
   },

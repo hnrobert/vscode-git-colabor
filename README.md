@@ -44,7 +44,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 
 1. **Add identities** — Command Palette → `Git Colabor: Add Identity…` (name, email, optional private-key path, optional passphrase command such as `op read "op://Private/ssh/pass"`).
 2. **Use one** — SCM view → *Colabor: Identity & Co-authors* → click an identity (or the status-bar item). The repo's `user.*` / `core.sshCommand` switch, the key loads.
-3. **Pair** — click co-authors under *Co-authors* to select them; `Co-authored-by:` trailers appear in the SCM message box. Commit normally.
+3. **Pair** — the *Co-authors* list shows `+` next to everyone not yet in the commit message; click to append their `Co-authored-by:` trailer (the `+` flips to `-`; click again to remove). The markers follow what you type in the message box.
 4. **Leave clean** — `Git Colabor: Revert Repo Identity` restores the pre-tool config; `Logout Identity` also shreds the key.
 
 ## Commands
@@ -53,7 +53,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | --- | --- |
 | `Use Identity…` | Pick an identity to apply to the current repo |
 | `Add Identity…` / `Remove Identity…` / `Logout Identity` | Manage identities (remove = confirm + shred key) |
-| `Select Co-authors…` / `Add Co-author…` / `Solo (clear co-authors)` | Co-author selection |
+| `Select Co-authors…` / `Add Co-author…` / `Solo (clear co-authors)` | Co-author selection (the tree's +/- rows toggle the commit message directly) |
 | `Open .git-coauthors` | Edit the catalogue (`~/.git-coauthors`) |
 | `Revert Repo Identity` | Restore pre-tool git config from backup |
 | `Show Audit Log` | Last 100 audit entries as JSONL |

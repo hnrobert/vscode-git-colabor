@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pickRepository } from './scm/Sync.js';
+import { appendTrailer, parseCoAuthors, removeTrailerOnce } from './scm/trailers.js';
 import type { CliClient } from './cli/CliClient.js';
 import type { GitApi } from './git-ext/GitApi.js';
 import type { Secrets } from './secrets/Secrets.js';
@@ -49,10 +51,9 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     vscode.commands.executeCommand('workbench.action.openSettings', '@ext:hnrobert.vscode-git-colabor'),
   );
 
-  // Tree-item click targets (invoked with an argument from the TreeItem command).
+  // Tree-item click targets (invoked with arguments from the TreeItem command).
   reg('gitColabor._useIdentityById', (id) => useIdentityById(deps, String(id)));
-  reg('gitColabor._addCoAuthor', (key) => addCoAuthorByKey(deps, String(key)));
-  reg('gitColabor._removeCoAuthor', (email) => removeCoAuthorByEmail(deps, String(email)));
+  reg('gitColabor._toggleCoAuthor', (name, email) => toggleCoAuthor(deps, String(name), String(email)));
 }
 
 function requireRepo(deps: CommandDeps): string | undefined {
@@ -212,21 +213,41 @@ async function addCoAuthor(deps: CommandDeps): Promise<void> {
   await run(deps, ['coauthor', 'add', initials, name, email]);
 }
 
-async function addCoAuthorByKey(deps: CommandDeps, key: string): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
-  const selected = deps.provider?.current?.selected ?? [];
-  const keys = [...new Set([...selected.map((s) => s.key), key])];
-  await run(deps, ['coauthor', 'use', ...keys], { cwd });
-}
+/**
+ * Toggle one co-author in the SCM commit-message input: append its trailer
+ * (formatted into the trailer block at the end) when absent, remove one
+ * occurrence when present. Keeps the CLI selection / commit template in
+ * sync behind the scenes — but only when every trailer in the box maps to
+ * the catalogue, so manually typed trailers are never clobbered.
+ */
+async function toggleCoAuthor(deps: CommandDeps, name: string, email: string): Promise<void> {
+  const repo = pickRepository(deps.git);
+  if (!repo) {
+    vscode.window.showWarningMessage('Git Colabor: no git repository in the current workspace.');
+    return;
+  }
+  const value = repo.inputBox.value;
+  const present = parseCoAuthors(value).some((a) => a.email.toLowerCase() === email.toLowerCase());
+  repo.inputBox.value = present ? removeTrailerOnce(value, email) : appendTrailer(value, { name, email });
+  deps.log.info(`${present ? 'removed' : 'appended'} co-author trailer for ${name} <${email}>`);
 
-async function removeCoAuthorByEmail(deps: CommandDeps, email: string): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
-  const selected = deps.provider?.current?.selected ?? [];
-  const remaining = selected.filter((s) => s.email !== email).map((s) => s.key);
-  if (remaining.length > 0) await run(deps, ['coauthor', 'use', ...remaining], { cwd });
-  else await run(deps, ['coauthor', 'solo'], { cwd });
+  // best-effort CLI sync so `colabor.selected` + commit template follow the box
+  const cwd = deps.git.selectedRepoRoot();
+  if (!cwd) {
+    deps.provider?.refresh();
+    return;
+  }
+  const after = parseCoAuthors(repo.inputBox.value);
+  const catalogue = [...(deps.provider?.current?.selected ?? []), ...(deps.provider?.current?.available ?? [])];
+  const byEmail = new Map(catalogue.map((a) => [a.email.toLowerCase(), a.key]));
+  const keys = after.map((a) => byEmail.get(a.email.toLowerCase()));
+  if (keys.every((k): k is string => typeof k === 'string')) {
+    if (keys.length === 0) await run(deps, ['coauthor', 'solo'], { cwd });
+    else await run(deps, ['coauthor', 'use', ...new Set(keys)], { cwd });
+  } else {
+    deps.log.info('box has trailers outside the catalogue; leaving CLI selection unchanged');
+  }
+  deps.provider?.refresh();
 }
 
 async function revertRepo(deps: CommandDeps): Promise<void> {

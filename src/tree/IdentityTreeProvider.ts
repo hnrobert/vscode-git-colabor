@@ -1,13 +1,15 @@
 import * as vscode from 'vscode';
 import { ColaborItem } from './items.js';
+import { pickRepository } from '../scm/Sync.js';
+import { parseCoAuthors } from '../scm/trailers.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
 import type { StatusJson } from '../types.js';
 
 /**
  * TreeDataProvider for the `gitColabor.identitiesView` SCM view. Renders the active identity,
- * the identity list, and the per-repo co-author selection (co-authoring / available). Clicking an
- * identity switches; clicking a co-author adds/removes it.
+ * the identity list, and one merged co-author list whose rows show `+`/`-` depending on whether
+ * that author's trailer is present in the SCM commit-message input. Clicking a row toggles it.
  */
 export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem> {
   private readonly _onDidChange = new vscode.EventEmitter<ColaborItem | undefined>();
@@ -47,10 +49,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     switch (element.kind) {
       case 'identities-group':
         return this.identityItems();
-      case 'coauthor-selected':
-        return this.selectedItems();
-      case 'coauthor-available':
-        return this.availableItems();
+      case 'coauthor-group':
+        return this.coAuthorItems();
       default:
         return [];
     }
@@ -87,14 +87,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
     if (s.inRepo) {
       items.push(
-        new ColaborItem('Co-authoring', 'coauthor-selected', {
-          collapsible: vscode.TreeItemCollapsibleState.Collapsed,
-          description: String(s.selected.length),
-          icon: 'people',
-        }),
-        new ColaborItem('Co-authors', 'coauthor-available', {
-          collapsible: vscode.TreeItemCollapsibleState.Collapsed,
-          description: String(s.available.length),
+        new ColaborItem('Co-authors', 'coauthor-group', {
+          collapsible: vscode.TreeItemCollapsibleState.Expanded,
+          description: `${this.inputBoxEmails().size}/${s.selected.length + s.available.length} in message`,
           icon: 'organization',
         }),
       );
@@ -116,19 +111,39 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     });
   }
 
-  private selectedItems(): ColaborItem[] {
-    return this.status!.selected.map((a) => {
-      const item = new ColaborItem(a.name, 'coauthor-selected-item', { description: a.email, icon: 'person' });
-      item.command = { command: 'gitColabor._removeCoAuthor', title: 'Remove co-author', arguments: [a.email] };
-      return item;
-    });
+  /**
+   * One merged co-author list (selected first, then available, deduped by
+   * email). Each row's icon is `-` when the author's trailer is present in
+   * the SCM commit-message input, `+` otherwise; clicking toggles it.
+   */
+  private coAuthorItems(): ColaborItem[] {
+    const present = this.inputBoxEmails();
+    const merged = [...this.status!.selected, ...this.status!.available];
+    const seen = new Set<string>();
+    const items: ColaborItem[] = [];
+    for (const a of merged) {
+      const id = a.email.toLowerCase();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const isInMessage = present.has(id);
+      const item = new ColaborItem(a.name, 'coauthor-item', {
+        description: a.email,
+        tooltip: `${a.name} <${a.email}>\nclick to ${isInMessage ? 'remove' : 'append'} in the commit message`,
+        icon: isInMessage ? 'dash' : 'plus',
+      });
+      item.command = {
+        command: 'gitColabor._toggleCoAuthor',
+        title: isInMessage ? 'Remove co-author' : 'Add co-author',
+        arguments: [a.name, a.email],
+      };
+      items.push(item);
+    }
+    return items;
   }
 
-  private availableItems(): ColaborItem[] {
-    return this.status!.available.map((a) => {
-      const item = new ColaborItem(a.name, 'coauthor-available-item', { description: a.email, icon: 'person-add' });
-      item.command = { command: 'gitColabor._addCoAuthor', title: 'Add co-author', arguments: [a.key] };
-      return item;
-    });
+  /** Lowercased emails of the co-author trailers currently in the SCM input box. */
+  private inputBoxEmails(): Set<string> {
+    const value = pickRepository(this.git)?.inputBox.value ?? '';
+    return new Set(parseCoAuthors(value).map((a) => a.email.toLowerCase()));
   }
 }

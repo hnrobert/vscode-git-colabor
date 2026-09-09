@@ -10,7 +10,7 @@ import { Secrets } from './secrets/Secrets.js';
 import { GitApi } from './git-ext/GitApi.js';
 import { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
 import { StatusBar } from './statusbar/StatusBar.js';
-import { ScmSync } from './scm/Sync.js';
+import { ScmSync, pickRepository } from './scm/Sync.js';
 import { registerCommands } from './commands.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 
@@ -54,6 +54,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       scmSync.sync(s?.selected ?? []);
     }),
   );
+
+  // Auto-detect co-author trailers typed into the SCM input box: the git API
+  // exposes no change event for inputBox, so poll lightly and refresh the
+  // tree's +/- markers when the value actually changes.
+  let lastInput: string | undefined = pickRepository(git)?.inputBox.value;
+  const inputPoll = setInterval(() => {
+    const value = pickRepository(git)?.inputBox.value;
+    if (value !== undefined && value !== lastInput) {
+      lastInput = value;
+      provider.refresh();
+    }
+  }, 1500);
+  context.subscriptions.push({ dispose() { clearInterval(inputPoll); } });
 
   registerCommands(context, { cli, git, secrets, log: logger, provider });
 

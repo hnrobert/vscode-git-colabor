@@ -1,6 +1,13 @@
 import type { GitApi, GitRepository } from '../git-ext/GitApi.js';
 import type { CoAuthorBriefJson } from '../types.js';
 
+/** The repo whose SCM input box we read/write (selected in multi-root, else the first). */
+export function pickRepository(git: GitApi): GitRepository | undefined {
+  const repos = git.repositories;
+  if (repos.length === 0) return undefined;
+  return repos.find((r) => r.ui.selected) ?? repos[0];
+}
+
 /** Idempotently reseed the built-in Git SCM commit-message input with the current co-author trailers. */
 export function reseedInput(current: string, selected: CoAuthorBriefJson[]): string {
   const kept = current.split(/\r?\n/).filter((l) => !/^Co-authored-by:/.test(l));
@@ -26,8 +33,6 @@ export class ScmSync {
   }
 
   private selectedRepo(): GitRepository | undefined {
-    const repos = this.git.repositories;
-    if (repos.length === 0) return undefined;
-    return repos.find((r) => r.ui.selected) ?? repos[0];
+    return pickRepository(this.git);
   }
 }
