@@ -13,6 +13,7 @@ export type IdentityJson = {
   sshKeyFingerprint?: string;
   host?: string;
   hasKey: boolean;
+  imported?: boolean;
   isDefault: boolean;
 };
 

@@ -100,8 +100,8 @@
             "type": "string"
           },
           "default": [],
-          "scope": "machineOverridable",
-          "markdownDescription": "Remembered identities as `\"Name <email>\"` entries (used as co-author candidates). Saved from the Identities group's right-click menu into the user / machine / workspace layers; all layers (deduped) feed the Co-authors list."
+          "scope": "window",
+          "markdownDescription": "Remembered identities as `\"Name <email>\"` entries (used as co-author candidates). Two layers only: user (cross-machine) and workspace (per repo) — the machine level is the identity store itself (~/.config/git-colabor/identities.json). Saved from the Identities group's right-click menu."
         }
       }
     },
@@ -191,16 +191,6 @@
         "category": "Git Colabor"
       },
       {
-        "command": "gitColabor._memorizeCoAuthor.machine",
-        "title": "Save Identity to Machine Memory",
-        "category": "Git Colabor"
-      },
-      {
-        "command": "gitColabor._forgetCoAuthor.machine",
-        "title": "Remove Identity from Machine Memory",
-        "category": "Git Colabor"
-      },
-      {
         "command": "gitColabor._memorizeCoAuthor.workspace",
         "title": "Save Identity to Workspace Memory",
         "category": "Git Colabor"
@@ -208,6 +198,36 @@
       {
         "command": "gitColabor._forgetCoAuthor.workspace",
         "title": "Remove Identity from Workspace Memory",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._renameIdentity",
+        "title": "Rename Identity…",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._changeIdentityEmail",
+        "title": "Change Identity Email…",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._changeIdentityKey",
+        "title": "Change Identity Key…",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._hideIdentity.user",
+        "title": "Hide (user)",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._hideIdentity.machine",
+        "title": "Hide (machine)",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._hideIdentity.workspace",
+        "title": "Hide (workspace)",
         "category": "Git Colabor"
       }
     ],
@@ -253,48 +273,68 @@
       "view/item/context": [
         {
           "command": "gitColabor.useIdentity",
-          "when": "viewItem =~ /^identity(-u)?(-m)?(-w)?$/",
+          "when": "viewItem =~ /^identity/",
           "group": "inline"
         },
         {
           "command": "gitColabor.logoutIdentity",
-          "when": "viewItem =~ /^active-identity(-u)?(-m)?(-w)?$/",
+          "when": "viewItem =~ /^active-identity/",
           "group": "inline"
         },
         {
           "command": "gitColabor.removeIdentity",
-          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-m)?(-w)?$/",
+          "when": "viewItem =~ /^(identity|active-identity)(?!.*-g)/",
           "group": "2_remove"
         },
         {
+          "command": "gitColabor._renameIdentity",
+          "when": "viewItem =~ /^(identity|active-identity)/",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "gitColabor._changeIdentityEmail",
+          "when": "viewItem =~ /^(identity|active-identity)/",
+          "group": "1_modify@2"
+        },
+        {
+          "command": "gitColabor._changeIdentityKey",
+          "when": "viewItem =~ /^(identity|active-identity)/",
+          "group": "1_modify@3"
+        },
+        {
+          "command": "gitColabor._hideIdentity.user",
+          "when": "viewItem =~ /-g/ && viewItem =~ /-u/",
+          "group": "3_hide@1"
+        },
+        {
+          "command": "gitColabor._hideIdentity.machine",
+          "when": "viewItem =~ /-g/",
+          "group": "3_hide@2"
+        },
+        {
+          "command": "gitColabor._hideIdentity.workspace",
+          "when": "viewItem =~ /-g/ && viewItem =~ /-w/",
+          "group": "3_hide@3"
+        },
+        {
           "command": "gitColabor._memorizeCoAuthor.user",
-          "when": "viewItem =~ /^(identity|active-identity)(-m)?(-w)?$/",
+          "when": "viewItem =~ /^(identity|active-identity)(?!.*(-g|-u))/",
           "group": "9_memory@1"
         },
         {
           "command": "gitColabor._forgetCoAuthor.user",
-          "when": "viewItem =~ /^(identity|active-identity)-u(-m)?(-w)?$/",
+          "when": "viewItem =~ /^(identity|active-identity)(?!.*-g)/ && viewItem =~ /-u/",
           "group": "9_memory@1"
         },
         {
-          "command": "gitColabor._memorizeCoAuthor.machine",
-          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-w)?$/",
-          "group": "9_memory@2"
-        },
-        {
-          "command": "gitColabor._forgetCoAuthor.machine",
-          "when": "viewItem =~ /^(identity|active-identity)(-u)?-m(-w)?$/",
-          "group": "9_memory@2"
-        },
-        {
           "command": "gitColabor._memorizeCoAuthor.workspace",
-          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-m)?$/",
-          "group": "9_memory@3"
+          "when": "viewItem =~ /^(identity|active-identity)(?!.*(-g|-w))/",
+          "group": "9_memory@2"
         },
         {
           "command": "gitColabor._forgetCoAuthor.workspace",
-          "when": "viewItem =~ /^(identity|active-identity)(-u)?(-m)?-w$/",
-          "group": "9_memory@3"
+          "when": "viewItem =~ /^(identity|active-identity)(?!.*-g)/ && viewItem =~ /-w/",
+          "group": "9_memory@2"
         }
       ],
       "commandPalette": [
@@ -307,19 +347,35 @@
           "when": "false"
         },
         {
-          "command": "gitColabor._memorizeCoAuthor.machine",
-          "when": "false"
-        },
-        {
-          "command": "gitColabor._forgetCoAuthor.machine",
-          "when": "false"
-        },
-        {
           "command": "gitColabor._memorizeCoAuthor.workspace",
           "when": "false"
         },
         {
           "command": "gitColabor._forgetCoAuthor.workspace",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._renameIdentity",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._changeIdentityEmail",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._changeIdentityKey",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._hideIdentity.user",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._hideIdentity.machine",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._hideIdentity.workspace",
           "when": "false"
         }
       ]

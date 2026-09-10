@@ -135,15 +135,16 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const memoryMap = coAuthorMemoryScopeMap(s.identities.map((i) => i.email));
     return s.identities.map((i) => {
       const item = new ColaborItem(`${i.isDefault ? '$(star) ' : ''}${i.name}`, i.active ? 'active-identity' : 'identity', {
-        description: `${i.email}${i.hasKey ? ' 🔑' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}`,
+        description: `${i.email}${i.hasKey ? ' 🔑' : ''}${i.imported ? ' · imported' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${i.imported ? '\n(imported from repo history)' : ''}`,
         icon: i.active ? 'check' : 'person',
         payload: { id: i.id, name: i.name, email: i.email },
       });
-      // memory bits drive the right-click save/remove-as-co-author menu items
-      const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, machine: false, workspace: false };
+      // contextValue bits drive the right-click menus: -u/-w = remembered in
+      // that settings layer, -g = imported from repo history (remove becomes hide)
+      const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
       item.contextValue =
-        item.kind + (saved.user ? '-u' : '') + (saved.machine ? '-m' : '') + (saved.workspace ? '-w' : '');
+        item.kind + (saved.user ? '-u' : '') + (saved.workspace ? '-w' : '') + (i.imported ? '-g' : '');
       if (!i.active) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };
       }

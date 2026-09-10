@@ -59,10 +59,20 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
 
   // Right-click memory menu: save/remove an author per settings scope.
   // Menus pass the TreeItem (not command arguments), so read the payload.
-  for (const scope of ['user', 'machine', 'workspace'] as const) {
+  for (const scope of ['user', 'workspace'] as const) {
     reg(`gitColabor._memorizeCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, true));
     reg(`gitColabor._forgetCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, false));
   }
+
+  // Right-click modify section (name / email / key).
+  reg('gitColabor._renameIdentity', (item) => modifyIdentityField(deps, item, 'name'));
+  reg('gitColabor._changeIdentityEmail', (item) => modifyIdentityField(deps, item, 'email'));
+  reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key'));
+
+  // Right-click hide section for identities imported from repo history.
+  reg('gitColabor._hideIdentity.user', (item) => hideMemoryFromItem(deps, item, 'user'));
+  reg('gitColabor._hideIdentity.workspace', (item) => hideMemoryFromItem(deps, item, 'workspace'));
+  reg('gitColabor._hideIdentity.machine', (item) => hideMachineFromItem(deps, item));
 }
 
 /**
@@ -159,14 +169,15 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
   }
 }
 
-type KeyPickItem = vscode.QuickPickItem & { path?: string; skip?: boolean };
+type KeyPickItem = vscode.QuickPickItem & { path?: string; skip?: boolean; clear?: boolean };
 
 /**
- * Pick the SSH private key for a new identity: prefills the expanded
- * `~/.ssh/` path and offers the private key files actually found there
+ * Pick the SSH private key for an identity: prefills the expanded `~/.ssh/`
+ * path and offers the private key files actually found there
  * (content-scanned); any other path can be typed instead, Esc skips.
+ * With `allowClear`, an extra entry returns `null` meaning "remove the key".
  */
-function pickPrivateKey(): Promise<string | undefined> {
+function pickPrivateKey(allowClear = false): Promise<string | null | undefined> {
   const dir = join(homedir(), '.ssh');
   return new Promise((resolve) => {
     const pick = vscode.window.createQuickPick<KeyPickItem>();
@@ -179,6 +190,7 @@ function pickPrivateKey(): Promise<string | undefined> {
         ...keys.map((k) => ({ label: `$(key) ${k.name}`, description: k.path, detail: k.kind, path: k.path })),
         { label: '$(circle-slash) No SSH key (skip)', skip: true },
       ];
+      if (allowClear) items.push({ label: '$(trash) Clear the key reference', clear: true });
       pick.items = items;
       pick.activeItems = keys.length > 0 ? [items[0]] : [items[items.length - 1]];
     });
@@ -186,6 +198,7 @@ function pickPrivateKey(): Promise<string | undefined> {
     pick.onDidAccept(() => {
       const active = pick.activeItems[0];
       if (active?.skip) resolve(undefined);
+      else if (active?.clear) resolve(null);
       else if (active?.path) resolve(active.path);
       else {
         const typed = pick.value.trim();
@@ -321,20 +334,75 @@ async function toggleCoAuthor(deps: CommandDeps, name: string, email: string): P
   deps.provider?.refresh();
 }
 
-/** Save or remove an identity in one settings-scope memory (user / machine / workspace). */
+/** Save or remove an identity in one settings-scope memory (user / workspace). */
 async function memorizeFromItem(deps: CommandDeps, item: unknown, scope: MemoryScope, save: boolean): Promise<void> {
   const author = (item as { payload?: { name: string; email: string } } | undefined)?.payload;
   if (!author) {
     deps.log.warn('memory command invoked without an identity payload');
     return;
   }
-  const ok = await setCoAuthorMemory(scope, author, save);
-  if (!ok) {
-    vscode.window.showWarningMessage(`Git Colabor: "${scope}" settings need a newer VS Code.`);
-    return;
-  }
+  await setCoAuthorMemory(scope, author, save);
   deps.log.info(`${save ? 'saved' : 'removed'} identity ${author.name} <${author.email}> in ${scope} memory`);
   deps.provider?.refresh();
+}
+
+/** Hide an imported identity from one settings layer. */
+async function hideMemoryFromItem(deps: CommandDeps, item: unknown, scope: MemoryScope): Promise<void> {
+  await memorizeFromItem(deps, item, scope, false);
+}
+
+/**
+ * Hide an imported identity at machine level: remove it from the identity
+ * store AND record the email as hidden so auto-import won't resurrect it
+ * (a manual re-add of the same email clears the hidden flag again).
+ */
+async function hideMachineFromItem(deps: CommandDeps, item: unknown): Promise<void> {
+  const id = (item as { payload?: { id?: string; name?: string } } | undefined)?.payload?.id;
+  if (!id) {
+    deps.log.warn('hide(machine) invoked without an identity payload');
+    return;
+  }
+  await run(deps, ['identity', 'rm', id]);
+  deps.log.info(`hid imported identity ${id} at machine level (auto-import will skip it)`);
+  await deps.provider?.reload();
+}
+
+/**
+ * Modify one field of an identity (name / email / key reference). Changes
+ * land in the machine-level identity store — the user is told so.
+ */
+async function modifyIdentityField(
+  deps: CommandDeps,
+  item: unknown,
+  field: 'name' | 'email' | 'key',
+): Promise<void> {
+  const id = (item as { payload?: { id?: string } } | undefined)?.payload?.id;
+  if (!id) {
+    deps.log.warn('modify command invoked without an identity payload');
+    return;
+  }
+  const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
+  const cur = data?.identities.find((i) => i.id === id);
+  if (!cur) return;
+
+  if (field === 'key') {
+    const pick = await pickPrivateKey(true);
+    if (pick === undefined) return; // cancelled / skip
+    if (pick === null) await run(deps, ['identity', 'set', id, '--no-key']);
+    else await run(deps, ['identity', 'set', id, '--key', pick]);
+  } else {
+    const isName = field === 'name';
+    const value = await vscode.window.showInputBox({
+      prompt: `${isName ? 'Identity name' : 'Identity email'} (saved to the machine-level identity store)`,
+      value: isName ? cur.name : cur.email,
+    });
+    if (value === undefined || value.trim() === '') return;
+    await run(deps, ['identity', 'set', id, isName ? '--name' : '--email', value.trim()]);
+  }
+  vscode.window.showInformationMessage(
+    'Git Colabor: change saved to the machine-level identity store (~/.config/git-colabor/identities.json).',
+  );
+  await deps.provider?.reload();
 }
 
 async function revertRepo(deps: CommandDeps): Promise<void> {
