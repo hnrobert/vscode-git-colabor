@@ -86,14 +86,6 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const s = this.status!;
     const items: ColaborItem[] = [];
 
-    // No top-level active-identity row — the Identities group below marks the
-    // active one with ✓; only guidance rows are shown at the top.
-    if (!s.inRepo) {
-      items.push(new ColaborItem('Open a git repository to begin', 'no-identity', { icon: 'info' }));
-    } else if (!s.activeIdentity) {
-      items.push(new ColaborItem('No identity active — pick one below', 'no-identity', { icon: 'warning' }));
-    }
-
     items.push(
       new ColaborItem('Identities', 'identities-group', {
         collapsible: vscode.TreeItemCollapsibleState.Expanded,
@@ -101,6 +93,14 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         icon: 'list-selection',
       }),
     );
+
+    // guidance rows sit BELOW the Identities group; the active identity is
+    // marked ✓ inside it, never duplicated at the top.
+    if (!s.inRepo) {
+      items.push(new ColaborItem('Open a git repository to begin', 'no-identity', { icon: 'info' }));
+    } else if (!s.activeIdentity) {
+      items.push(new ColaborItem('No identity active — pick one above', 'no-identity', { icon: 'warning' }));
+    }
 
     if (s.inRepo) {
       items.push(
