@@ -4,32 +4,37 @@
 # Why this exists: `--extensionDevelopmentPath` does NOT carry into a
 # Remote-SSH window (the dev extension is never installed server-side), so
 # F5 cannot test remote behavior. Instead: build + package the vsix, push it
-# to the host, and install it into the vscode-server with the server's own
-# CLI — then open the remote window. Re-running the script redeploys a
-# fresh build (reload the remote window afterwards to pick it up).
+# to the host, install it into the vscode-server with the server's own CLI,
+# restart any running extension hosts there (so already-open windows pick up
+# the fresh code), and open/focus the remote window.
 #
 # Usage:
-#   build-scripts/remote-dev.sh install [host] [remote-dir]
-#       Full loop: build → package → scp → server-side install → open window.
-#       Defaults: host=hnrobert-nas-space  remote-dir=/home/HNRobert/git-colabor-test
-#   build-scripts/remote-dev.sh logs [host]
+#   build-scripts/remote-dev.sh install <host> <remote-dir>
+#       Full loop: build → package → upload → server-side install →
+#       restart extension hosts → open window. No defaults: pass both args.
+#   build-scripts/remote-dev.sh logs <host>
 #       Tail the newest remote extension-host log (the "dev console").
-#   build-scripts/remote-dev.sh status [host]
+#   build-scripts/remote-dev.sh status <host>
 #       Show whether the extension is installed on the server.
 #
-# The host alias must exist in ~/.ssh/config (used by ssh/scp) and must be
-# the same name Remote-SSH shows (used as ssh-remote+<host>).
+# The host alias must exist in ~/.ssh/config (used by ssh) and must be the
+# same name Remote-SSH shows (used as ssh-remote+<host>).
 
 set -euo pipefail
 
-COMMAND="${1:-install}"
-HOST_DEFAULT="hnrobert-nas-space"
-REMOTE_DIR_DEFAULT="/home/HNRobert/git-colabor-test"
+usage() {
+  echo "usage: $0 install <host> <remote-dir>" >&2
+  echo "       $0 logs <host>" >&2
+  echo "       $0 status <host>" >&2
+  exit 2
+}
 
+COMMAND="${1:-}"
+HOST="${2:-}"
 case "$COMMAND" in
-  install) HOST="${2:-$HOST_DEFAULT}"; REMOTE_DIR="${3:-$REMOTE_DIR_DEFAULT}" ;;
-  logs|status) HOST="${2:-$HOST_DEFAULT}" ;;
-  *) echo "usage: $0 [install|logs|status] [host] [remote-dir]" >&2; exit 2 ;;
+  install) REMOTE_DIR="${3:-}"; [ -n "$HOST" ] && [ -n "$REMOTE_DIR" ] || usage ;;
+  logs|status) [ -n "$HOST" ] || usage ;;
+  *) usage ;;
 esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -46,6 +51,22 @@ remote_server_dir() {
     [ -n \"\$s\" ] || { echo 'no vscode-server found on host' >&2; exit 1; }
     echo \"\$s\"
   "
+}
+
+# Restart the remote extension hosts so already-open windows load the newly
+# installed build. VS Code detects the terminated host and restarts it
+# automatically (a full 'Developer: Reload Window' in the window is the
+# thorough alternative). No running hosts → nothing to do (the window opened
+# below will start fresh code anyway).
+restart_remote_exthosts() {
+  local pids
+  pids="$(ssh "$HOST" "pgrep -f -- '--type=extensionHost' | tr '\n' ' '" || true)"
+  if [ -z "${pids// /}" ]; then
+    echo "    no open windows on $HOST — nothing to reload"
+    return
+  fi
+  echo "    restarting extension hosts on $HOST (pids:$pids)"
+  ssh "$HOST" "pkill -f -- '--type=extensionHost'" || true
 }
 
 case "$COMMAND" in
@@ -77,11 +98,15 @@ case "$COMMAND" in
       exit 1
     fi
 
+    echo "==> reload open windows (if any)"
+    restart_remote_exthosts
+
     echo "==> open remote window"
     code --remote "ssh-remote+$HOST" "$REMOTE_DIR"
     echo "
-Done. If the window was already open, run 'Developer: Reload Window' there
-to load the fresh build. Live logs: $0 logs $HOST"
+Done. Windows on $HOST reload their extensions automatically; if a window
+still shows the toast 'extension host terminated', click Restart — or run
+'Developer: Reload Window' there for a full reload. Live logs: $0 logs $HOST"
     ;;
 
   logs)

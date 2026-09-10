@@ -105,14 +105,14 @@ Useful inspect surfaces in the host window:
 The F5 dev host is local-only: `--extensionDevelopmentPath` does **not** carry into a remote window (verified against server logs — the dev extension is silently not installed server-side), so don't rely on `code --remote … --extensionDevelopmentPath …`. Test remote behavior with the real artifact instead — one command does the whole loop:
 
 ```bash
-build-scripts/remote-dev.sh install [host] [remote-dir]
-# build → package → push vsix → install into the host's vscode-server → open the window
-# defaults: host=hnrobert-nas-space  remote-dir=/home/HNRobert/git-colabor-test
-build-scripts/remote-dev.sh logs [host]     # tail the remote extension-host log
-build-scripts/remote-dev.sh status [host]   # is it installed on the server?
+build-scripts/remote-dev.sh install <host> <remote-dir>
+# build → package → push vsix → install into the host's vscode-server →
+# restart the host's extension hosts (open windows reload the new build) → open the window
+build-scripts/remote-dev.sh logs <host>     # tail the remote extension-host log
+build-scripts/remote-dev.sh status <host>   # is it installed on the server?
 ```
 
-Re-run `install` to redeploy a fresh build, then *Developer: Reload Window* in the remote window. The manual equivalent: `pnpm package`, then in a Remote-SSH window Extensions → `⋯` → **Install from VSIX…** → choose **Install in SSH: \<host\>** → reload.
+Both `install` arguments are required (no defaults baked in). Re-running `install` redeploys a fresh build; already-open windows on the host pick it up via the extension-host restart (if a window shows the "extension host terminated" toast, click Restart). The manual equivalent: `pnpm package`, then in a Remote-SSH window Extensions → `⋯` → **Install from VSIX…** → choose **Install in SSH: \<host\>** → reload.
 
 The extension then runs entirely workspace-side — verify from the host: `~/.config/git-colabor/` (identity map, askpass socket, audit log) and the repo's local git config are created **on the remote**, and `ps` shows `resources/cli.cjs` spawned by the server's Node.
 

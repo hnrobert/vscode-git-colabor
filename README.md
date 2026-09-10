@@ -42,7 +42,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 
 ## Quick start
 
-1. **Add identities** — Command Palette → `Git Colabor: Add Identity…` (name, email, optional private-key path, optional passphrase command such as `op read "op://Private/ssh/pass"`).
+1. **Add identities** — Command Palette → `Git Colabor: Add Identity…` (name, email, optional private key — picked from a scan of `~/.ssh` or typed, optional passphrase command such as `op read "op://Private/ssh/pass"`).
 2. **Use one** — SCM view → *Colabor: Identity & Co-authors* → click an identity (or the status-bar item). The repo's `user.*` / `core.sshCommand` switch, the key loads.
 3. **Pair** — the *Co-authors* list shows `+` next to everyone not yet in the commit message; click to append their `Co-authored-by:` trailer (the `+` flips to `-`; click again to remove). The markers follow what you type in the message box.
 4. **Leave clean** — `Git Colabor: Revert Repo Identity` restores the pre-tool config; `Logout Identity` also shreds the key.

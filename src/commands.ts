@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pickRepository } from './scm/Sync.js';
 import { appendTrailer, parseCoAuthors, removeTrailerOnce } from './scm/trailers.js';
 import { setCoAuthorMemory, type MemoryScope } from './config.js';
+import { scanPrivateKeys } from './ssh/scanPrivateKeys.js';
 import type { CliClient } from './cli/CliClient.js';
 import type { GitApi } from './git-ext/GitApi.js';
 import type { Secrets } from './secrets/Secrets.js';
@@ -144,12 +145,54 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
   }
 }
 
+type KeyPickItem = vscode.QuickPickItem & { path?: string; skip?: boolean };
+
+/**
+ * Pick the SSH private key for a new identity: prefills the expanded
+ * `~/.ssh/` path and offers the private key files actually found there
+ * (content-scanned); any other path can be typed instead, Esc skips.
+ */
+function pickPrivateKey(): Promise<string | undefined> {
+  const dir = join(homedir(), '.ssh');
+  return new Promise((resolve) => {
+    const pick = vscode.window.createQuickPick<KeyPickItem>();
+    pick.title = 'SSH private key';
+    pick.placeholder = 'Pick a key from ~/.ssh, type another path, or Esc to skip';
+    pick.matchOnDescription = true;
+    pick.matchOnDetail = true;
+    void scanPrivateKeys(dir).then((keys) => {
+      const items: KeyPickItem[] = [
+        ...keys.map((k) => ({ label: `$(key) ${k.name}`, description: k.path, detail: k.kind, path: k.path })),
+        { label: '$(circle-slash) No SSH key (skip)', skip: true },
+      ];
+      pick.items = items;
+      pick.activeItems = keys.length > 0 ? [items[0]] : [items[items.length - 1]];
+    });
+    pick.value = `${dir}/`;
+    pick.onDidAccept(() => {
+      const active = pick.activeItems[0];
+      if (active?.skip) resolve(undefined);
+      else if (active?.path) resolve(active.path);
+      else {
+        const typed = pick.value.trim();
+        resolve(typed !== '' && !typed.endsWith('/') ? typed : undefined);
+      }
+      pick.hide();
+    });
+    pick.onDidHide(() => {
+      resolve(undefined);
+      pick.dispose();
+    });
+    pick.show();
+  });
+}
+
 async function addIdentity(deps: CommandDeps): Promise<void> {
   const name = await vscode.window.showInputBox({ prompt: 'Identity name', placeHolder: 'Alice Example' });
   if (!name) return;
   const email = await vscode.window.showInputBox({ prompt: 'Identity email', placeHolder: 'alice@example.com' });
   if (!email) return;
-  const key = await vscode.window.showInputBox({ prompt: 'SSH private key path (optional)', placeHolder: '~/.ssh/id_ed25519' });
+  const key = await pickPrivateKey();
   const pc = await vscode.window.showInputBox({ prompt: 'Passphrase command (optional)', placeHolder: 'op read "op://Private/ssh/pass"' });
   const args = ['identity', 'add', '--name', name, '--email', email];
   if (key && key.trim()) args.push('--key', key.trim());

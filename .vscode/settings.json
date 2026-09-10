@@ -8,6 +8,8 @@
     "dotenv",
     "esbuild",
     "eslintcache",
+    "exthost",
+    "exthosts",
     "gitmessage",
     "jscoverage",
     "jspm",
