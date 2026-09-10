@@ -6,7 +6,7 @@ What Git Colabor protects, how, and — just as important — what it does **not
 
 **Assets (in order of sensitivity):**
 
-1. SSH private keys (imported into the tool's keys dir)
+1. SSH private keys (referenced in place — never copied)
 2. Key passphrases (VS Code SecretStorage ↔ `ssh-add`)
 3. Repo identity state and backups (integrity, not confidentiality)
 4. The audit trail (integrity)
@@ -15,22 +15,21 @@ What Git Colabor protects, how, and — just as important — what it does **not
 
 | Adversary | Mitigation |
 | --- | --- |
-| Another *user* on a shared machine (different OS account) reading key material | `0600` keys / state / audit; `0700` data dir; `0600` askpass socket & session file |
+| Another *user* on a shared machine (different OS account) reading key material | no tool-owned key copies exist; `0600` state / audit / identities.json; `0700` data dir; `0600` askpass socket & session file |
 | Any local observer seeing passphrases in the process list (`ps`) | Passphrases never touch `argv`: they travel over the askpass socket or a passphrase command, never as CLI arguments |
 | Secrets leaking into logs / the audit trail | Logger keeps a process-global redaction set; the audit log records **fingerprints only** — key bodies and passphrases are never written (asserted by an e2e test) |
 | Injection through repo paths / author names | Every `git` / `ssh-add` / `ssh-keygen` call uses argument arrays, never a shell string |
 
 **Out of scope (see §6):** malware already running as *your* user, other users of your VS Code profile, and network adversaries — this is a local-machine trust model.
 
-## 2. Private key storage
+## 2. Private key storage (reference mode)
 
-- On `identity add --key <path>`, the key is **copied** into `~/.config/git-colabor/keys/<fingerprint>.key` via write-tmp → restrict-perms → `rename` → restrict-again. The source file is never modified or moved.
-- Permissions: POSIX `chmod 0600`; Windows `icacls <file> /inheritance:r /grant:r <user>:(R,W)` (best-effort, never throws).
-- Encryption status is probed with `ssh-keygen -y -P "" -f <key>`:
+- Keys are **referenced, never copied**: `identity add --key <path>` records the absolute source path plus its fingerprint; the file is never modified, moved, or deleted by the tool, and no second copy exists anywhere.
+- Usability is checked at `use` time (`ssh-keygen -lf` must parse it). A broken reference — moved, renamed, rotated, or deleted source — **degrades to a key-less apply**: name/email still switch, `core.sshCommand` is not written, the agent load is skipped, and a `key-missing` warning surfaces. The identity keeps its key reference for when the file returns.
+- Encryption status is probed at import with `ssh-keygen -y -P "" -f <key>`:
   - encrypted key without a `--passphrase-command` → `encrypted-key` warning;
   - unencrypted key → `unencrypted-key` warning.
-- **Encrypt-on-import is not implemented in 0.1.0** (deferred, see [../plan.md](../plan.md)) — an imported plaintext key stays plaintext, just permission-restricted.
-- `identity logout` **shreds** the imported copy (`shred -u` where available, `unlink` fallback) and removes it from `ssh-agent`. The identity entry itself is removed by `identity rm`.
+- `identity logout` removes the key from `ssh-agent` only — the file itself belongs to the user and is never touched; deleting it is the user's call.
 
 ## 3. Passphrase handling
 
@@ -75,7 +74,7 @@ Honest boundaries of the 0.1.0 model:
 2. **Plaintext `passphrase-command`** in identities.json (§3) — the file is `0600`, but the command is not secret against your own user.
 3. **No encrypt-at-rest for imported keys** yet (§2).
 4. **Audit log integrity** is mode-bit protection only — no signing or tamper-evidence. An attacker with your UID can edit history.
-5. **SecretStorage residency:** the extension cannot purge CLI-visible copies of data you typed into a terminal, and the CLI cannot purge VS Code SecretStorage (that's why `logout` shreds the key file — the stronger of the two sides).
+5. **SecretStorage residency:** the extension cannot purge CLI-visible copies of data you typed into a terminal, and the CLI cannot purge VS Code SecretStorage. With reference-mode keys there is no tool-owned key file to purge at all — passphrases in SecretStorage outlive the identity until removed there.
 6. **`--json` output goes to stdout** like any CLI; if you pipe it into shared logs, that's your channel to secure. The envelope never contains key material or passphrases.
 
 ## 7. Reporting

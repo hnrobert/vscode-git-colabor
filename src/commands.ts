@@ -221,7 +221,7 @@ async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
     : await pickIdentity(deps, 'Select identity to remove');
   if (!identity) return;
   const confirm = await vscode.window.showWarningMessage(
-    `Remove identity "${identity.name}" and shred its key?`,
+    `Remove identity "${identity.name}"? (its key file is referenced, never deleted)`,
     { modal: true },
     'Remove',
   );
@@ -235,10 +235,10 @@ async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
     ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
     : await pickIdentity(deps, 'Select identity to logout (clear key)');
   if (!identity) return;
-  const data = await run<{ cleared: { agent: boolean; keyfile: boolean } }>(deps, ['identity', 'logout', identity.id]);
+  const data = await run<{ cleared: { agent: boolean } }>(deps, ['identity', 'logout', identity.id]);
   if (data) {
     vscode.window.showInformationMessage(
-      `Logged out "${identity.name}" (agent: ${data.cleared.agent ? 'removed' : 'n/a'}, keyfile: ${data.cleared.keyfile ? 'shredded' : 'n/a'}).`,
+      `Logged out "${identity.name}" (agent: ${data.cleared.agent ? 'removed' : 'n/a'}; the key file itself is never touched).`,
     );
   }
 }

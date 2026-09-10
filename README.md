@@ -19,7 +19,7 @@ Full requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
 - **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand`, loads the key into `ssh-agent`, and snapshots prior config for one-command revert.
 - **Co-authors** — git-mob-compatible `.git-coauthors` catalogue; trailers seeded into the commit template **and** kept in sync with the SCM commit input box.
-- **Safe key handling** — keys stored `0600`; passphrases live in VS Code SecretStorage and reach `ssh-add` over a UNIX-socket askpass bridge — never on `argv`, never in `ps`, never in logs. `logout` shreds the key.
+- **Safe key handling** — keys are referenced in place (never copied or modified); passphrases live in VS Code SecretStorage and reach `ssh-add` over a UNIX-socket askpass bridge — never on `argv`, never in `ps`, never in logs. A broken key reference degrades to a key-less apply.
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
 - **Audit trail** — every identity change logged locally (fingerprint only) with repo / host / user / source.
 - **Truly remote-friendly** — the extension spawns the bundled CLI with the VS Code Server's own Node; nothing depends on remote `$PATH`.
@@ -45,14 +45,14 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 1. **Add identities** — Command Palette → `Git Colabor: Add Identity…` (name, email, optional private key — picked from a scan of `~/.ssh` or typed, optional passphrase command such as `op read "op://Private/ssh/pass"`).
 2. **Use one** — SCM view → *Colabor: Identity & Co-authors* → click an identity (or the status-bar item). The repo's `user.*` / `core.sshCommand` switch, the key loads.
 3. **Pair** — the *Co-authors* list shows `+` next to everyone not yet in the commit message; click to append their `Co-authored-by:` trailer (the `+` flips to `-`; click again to remove). The markers follow what you type in the message box.
-4. **Leave clean** — `Git Colabor: Revert Repo Identity` restores the pre-tool config; `Logout Identity` also shreds the key.
+4. **Leave clean** — `Git Colabor: Revert Repo Identity` restores the pre-tool config; `Logout Identity` unloads the key from `ssh-agent` (your key files are never touched).
 
 ## Commands
 
 | Command | Effect |
 | --- | --- |
 | `Use Identity…` | Pick an identity to apply to the current repo |
-| `Add Identity…` / `Remove Identity…` / `Logout Identity` | Manage identities (remove = confirm + shred key) |
+| `Add Identity…` / `Remove Identity…` / `Logout Identity` | Manage identities (key files are referenced, never deleted) |
 | `Select Co-authors…` / `Add Co-author…` / `Solo (clear co-authors)` | Co-author selection (the tree's +/- rows toggle the commit message directly) |
 | `Open .git-coauthors` | Edit the catalogue (`~/.git-coauthors`) |
 | `Revert Repo Identity` | Restore pre-tool git config from backup |
@@ -73,7 +73,7 @@ Declared but **not yet enforced** in 0.1.0 (tracked in [plan.md](plan.md)): `aut
 
 ## Security
 
-- Private keys are copied to a `0600` directory (`icacls` on Windows); the originals are untouched. Encrypt-on-import is on the roadmap.
+- Private keys are referenced in place — never copied, modified, or deleted by the tool; a missing key file degrades the identity to key-less with a warning.
 - Passphrases are stored in VS Code SecretStorage and delivered to `ssh-add` through a per-session `0600` UNIX socket with a constant-time-compared token.
 - The audit log records fingerprints only — never key bodies or passphrases (pinned by unit + e2e tests).
 

@@ -101,7 +101,7 @@ sequenceDiagram
 3. Write local config: `user.name`, `user.email`, `core.sshCommand` (only if the identity has a key), `colabor.managed=true`, `colabor.managed-by=cli|ext`.
 4. Update state (`activeIdentity`, `heldBy=<this session>`), load the key (§4), append audit `identity.use`.
 
-`identity revert` restores all four keys from the backup (unsetting those that were unset), removes the key from the agent, unsets the markers and `colabor.selected`, clears state. `identity logout` is the security half: agent removal + key-file shredding, repo config untouched.
+`identity revert` restores all four keys from the backup (unsetting those that were unset), removes the key from the agent, unsets the markers and `colabor.selected`, clears state. Keys are **referenced, never copied** — a broken reference (moved/deleted source) makes `identity use` degrade to a key-less apply (no `core.sshCommand`, no agent load, `key-missing` warning). `identity logout` only removes the key from the agent; repo config untouched.
 
 ## 6. The reconcile loop (setting-wins)
 
@@ -131,7 +131,7 @@ ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value
 | Store | Path | Written by | Mode |
 | --- | --- | --- | --- |
 | Identity map | `~/.config/git-colabor/identities.json` (Win: `%APPDATA%\git-colabor\…`) | CLI | `0600`, atomic tmp+rename |
-| Imported keys | `…/git-colabor/keys/<fingerprint>.key` | CLI | `0600` / `icacls` |
+| Referenced keys | wherever the user put them (absolute path in `identities.json`) | user | user-managed |
 | Audit log | `…/git-colabor/audit.log` (JSONL) | CLI | `0600` per append |
 | Askpass socket + session file | `…/git-colabor/askpass-<session>.sock`, `session-<pid>.json` | extension | `0600` (dir `0700`) |
 | Per-repo state | `<git-dir>/colabor/state.json` | CLI | `0600`, atomic |

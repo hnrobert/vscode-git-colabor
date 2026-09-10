@@ -47,7 +47,7 @@ Existing tools cover slices of this (git-mob handles co-authors; nothing handles
 | FR-2 | List identities with key fingerprints; mark the default | ✅ |
 | FR-3 | `identity use` applies per repo: writes local `user.name`, `user.email`, `core.sshCommand` (`ssh -i <key> -o IdentitiesOnly=yes`), and bookkeeping markers `colabor.managed`, `colabor.managed-by` | ✅ |
 | FR-4 | First-touch backup of the repo's prior identity config; `identity revert` restores it exactly (including "was unset") | ✅ |
-| FR-5 | `identity logout`: remove the key from `ssh-agent` and shred the imported key file, without touching repo config | ✅ |
+| FR-5 | `identity logout`: remove the key from `ssh-agent` (keys are referenced in place, never copied or deleted), without touching repo config; a broken key reference degrades to a key-less apply | ✅ |
 | FR-6 | Load the identity's key into `ssh-agent`, resolving passphrases without ever placing them on `argv` | ✅ |
 
 ### Co-authors (CLI)
