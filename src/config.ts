@@ -43,7 +43,7 @@ export function conflictWarningStaleMinutes(): number {
   return getNumber('conflictWarningStaleMinutes', 5);
 }
 
-// --- remembered co-authors (gitColabor.coAuthors, "Name <email>" entries) ---
+// --- remembered co-authors (gitColabor.coAuthorIdentities, "Name <email>" entries) ---
 // The setting is machineOverridable, so it can live in three layers at once:
 // user (global), machine (per host — the remote under Remote-SSH), workspace.
 
@@ -65,7 +65,7 @@ const asAuthorList = (v: unknown): ParsedAuthor[] =>
 
 /** Co-authors remembered in ONE scope layer. */
 export function coAuthorMemory(scope: MemoryScope): ParsedAuthor[] {
-  const inspect = vscode.workspace.getConfiguration('gitColabor').inspect('coAuthors') as
+  const inspect = vscode.workspace.getConfiguration('gitColabor').inspect('coAuthorIdentities') as
     | CoAuthorsInspection
     | undefined;
   if (!inspect) return [];
@@ -110,6 +110,8 @@ export async function setCoAuthorMemory(scope: MemoryScope, author: ParsedAuthor
   const e = author.email.toLowerCase();
   const list = coAuthorMemory(scope).filter((a) => a.email.toLowerCase() !== e);
   if (save) list.push(author);
-  await vscode.workspace.getConfiguration('gitColabor').update('coAuthors', list.map((a) => `${a.name} <${a.email}>`), target);
+  await vscode.workspace
+    .getConfiguration('gitColabor')
+    .update('coAuthorIdentities', list.map((a) => `${a.name} <${a.email}>`), target);
   return true;
 }

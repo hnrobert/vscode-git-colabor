@@ -94,7 +94,7 @@
           "default": "info",
           "description": "Output channel log level."
         },
-        "gitColabor.coAuthors": {
+        "gitColabor.coAuthorIdentities": {
           "type": "array",
           "items": {
             "type": "string"
