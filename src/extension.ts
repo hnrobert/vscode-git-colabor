@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { watch, type FSWatcher } from 'node:fs';
+import { watch, statSync, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { initLog } from './log.js';
 import { cliPath } from './config.js';
 import { CliClient } from './cli/CliClient.js';
-import { AskpassServer, writeSessionFile } from './askpass/AskpassServer.js';
+import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
 import { Secrets } from './secrets/Secrets.js';
 import { GitApi } from './git-ext/GitApi.js';
 import { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
@@ -67,6 +67,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }, 1500);
   context.subscriptions.push({ dispose() { clearInterval(inputPoll); } });
+
+  // Dev loop: `build-scripts/remote-dev.sh` touches <dataDir>/dev-reload after
+  // installing a fresh build; react with a FULL window reload (extension-host
+  // restarts alone cannot refresh package.json menu/command contributions).
+  // The baseline is seeded once at activation, so a stale marker never
+  // reloads on startup — but any later change (including the marker first
+  // appearing) does.
+  const reloadMarker = join(colaborDir(), 'dev-reload');
+  const markerMtime = (): number | undefined => {
+    try {
+      return statSync(reloadMarker).mtimeMs;
+    } catch {
+      return undefined;
+    }
+  };
+  let lastMarker = markerMtime();
+  const reloadPoll = setInterval(() => {
+    const mtime = markerMtime();
+    if (mtime === lastMarker) return;
+    lastMarker = mtime;
+    logger.info('dev-reload marker changed — reloading window');
+    void vscode.commands.executeCommand('workbench.action.reloadWindow');
+  }, 2000);
+  context.subscriptions.push({ dispose() { clearInterval(reloadPoll); } });
 
   registerCommands(context, { cli, git, secrets, log: logger, provider });
 

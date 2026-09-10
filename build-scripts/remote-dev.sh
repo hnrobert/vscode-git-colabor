@@ -5,8 +5,9 @@
 # Remote-SSH window (the dev extension is never installed server-side), so
 # F5 cannot test remote behavior. Instead: build + package the vsix, push it
 # to the host, install it into the vscode-server with the server's own CLI,
-# restart any running extension hosts there (so already-open windows pick up
-# the fresh code), and open/focus the remote window.
+# ask already-open windows to do a FULL reload (they watch a marker file and
+# run "Developer: Reload Window" — package.json menu contributions only
+# refresh on a window reload), and open/focus the remote window.
 #
 # Usage:
 #   build-scripts/remote-dev.sh install <host> <remote-dir>
@@ -53,20 +54,12 @@ remote_server_dir() {
   "
 }
 
-# Restart the remote extension hosts so already-open windows load the newly
-# installed build. VS Code detects the terminated host and restarts it
-# automatically (a full 'Developer: Reload Window' in the window is the
-# thorough alternative). No running hosts → nothing to do (the window opened
-# below will start fresh code anyway).
-restart_remote_exthosts() {
-  local pids
-  pids="$(ssh "$HOST" "pgrep -f -- '--type=extensionHost' | tr '\n' ' '" || true)"
-  if [ -z "${pids// /}" ]; then
-    echo "    no open windows on $HOST — nothing to reload"
-    return
-  fi
-  echo "    restarting extension hosts on $HOST (pids:$pids)"
-  ssh "$HOST" "pkill -f -- '--type=extensionHost'" || true
+# Ask already-running windows on the host for a FULL reload: the extension
+# polls <dataDir>/dev-reload and runs workbench.action.reloadWindow when its
+# mtime changes. (Windows running a build from before this mechanism need
+# one last manual "Developer: Reload Window".)
+touch_reload_marker() {
+  ssh "$HOST" 'mkdir -p "$HOME/.config/git-colabor" && touch "$HOME/.config/git-colabor/dev-reload"'
 }
 
 case "$COMMAND" in
@@ -98,15 +91,15 @@ case "$COMMAND" in
       exit 1
     fi
 
-    echo "==> reload open windows (if any)"
-    restart_remote_exthosts
+    echo "==> ask open windows for a full reload"
+    touch_reload_marker
 
     echo "==> open remote window"
     code --remote "ssh-remote+$HOST" "$REMOTE_DIR"
     echo "
-Done. Windows on $HOST reload their extensions automatically; if a window
-still shows the toast 'extension host terminated', click Restart — or run
-'Developer: Reload Window' there for a full reload. Live logs: $0 logs $HOST"
+Done. Windows on $HOST watch the dev-reload marker and reload themselves
+within ~2s (windows still running a pre-marker build need one last manual
+'Developer: Reload Window'). Live logs: $0 logs $HOST"
     ;;
 
   logs)
