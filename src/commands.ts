@@ -34,10 +34,10 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   };
 
   reg('gitColabor.doctor', () => doctor(deps));
-  reg('gitColabor.useIdentity', () => useIdentity(deps).then(refresh));
+  reg('gitColabor.useIdentity', (item) => useIdentity(deps, item).then(refresh));
   reg('gitColabor.addIdentity', () => addIdentity(deps).then(refresh));
-  reg('gitColabor.removeIdentity', () => removeIdentity(deps).then(refresh));
-  reg('gitColabor.logoutIdentity', () => logoutIdentity(deps).then(refresh));
+  reg('gitColabor.removeIdentity', (item) => removeIdentity(deps, item).then(refresh));
+  reg('gitColabor.logoutIdentity', (item) => logoutIdentity(deps, item).then(refresh));
   reg('gitColabor.selectCoAuthors', () => selectCoAuthors(deps).then(refresh));
   reg('gitColabor.soloCoAuthors', () => soloCoAuthors(deps).then(refresh));
   reg('gitColabor.addCoAuthor', () => addCoAuthor(deps).then(refresh));
@@ -63,6 +63,15 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
     reg(`gitColabor._memorizeCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, true));
     reg(`gitColabor._forgetCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, false));
   }
+}
+
+/**
+ * Identity id from a tree-row invocation (context menus / inline buttons pass
+ * the TreeItem); undefined when invoked from the palette or view title — the
+ * caller should fall back to a quick pick then.
+ */
+function rowIdentityId(item: unknown): string | undefined {
+  return (item as { payload?: { id?: string } } | undefined)?.payload?.id;
 }
 
 function requireRepo(deps: CommandDeps): string | undefined {
@@ -119,9 +128,14 @@ async function doctor(deps: CommandDeps): Promise<void> {
   if (choice === 'Show Output') deps.log.show();
 }
 
-async function useIdentity(deps: CommandDeps): Promise<void> {
+async function useIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
+  const rowId = rowIdentityId(item);
+  if (rowId) {
+    await applyUse(deps, rowId, cwd);
+    return;
+  }
   const identity = await pickIdentity(deps, 'Select identity to use in this repo');
   if (!identity) return;
   await applyUse(deps, identity.id, cwd);
@@ -200,8 +214,11 @@ async function addIdentity(deps: CommandDeps): Promise<void> {
   await run(deps, args);
 }
 
-async function removeIdentity(deps: CommandDeps): Promise<void> {
-  const identity = await pickIdentity(deps, 'Select identity to remove');
+async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
+  const rowId = rowIdentityId(item);
+  const identity = rowId
+    ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
+    : await pickIdentity(deps, 'Select identity to remove');
   if (!identity) return;
   const confirm = await vscode.window.showWarningMessage(
     `Remove identity "${identity.name}" and shred its key?`,
@@ -212,8 +229,11 @@ async function removeIdentity(deps: CommandDeps): Promise<void> {
   await run(deps, ['identity', 'rm', identity.id]);
 }
 
-async function logoutIdentity(deps: CommandDeps): Promise<void> {
-  const identity = await pickIdentity(deps, 'Select identity to logout (clear key)');
+async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
+  const rowId = rowIdentityId(item);
+  const identity = rowId
+    ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
+    : await pickIdentity(deps, 'Select identity to logout (clear key)');
   if (!identity) return;
   const data = await run<{ cleared: { agent: boolean; keyfile: boolean } }>(deps, ['identity', 'logout', identity.id]);
   if (data) {

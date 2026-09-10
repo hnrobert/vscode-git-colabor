@@ -138,7 +138,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         description: `${i.email}${i.hasKey ? ' 🔑' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}`,
         icon: i.active ? 'check' : 'person',
-        payload: { name: i.name, email: i.email },
+        payload: { id: i.id, name: i.name, email: i.email },
       });
       // memory bits drive the right-click save/remove-as-co-author menu items
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, machine: false, workspace: false };
