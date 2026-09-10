@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ColaborItem } from './items.js';
 import { pickRepository } from '../scm/Sync.js';
 import { parseCoAuthors } from '../scm/trailers.js';
-import { coAuthorMemories, coAuthorMemoryScopes } from '../config.js';
+import { coAuthorMemories, coAuthorMemoryScopeMap } from '../config.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
 import type { StatusJson } from '../types.js';
@@ -23,6 +23,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   private status: StatusJson | undefined;
   /** authors found in the repo's commit history (`coauthor suggest`) */
   private historyCandidates: Candidate[] = [];
+  /** guards stale `coauthor suggest` responses from overwriting newer reloads */
+  private suggestGen = 0;
   /** fired after each reload with the latest status (for status bar / SCM sync) */
   readonly onDidReload = new vscode.EventEmitter<StatusJson | undefined>();
   /** most recent status (for the status bar) */
@@ -32,23 +34,30 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
 
-  /** Re-fetch `identity status` + repo-history authors and refresh the tree. */
+  /** Re-fetch `identity status` and refresh the tree; history authors load in the background. */
   async reload(): Promise<StatusJson | undefined> {
     const root = this.git.selectedRepoRoot();
     const r = await this.cli.run(['identity', 'status'], { cwd: root });
     this.status = r.ok ? (r.data as StatusJson) : undefined;
     this.historyCandidates = [];
-    if (root && this.status?.inRepo) {
-      const sugg = await this.cli.run(['coauthor', 'suggest', '--json'], { cwd: root });
-      if (sugg.ok) {
-        this.historyCandidates = ((sugg.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
-          name: a.name,
-          email: a.email,
-        }));
-      }
-    }
+    // paint the tree as soon as status is in — `coauthor suggest` runs
+    // `git shortlog` over the whole history and used to block first render
     this._onDidChange.fire(undefined);
     this.onDidReload.fire(this.status);
+    const gen = ++this.suggestGen;
+    if (root && this.status?.inRepo) {
+      void this.cli
+        .run(['coauthor', 'suggest', '--json'], { cwd: root })
+        .then((sugg) => {
+          if (gen !== this.suggestGen) return; // a newer reload superseded us
+          this.historyCandidates = ((sugg.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
+            name: a.name,
+            email: a.email,
+          }));
+          this._onDidChange.fire(undefined); // second paint with history authors
+        })
+        .catch(() => {});
+    }
     return this.status;
   }
 
@@ -106,7 +115,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   }
 
   private identityItems(): ColaborItem[] {
-    return this.status!.identities.map((i) => {
+    const s = this.status!;
+    const memoryMap = coAuthorMemoryScopeMap(s.identities.map((i) => i.email));
+    return s.identities.map((i) => {
       const item = new ColaborItem(`${i.isDefault ? '$(star) ' : ''}${i.name}`, i.active ? 'active-identity' : 'identity', {
         description: `${i.email}${i.hasKey ? ' 🔑' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}`,
@@ -114,7 +125,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         payload: { name: i.name, email: i.email },
       });
       // memory bits drive the right-click save/remove-as-co-author menu items
-      const saved = coAuthorMemoryScopes(i.email);
+      const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, machine: false, workspace: false };
       item.contextValue =
         item.kind + (saved.user ? '-u' : '') + (saved.machine ? '-m' : '') + (saved.workspace ? '-w' : '');
       if (!i.active) {

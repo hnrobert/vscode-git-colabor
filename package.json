@@ -267,11 +267,6 @@
           "group": "2_remove"
         },
         {
-          "command": "gitColabor.selectCoAuthors",
-          "when": "viewItem == coauthor-group",
-          "group": "inline"
-        },
-        {
           "command": "gitColabor._memorizeCoAuthor.user",
           "when": "viewItem =~ /^(identity|active-identity)(-m)?(-w)?$/",
           "group": "9_memory@1"

@@ -63,15 +63,16 @@ const asAuthorList = (v: unknown): ParsedAuthor[] =>
       })
     : [];
 
-/** Co-authors remembered in ONE scope layer. */
-export function coAuthorMemory(scope: MemoryScope): ParsedAuthor[] {
+/** All three memory layers from ONE configuration inspect (cheap enough per render). */
+export function coAuthorMemoriesByScope(): Record<MemoryScope, ParsedAuthor[]> {
   const inspect = vscode.workspace.getConfiguration('gitColabor').inspect('coAuthorIdentities') as
     | CoAuthorsInspection
     | undefined;
-  if (!inspect) return [];
-  const v =
-    scope === 'user' ? inspect.globalValue : scope === 'machine' ? inspect.machineValue : inspect.workspaceValue;
-  return asAuthorList(v);
+  return {
+    user: asAuthorList(inspect?.globalValue),
+    machine: asAuthorList(inspect?.machineValue),
+    workspace: asAuthorList(inspect?.workspaceValue),
+  };
 }
 
 /** Deduped union of all three memory layers (feeds the Co-authors list). */
@@ -79,7 +80,7 @@ export function coAuthorMemories(): ParsedAuthor[] {
   const seen = new Set<string>();
   const out: ParsedAuthor[] = [];
   for (const scope of ['user', 'machine', 'workspace'] as const) {
-    for (const a of coAuthorMemory(scope)) {
+    for (const a of coAuthorMemoriesByScope()[scope]) {
       const id = a.email.toLowerCase();
       if (seen.has(id)) continue;
       seen.add(id);
@@ -89,11 +90,23 @@ export function coAuthorMemories(): ParsedAuthor[] {
   return out;
 }
 
-/** Which scopes currently remember this email. */
-export function coAuthorMemoryScopes(email: string): Record<MemoryScope, boolean> {
-  const e = email.toLowerCase();
-  const has = (s: MemoryScope) => coAuthorMemory(s).some((a) => a.email.toLowerCase() === e);
-  return { user: has('user'), machine: has('machine'), workspace: has('workspace') };
+/**
+ * Which scopes remember each email — computed with a single inspect for the
+ * whole batch (per-item inspect calls made large co-author lists visibly
+ * slow to render).
+ */
+export function coAuthorMemoryScopeMap(emails: string[]): Map<string, Record<MemoryScope, boolean>> {
+  const byScope = coAuthorMemoriesByScope();
+  const sets: Record<MemoryScope, Set<string>> = { user: new Set(), machine: new Set(), workspace: new Set() };
+  for (const scope of ['user', 'machine', 'workspace'] as const) {
+    for (const a of byScope[scope]) sets[scope].add(a.email.toLowerCase());
+  }
+  const map = new Map<string, Record<MemoryScope, boolean>>();
+  for (const e of emails) {
+    const id = e.toLowerCase();
+    map.set(id, { user: sets.user.has(id), machine: sets.machine.has(id), workspace: sets.workspace.has(id) });
+  }
+  return map;
 }
 
 function memoryTarget(scope: MemoryScope): vscode.ConfigurationTarget | undefined {
@@ -108,7 +121,7 @@ export async function setCoAuthorMemory(scope: MemoryScope, author: ParsedAuthor
   const target = memoryTarget(scope);
   if (target === undefined) return false;
   const e = author.email.toLowerCase();
-  const list = coAuthorMemory(scope).filter((a) => a.email.toLowerCase() !== e);
+  const list = coAuthorMemoriesByScope()[scope].filter((a) => a.email.toLowerCase() !== e);
   if (save) list.push(author);
   await vscode.workspace
     .getConfiguration('gitColabor')
