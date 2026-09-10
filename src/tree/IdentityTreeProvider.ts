@@ -25,6 +25,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   private historyCandidates: Candidate[] = [];
   /** guards stale `coauthor suggest` responses from overwriting newer reloads */
   private suggestGen = 0;
+  /** repo root already auto-imported for (identity import is idempotent, run once per repo) */
+  private importedRoot: string | undefined;
   /** fired after each reload with the latest status (for status bar / SCM sync) */
   readonly onDidReload = new vscode.EventEmitter<StatusJson | undefined>();
   /** most recent status (for the status bar) */
@@ -57,6 +59,20 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
           this._onDidChange.fire(undefined); // second paint with history authors
         })
         .catch(() => {});
+
+      // Auto-import every distinct committer from the repo history as a
+      // key-less identity (once per repo — import is idempotent anyway).
+      // Runs after the first paint; a second reload surfaces new identities.
+      if (root !== this.importedRoot) {
+        this.importedRoot = root;
+        void this.cli
+          .run(['identity', 'import', '--json'], { cwd: root })
+          .then((r) => {
+            const added = r.ok ? ((r.data as { added?: unknown[] }).added ?? []) : [];
+            if (added.length > 0) void this.reload(); // same root now — no re-import loop
+          })
+          .catch(() => {});
+      }
     }
     return this.status;
   }
