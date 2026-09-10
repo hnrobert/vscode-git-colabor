@@ -264,7 +264,7 @@
         {
           "command": "gitColabor.removeIdentity",
           "when": "viewItem =~ /^(identity|active-identity)(-u)?(-m)?(-w)?$/",
-          "group": "inline"
+          "group": "2_remove"
         },
         {
           "command": "gitColabor.selectCoAuthors",
