@@ -58,6 +58,11 @@ export class GitApi {
     return (this._api?.repositories.length ?? 0) > 0;
   }
 
+  /** All open repository roots — identity actions apply to every one of them. */
+  get repoRoots(): string[] {
+    return this._api?.repositories.map((r) => r.rootUri.fsPath) ?? [];
+  }
+
   /** Resolve a single repo root to operate on (selected if multi-root, else the first). */
   selectedRepoRoot(): string | undefined {
     if (!this._api || this._api.repositories.length === 0) return undefined;

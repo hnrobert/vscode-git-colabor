@@ -65,7 +65,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   }
 
   // Right-click modify section (name / email / key).
-  reg('gitColabor._renameIdentity', (item) => modifyIdentityField(deps, item, 'name'));
+  reg('gitColabor._changeIdentityName', (item) => modifyIdentityField(deps, item, 'name'));
   reg('gitColabor._changeIdentityEmail', (item) => modifyIdentityField(deps, item, 'email'));
   reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key'));
 
@@ -158,14 +158,20 @@ async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
 }
 
 async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<void> {
-  const r = await deps.cli.run(['identity', 'use', id, '--source', 'ext'], { cwd });
-  if (!r.ok) {
-    reportError(r);
-    return;
+  // one session, one identity configuration: apply to EVERY open repository
+  const roots = deps.git.repoRoots.length > 0 ? deps.git.repoRoots : [cwd];
+  const conflicts: string[] = [];
+  for (const root of roots) {
+    const r = await deps.cli.run(['identity', 'use', id, '--source', 'ext'], { cwd: root });
+    if (!r.ok) {
+      reportError(r);
+      continue;
+    }
+    const heldBy = (r.data as { conflict?: { heldBy?: { session: string } } | null })?.conflict?.heldBy;
+    if (heldBy) conflicts.push(`${root}: ${heldBy.session}`);
   }
-  const heldBy = (r.data as { conflict?: { heldBy?: { session: string } } | null })?.conflict?.heldBy;
-  if (heldBy) {
-    vscode.window.showWarningMessage(`Git Colabor: repo was held by ${heldBy.session}; overridden.`);
+  if (conflicts.length > 0) {
+    vscode.window.showWarningMessage(`Git Colabor: overridden — held by ${conflicts.join(', ')}.`);
   }
 }
 

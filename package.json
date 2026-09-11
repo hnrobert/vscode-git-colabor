@@ -201,8 +201,8 @@
         "category": "Git Colabor"
       },
       {
-        "command": "gitColabor._renameIdentity",
-        "title": "Rename Identity…",
+        "command": "gitColabor._changeIdentityName",
+        "title": "Change Identity Name…",
         "category": "Git Colabor"
       },
       {
@@ -287,7 +287,7 @@
           "group": "2_remove"
         },
         {
-          "command": "gitColabor._renameIdentity",
+          "command": "gitColabor._changeIdentityName",
           "when": "viewItem =~ /^(identity|active-identity)/",
           "group": "1_modify@1"
         },
@@ -355,7 +355,7 @@
           "when": "false"
         },
         {
-          "command": "gitColabor._renameIdentity",
+          "command": "gitColabor._changeIdentityName",
           "when": "false"
         },
         {

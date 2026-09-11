@@ -15,7 +15,7 @@ import { registerCommands } from './commands.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 
 let askpass: AskpassServer | undefined;
-let stateWatcher: FSWatcher | undefined;
+let stateWatchers: FSWatcher[] = [];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const logger = initLog(context);
@@ -94,32 +94,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerCommands(context, { cli, git, secrets, log: logger, provider });
 
-  // refresh = re-seed state watcher + reload the tree
-  let watchedRepo: string | undefined;
-  const setupStateWatcher = (): void => {
-    const root = git.selectedRepoRoot();
-    if (root === watchedRepo) return;
-    stateWatcher?.close();
-    stateWatcher = undefined;
-    watchedRepo = root;
-    if (!root) return;
-    const stateFile = join(root, '.git', 'colabor', 'state.json');
-    let t: NodeJS.Timeout | undefined;
-    try {
-      stateWatcher = watch(stateFile)
-        .on('change', () => {
-          if (t) clearTimeout(t);
-          t = setTimeout(() => {
-            provider.reload().catch(() => {});
-          }, 300);
-        })
-        .on('error', () => {});
-    } catch {
-      // state file may not exist yet
+  // refresh = re-seed state watchers (one per open repo) + reload the tree
+  let watchedRepos = new Set<string>();
+  const setupStateWatchers = (): void => {
+    const roots = new Set(git.repoRoots);
+    if (roots.size === watchedRepos.size && [...roots].every((r) => watchedRepos.has(r))) return;
+    stateWatchers.forEach((w) => w.close());
+    stateWatchers = [];
+    watchedRepos = roots;
+    for (const root of roots) {
+      const stateFile = join(root, '.git', 'colabor', 'state.json');
+      let t: NodeJS.Timeout | undefined;
+      try {
+        stateWatchers.push(
+          watch(stateFile)
+            .on('change', () => {
+              if (t) clearTimeout(t);
+              t = setTimeout(() => {
+                provider.reload().catch(() => {});
+              }, 300);
+            })
+            .on('error', () => {}),
+        );
+      } catch {
+        // state file may not exist yet in this repo
+      }
     }
   };
   const refresh = (): void => {
-    setupStateWatcher();
+    setupStateWatchers();
     provider.reload().catch((e) => logger.warn(`reload: ${e instanceof Error ? e.message : String(e)}`));
   };
   const runReconcile = (): void => {
@@ -182,7 +185,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (doc.fileName.endsWith('.git-coauthors')) refresh();
     }),
   );
-  context.subscriptions.push({ dispose() { stateWatcher?.close(); } });
+  context.subscriptions.push({ dispose() { stateWatchers.forEach((w) => w.close()); } });
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('gitColabor.user') || e.affectsConfiguration('gitColabor.defaultIdentity')) {
@@ -199,8 +202,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
-  stateWatcher?.close();
-  stateWatcher = undefined;
+  stateWatchers.forEach((w) => w.close());
+  stateWatchers = [];
   await askpass?.stop();
   askpass = undefined;
 }

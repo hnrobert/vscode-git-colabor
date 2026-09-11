@@ -5,52 +5,59 @@ import { defaultIdentity, effectiveUserEmail, effectiveUserName } from '../confi
 import type { HeldByJson, StatusJson } from '../types.js';
 
 /**
- * Enforce the "extension setting wins" rule. Effective name/email = `gitColabor.user.*` if set in
- * any layer, else the active identity's. Applied via the CLI:
+ * Enforce the "extension setting wins" rule — across EVERY open repository
+ * of the session (same identity configuration applies repo-wide). Effective
+ * name/email = `gitColabor.user.*` if set in any layer, else the active
+ * identity's. Applied via the CLI per repo:
  *   - if there's an active/default identity → `identity use <id> --source ext [--as-name/--as-email]`
  *     (the CLI computes core.sshCommand from the identity's key);
  *   - else if a setting is set → `_apply --name --email --source ext` (name/email only, no key).
  * Surfaces any heldBy conflict as a warning.
  */
 export async function reconcile(cli: CliClient, git: GitApi, logger: vscode.LogOutputChannel): Promise<void> {
-  const root = git.selectedRepoRoot();
-  const name = effectiveUserName();
-  const email = effectiveUserEmail();
-  if (!root) {
+  const roots = git.repoRoots;
+  if (roots.length === 0) {
     logger.info('reconcile: no git repository');
     return;
   }
+  const conflicts: string[] = [];
+  for (const root of roots) {
+    const held = await reconcileRepo(cli, root, logger);
+    if (held) conflicts.push(`${root}: ${held.session}`);
+  }
+  if (conflicts.length > 0) {
+    vscode.window.showWarningMessage(
+      `Git Colabor: overridden by the extension — held by ${conflicts.join(', ')}.`,
+    );
+  }
+}
+
+async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOutputChannel): Promise<HeldByJson | undefined> {
+  const name = effectiveUserName();
+  const email = effectiveUserEmail();
 
   const statusRes = await cli.run(['identity', 'status'], { cwd: root });
   const status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
   const activeId = status?.activeIdentity?.id ?? defaultIdentity();
 
-  let conflictHeldBy: HeldByJson | undefined;
-
   if (activeId) {
     const args = ['identity', 'use', activeId, '--source', 'ext'];
     if (name && email) {
       args.push('--as-name', name, '--as-email', email);
-      logger.info(`reconcile: setting wins → ${name} <${email}> (identity ${activeId})`);
+      logger.info(`reconcile[${root}]: setting wins → ${name} <${email}> (identity ${activeId})`);
     } else {
-      logger.info(`reconcile: applying identity ${activeId}`);
+      logger.info(`reconcile[${root}]: applying identity ${activeId}`);
     }
-    const r = await cli.run(args, { cwd: root });
-    conflictHeldBy = useConflictHeldBy(r);
-  } else if (name && email) {
-    logger.info(`reconcile: no identity; applying name/email only → ${name} <${email}>`);
-    const r = await cli.run(['_apply', '--name', name, '--email', email, '--source', 'ext'], { cwd: root });
-    conflictHeldBy = useConflictHeldBy(r);
-  } else {
-    logger.info('reconcile: no gitColabor.user.* and no identity; nothing to apply');
-    return;
+    return useConflictHeldBy(await cli.run(args, { cwd: root }));
   }
-
-  if (conflictHeldBy) {
-    vscode.window.showWarningMessage(
-      `Git Colabor: repo was held by ${conflictHeldBy.session}; overridden by the extension.`,
+  if (name && email) {
+    logger.info(`reconcile[${root}]: no identity; applying name/email only → ${name} <${email}>`);
+    return useConflictHeldBy(
+      await cli.run(['_apply', '--name', name, '--email', email, '--source', 'ext'], { cwd: root }),
     );
   }
+  logger.info(`reconcile[${root}]: no gitColabor.user.* and no identity; nothing to apply`);
+  return undefined;
 }
 
 function useConflictHeldBy(r: unknown): HeldByJson | undefined {
