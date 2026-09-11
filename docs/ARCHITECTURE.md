@@ -98,7 +98,7 @@ sequenceDiagram
 
 1. Detect conflict — if per-repo `state.heldBy` names a *different, fresh* (< 5 min) session, warn (or refuse with exit 6 under `--no-override`).
 2. **First-touch backup** — when `colabor.managed != true` and no backup exists, snapshot local `user.name`, `user.email`, `core.sshCommand`, `commit.template` (including "unset") into `<git-dir>/colabor/state.json`.
-3. Write local config: `user.name`, `user.email`, `core.sshCommand` (only if the identity has a key), `colabor.managed=true`, `colabor.managed-by=cli|ext`.
+3. Write local config: `user.name`, `user.email`, `core.sshCommand` (only if the identity has a key), and — with a usable key — SSH commit signing (`commit.gpgsign=true`, `gpg.format=ssh`, `user.signingKey=<path>`; a key-less identity clears them), `colabor.managed=true`, `colabor.managed-by=cli|ext`.
 4. Update state (`activeIdentity`, `heldBy=<this session>`), load the key (§4), append audit `identity.use`.
 
 `identity revert` restores all four keys from the backup (unsetting those that were unset), removes the key from the agent, unsets the markers and `colabor.selected`, clears state. Keys are **referenced, never copied** — a broken reference (moved/deleted source) makes `identity use` degrade to a key-less apply (no `core.sshCommand`, no agent load, `key-missing` warning). `identity logout` only removes the key from the agent; repo config untouched.
