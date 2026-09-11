@@ -141,10 +141,18 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -u/-w = remembered in
-      // that settings layer, -g = imported from repo history (remove becomes hide)
+      // that settings layer, -g = imported from repo history (remove becomes
+      // hide), -k = has a usable key (can sign), -s = repo signs with THIS key
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
+      const signingWithThisKey =
+        !!s.signing?.enabled && !!s.signing.key && s.signing.key === (i as { sshKeyPath?: string }).sshKeyPath;
       item.contextValue =
-        item.kind + (saved.user ? '-u' : '') + (saved.workspace ? '-w' : '') + (i.imported ? '-g' : '');
+        item.kind +
+        (saved.user ? '-u' : '') +
+        (saved.workspace ? '-w' : '') +
+        (i.imported ? '-g' : '') +
+        (i.hasKey ? '-k' : '') +
+        (signingWithThisKey ? '-s' : '');
       if (!i.active) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };
       }

@@ -229,6 +229,16 @@
         "command": "gitColabor._hideIdentity.workspace",
         "title": "Hide (workspace)",
         "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._signCommitsWithKey",
+        "title": "Sign Commits with This Key",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._stopSigningCommits",
+        "title": "Stop Signing Commits",
+        "category": "Git Colabor"
       }
     ],
     "views": {
@@ -335,6 +345,16 @@
           "command": "gitColabor._forgetCoAuthor.workspace",
           "when": "viewItem =~ /^(identity|active-identity)(?!.*-g)/ && viewItem =~ /-w/",
           "group": "9_memory@2"
+        },
+        {
+          "command": "gitColabor._signCommitsWithKey",
+          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-s)/",
+          "group": "4_sign@1"
+        },
+        {
+          "command": "gitColabor._stopSigningCommits",
+          "when": "viewItem =~ /-s/",
+          "group": "4_sign@1"
         }
       ],
       "commandPalette": [
@@ -376,6 +396,14 @@
         },
         {
           "command": "gitColabor._hideIdentity.workspace",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._signCommitsWithKey",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._stopSigningCommits",
           "when": "false"
         }
       ]

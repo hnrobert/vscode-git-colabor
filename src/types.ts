@@ -29,7 +29,7 @@ export type HeldByJson = {
   source: 'ext' | 'cli';
 };
 
-export type StatusIdentityJson = IdentityJson & { active?: boolean };
+export type StatusIdentityJson = IdentityJson & { active?: boolean; sshKeyPath?: string };
 
 /** Shape of `git colabor identity status --json` data. */
 export type StatusJson = {
@@ -38,6 +38,7 @@ export type StatusJson = {
   managed: boolean;
   managedBy: string | null;
   heldBy: HeldByJson | null;
+  signing: { enabled: boolean; key: string | null };
   activeIdentity: IdentityJson | null;
   identities: StatusIdentityJson[];
   selected: CoAuthorBriefJson[];
