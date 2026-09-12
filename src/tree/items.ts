@@ -13,6 +13,8 @@ export type ItemOpts = {
   tooltip?: string | vscode.MarkdownString;
   collapsible?: vscode.TreeItemCollapsibleState;
   icon?: string;
+  /** ThemeColor id (e.g. 'gitDecoration.addedResourceForeground') tinting the icon. */
+  iconColor?: string;
   command?: vscode.Command;
   /** Data for context-menu commands (menus pass the TreeItem, not command arguments). */
   payload?: { id?: string; name: string; email: string };
@@ -28,7 +30,7 @@ export class ColaborItem extends vscode.TreeItem {
     this.contextValue = kind;
     this.description = opts.description;
     this.tooltip = opts.tooltip;
-    if (opts.icon) this.iconPath = new vscode.ThemeIcon(opts.icon);
+    if (opts.icon) this.iconPath = new vscode.ThemeIcon(opts.icon, opts.iconColor ? new vscode.ThemeColor(opts.iconColor) : undefined);
     this.command = opts.command;
     this.payload = opts.payload;
   }

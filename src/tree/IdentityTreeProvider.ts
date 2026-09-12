@@ -134,18 +134,23 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const s = this.status!;
     const memoryMap = coAuthorMemoryScopeMap(s.identities.map((i) => i.email));
     return s.identities.map((i) => {
-      const item = new ColaborItem(`${i.isDefault ? '$(star) ' : ''}${i.name}`, i.active ? 'active-identity' : 'identity', {
-        description: `${i.email}${i.hasKey ? ' 🔑' : ''}${i.imported ? ' · imported' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${i.imported ? '\n(imported from repo history)' : ''}`,
-        icon: i.active ? 'check' : 'person',
+      // icon shape stays uniform (person / check); GREEN = has a usable key;
+      // the verified check-badge appears only while the repo signs with this
+      // identity's key (tree labels render $(codicon) literally — no label icons)
+      const signingWithThisKey =
+        !!s.signing?.enabled && !!s.signing.key && s.signing.key === (i as { sshKeyPath?: string }).sshKeyPath;
+      const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'person';
+      const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
+        description: `${i.email}${i.isDefault ? ' · default' : ''}${i.imported ? ' · imported' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.imported ? '\n(imported from repo history)' : ''}`,
+        icon,
+        iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -u/-w = remembered in
       // that settings layer, -g = imported from repo history (remove becomes
       // hide), -k = has a usable key (can sign), -s = repo signs with THIS key
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
-      const signingWithThisKey =
-        !!s.signing?.enabled && !!s.signing.key && s.signing.key === (i as { sshKeyPath?: string }).sshKeyPath;
       item.contextValue =
         item.kind +
         (saved.user ? '-u' : '') +
