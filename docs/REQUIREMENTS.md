@@ -88,6 +88,10 @@ Existing tools cover slices of this (git-mob handles co-authors; nothing handles
 | --- | --- | --- |
 | FR-24 | Machine interface: every CLI command supports `--json` with a stable `{ok, data\|error, warnings}` envelope and documented exit codes 0–6 | ✅ |
 | FR-25 | git-mob compatibility: same `.git-coauthors` format, same trailer semantics, same key generation; does not touch `git-mob.co-author` | ✅ |
+| FR-26 | `identity import`: every distinct repo-history committer becomes a key-less identity automatically on repo open (idempotent; hidden list prevents resurrection after hide) | ✅ |
+| FR-27 | Opt-in SSH commit signing: per-identity right-click toggle / `identity sign` writes `commit.gpgsign` + `gpg.format=ssh` + `user.signingKey`; re-binds to the applied identity while on; never default | ✅ |
+| FR-28 | Session-wide application: identity use / reconcile / signing / state watching operate on every open repository of the window, not just the selected one | ✅ |
+| FR-29 | Identity maintenance UI: right-click modify (name/email/key), settings memory (user/workspace), hide (user/machine/workspace) for imported identities | ✅ |
 
 ## 5. Non-functional requirements
 

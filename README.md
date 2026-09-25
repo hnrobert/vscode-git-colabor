@@ -17,7 +17,9 @@ Full requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
 ## Features
 
-- **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand`, loads the key into `ssh-agent`, and snapshots prior config for one-command revert.
+- **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand`, loads the key into `ssh-agent`, and snapshots prior config for one-command revert. Applies to **every repo open in the window**.
+- **Opt-in commit signing** — right-click any keyed identity → *Sign Commits with This Key* (green icon = has a key, verified badge = signing active); never on by default.
+- **History import** — every committer in the repo's history becomes an identity automatically; hide (user / machine / workspace) the ones you don't want.
 - **Co-authors** — git-mob-compatible `.git-coauthors` catalogue; trailers seeded into the commit template **and** kept in sync with the SCM commit input box.
 - **Safe key handling** — keys are referenced in place (never copied or modified); passphrases live in VS Code SecretStorage and reach `ssh-add` over a UNIX-socket askpass bridge — never on `argv`, never in `ps`, never in logs. A broken key reference degrades to a key-less apply.
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
@@ -52,7 +54,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | Command | Effect |
 | --- | --- |
 | `Use Identity…` | Pick an identity to apply to the current repo |
-| `Add Identity…` / `Remove Identity…` / `Logout Identity` | Manage identities (key files are referenced, never deleted) |
+| `Add Identity…` / `Remove Identity…` / `Logout Identity` | Manage identities (key files are referenced, never deleted); right-click rows to change name/email/key, toggle signing, save to memory, or hide imported ones |
 | `Select Co-authors…` / `Add Co-author…` / `Solo (clear co-authors)` | Co-author selection (the tree's +/- rows toggle the commit message directly) |
 | `Open .git-coauthors` | Edit the catalogue (`~/.git-coauthors`) |
 | `Revert Repo Identity` | Restore pre-tool git config from backup |

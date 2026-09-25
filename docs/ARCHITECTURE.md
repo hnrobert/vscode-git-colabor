@@ -47,13 +47,13 @@ Key decisions:
 | `cli/CliClient.ts` | Spawns `resources/cli.cjs` with `process.execPath` (the VS Code Server's Node — no `$PATH` dependency), injects `GIT_COLABOR_SOURCE=ext` + askpass env, parses the JSON envelope, maps spawn/parse failures to `SPAWN_FAILED` / `BAD_JSON` |
 | `askpass/AskpassServer.ts` | `node:net` UNIX socket `<dataDir>/askpass-<sessionId>.sock` (dir `0700`, socket `0600`); one request per connection: `{"token","fingerprint"}` → passphrase bytes; silent close on any failure so callers fall through |
 | `secrets/Secrets.ts` | SecretStorage wrapper; keys `ssh-pass:<fingerprint>` |
-| `git-ext/GitApi.ts` | Minimal typed wrapper over `vscode.git` API v1: repositories, open/close/`ui.onDidChange` subscription, selected-repo resolution |
+| `git-ext/GitApi.ts` | Minimal typed wrapper over `vscode.git` API v1: repositories, open/close/`ui.onDidChange` subscription, selected-repo resolution **and `repoRoots` (all open repos — identity actions apply session-wide)** |
 | `tree/IdentityTreeProvider.ts`, `tree/items.ts` | SCM view `gitColabor.identitiesView`: guidance rows only at the top (no repo / no active identity — the active identity is NOT duplicated at root; the Identities group marks it ✓), Identities group, and **one merged Co-authors list** (`.git-coauthors` catalogue ∪ all identities minus the active one ∪ `gitColabor.coAuthorIdentities` memory in user/machine/workspace layers ∪ repo commit history, email-deduped; empty state explains how to add) whose rows show `+`/`-` by whether the author's trailer is in the SCM input box (polled — the git API has no inputBox change event; no context menu on these rows — clicking toggles the trailer); identity rows instead carry the memory bits in their contextValue, driving the right-click "save/remove as co-author memory" menu (per scope, three items) |
 | `statusbar/StatusBar.ts` | `$(person) name · +N`; click → identity picker |
 | `scm/Sync.ts` | Idempotent reseed of `Co-authored-by:` trailers into the SCM input box (skip when the sorted-email key is unchanged) |
 | `reconcile/ReconcileController.ts` | Setting-wins enforcement (§6) |
 | `commands.ts` | All palette commands + internal tree-click commands |
-| `config.ts`, `log.ts`, `types.ts` | Settings access, output channel, local mirror of the CLI JSON types |
+| `config.ts`, `log.ts`, `types.ts` | Settings access (incl. `gitColabor.coAuthorIdentities` user/workspace memory), output channel, local mirror of the CLI JSON types (`StatusJson` incl. `signing`) |
 
 ## 3. The `--json` bridge
 
@@ -107,7 +107,7 @@ sequenceDiagram
 
 `ReconcileController` enforces VS Code settings over whatever else (including the user's terminal) has touched the repo:
 
-1. Resolve the repo (`vscode.git` selection). No repo → no-op.
+1. Resolve **every open repository** of the session (`vscode.git`); none → no-op. Identity application, reconcile, signing toggles, and state watching all operate session-wide — one window, one identity configuration, every repo.
 2. `identity status` → `activeId = activeIdentity ?? gitColabor.defaultIdentity`.
 3. If an id resolves: `identity use <id> --source ext`, adding `--as-name`/`--as-email` **only when both** `gitColabor.user.name` and `.email` are set — settings always win over the identity's own fields (the SSH key still comes from the identity).
 4. Else if both name+email settings exist (no identity): hidden `identity _apply --name --email --source ext`.
@@ -119,7 +119,7 @@ sequenceDiagram
 
 | Watcher | Event | Action |
 | --- | --- | --- |
-| `fs.watch(<repo>/.git/colabor/state.json)` | terminal `git colabor` ran out-of-band | 300 ms debounce → tree/statusbar refresh only |
+| `fs.watch(<each repo>/.git/colabor/state.json)` (one watcher per open repo) | terminal `git colabor` ran out-of-band in any repo | 300 ms debounce → tree/statusbar refresh only |
 | `onDidSaveTextDocument` | `.git-coauthors` saved | refresh |
 | `vscode.git` subscription | repo open/close, selection change | 400 ms debounce → reconcile + refresh |
 | `provider.onDidReload` | every reload | status bar update + ScmSync reseed |

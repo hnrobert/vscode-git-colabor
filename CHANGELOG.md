@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed — security model
+
+- **Keys are referenced in place, never copied**: `identity add --key` records the source path + fingerprint; the file is never modified or deleted by the tool. A broken reference (moved/rotated source) degrades to a **key-less apply** (no `core.sshCommand`, `key-missing` warning) and recovers when the file returns. `identity logout` removes the key from `ssh-agent` only.
+- Identity memory (`gitColabor.coAuthorIdentities`) now lives in two settings layers only — user and workspace; the machine level is the identity store itself.
+
+### Added
+
+- `git colabor identity import` — add every distinct repo-history committer as a key-less identity (idempotent; hidden-email list keeps removed imports from resurrecting; a manual re-add un-hides). Runs automatically when the extension opens a repo.
+- `git colabor identity set` — edit an identity in place (name / email / key / passphrase-command).
+- **Opt-in SSH commit signing** — `git colabor identity sign <id> [--off]` and a right-click toggle on identity rows; writes `commit.gpgsign` + `gpg.format=ssh` + `user.signingKey`, re-binding to the applied identity while enabled. Never on by default.
+- One **merged Co-authors list** with git-mob-style `+`/`-` rows that follow the SCM commit-message input box; candidates merge the `.git-coauthors` catalogue, all identities (minus the active one), settings memory, and repo commit history.
+- Identity right-click menus: modify section (change name/email/key), per-scope memory, and hide (user/machine/workspace) for history-imported identities.
+- **Session-wide identity application** — one window applies identities, reconcile, and signing across every open repository (incl. multi-root and submodules).
+- `build-scripts/remote-dev.sh` — one-command remote deploy (vsix into the host's vscode-server) with marker-driven full window reload; `~/.ssh` private-key picker on identity add; themed tree icons (green = key, verified badge = signing).
+
+### Fixed
+
+- `vscode.git` API acquisition raced activation under Remote-SSH — now awaited with backoff and clear failure logging.
+- Context-menu commands act on the right-clicked identity directly instead of re-opening a picker.
+
 ## [0.1.0] - 2026-07-05
 
 Initial public cut: multi-identity + co-author management for git, as a CLI (`git-colabor`, bundled here as a submodule) and a VS Code extension that drives it over a typed `--json` bridge.
