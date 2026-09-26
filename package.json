@@ -245,7 +245,7 @@
       "scm": [
         {
           "id": "gitColabor.identitiesView",
-          "name": "Colabor: Identity & Co-authors",
+          "name": "Git Colabor: Identity & Co-authors",
           "icon": "git-colabor/assets/images/git-co-author-enhanced-outline.png"
         }
       ]

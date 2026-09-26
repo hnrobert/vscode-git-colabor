@@ -41,7 +41,7 @@ Initial public cut: multi-identity + co-author management for git, as a CLI (`gi
 
 ### Added — VS Code extension
 
-- SCM view **Colabor: Identity & Co-authors** — active identity, identities, selected and available co-authors, with click-to-switch and inline actions.
+- SCM view **Git Colabor: Identity & Co-authors** — active identity, identities, selected and available co-authors, with click-to-switch and inline actions.
 - Status bar indicator; commands for identity use / add / remove / logout / revert / audit / doctor.
 - Passphrase storage in VS Code SecretStorage; SSH keys stored `0600` (`icacls` on Windows) under the git-colabor config dir.
 - Reconcile controller — settings-win enforcement (`gitColabor.user.*`, `defaultIdentity`), debounced re-apply on external git config / state changes, multi-session `heldBy` conflict warnings.
