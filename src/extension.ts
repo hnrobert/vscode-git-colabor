@@ -24,7 +24,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sessionId = 'ext_' + randomBytes(4).toString('hex');
   const secrets = new Secrets(context.secrets);
 
-  askpass = new AskpassServer({ sessionId, secretLookup: (fp) => secrets.get(fp), log: logger });
+  // Session-scoped key passphrases (in-memory only — a Remote-SSH reconnect
+  // restarts the extension host, so every new connection re-prompts). They
+  // take priority over SecretStorage in the askpass lookup chain.
+  const sessionPassphrases = new Map<string, string>();
+
+  askpass = new AskpassServer({
+    sessionId,
+    secretLookup: async (fp) => sessionPassphrases.get(fp) ?? (await secrets.get(fp)),
+    log: logger,
+  });
   let askpassInfo: { socketPath: string; token: string } | undefined;
   try {
     askpassInfo = await askpass.start();
@@ -92,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, 2000);
   context.subscriptions.push({ dispose() { clearInterval(reloadPoll); } });
 
-  registerCommands(context, { cli, git, secrets, log: logger, provider });
+  registerCommands(context, { cli, git, secrets, log: logger, provider, sessionPassphrases });
 
   // refresh = re-seed state watchers (one per open repo) + reload the tree
   let watchedRepos = new Set<string>();

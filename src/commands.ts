@@ -17,6 +17,8 @@ export type CommandDeps = {
   secrets: Secrets;
   log: vscode.LogOutputChannel;
   provider?: IdentityTreeProvider;
+  /** session-scoped key passphrases (fingerprint → passphrase); in-memory only */
+  sessionPassphrases: Map<string, string>;
 };
 
 export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
@@ -161,22 +163,76 @@ async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
   await applyUse(deps, id, cwd);
 }
 
+type UseResult = Extract<JsonResult, { ok: true }> | Extract<JsonResult, { ok: false }>;
+
+/** The use result needs a passphrase we don't have (encrypted key, not loaded). */
+function needsPassphrase(r: UseResult): string | undefined {
+  if (!r.ok) return undefined;
+  const d = r.data as { identity?: { keyEncrypted?: boolean; sshKeyFingerprint?: string }; keyLoaded?: { loaded: boolean } | null };
+  if (d.identity?.keyEncrypted && d.identity.sshKeyFingerprint && d.keyLoaded && !d.keyLoaded.loaded) {
+    return d.identity.sshKeyFingerprint;
+  }
+  return undefined;
+}
+
 async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<void> {
   // one session, one identity configuration: apply to EVERY open repository
   const roots = deps.git.repoRoots.length > 0 ? deps.git.repoRoots : [cwd];
   const conflicts: string[] = [];
+  const disabledRepos: string[] = [];
+
+  const useIn = (root: string) => deps.cli.run(['identity', 'use', id, '--source', 'ext'], { cwd: root });
+
   for (const root of roots) {
-    const r = await deps.cli.run(['identity', 'use', id, '--source', 'ext'], { cwd: root });
+    let r = await useIn(root);
     if (!r.ok) {
       reportError(r);
+      continue;
+    }
+    // encrypted key that did not load → prompt once per key (this connection),
+    // retry once; wrong passphrase / cancelled prompt / any other failure
+    // disables the identity in this repo and leaves it identity-less
+    let fp = needsPassphrase(r);
+    if (fp && !deps.sessionPassphrases.has(fp)) {
+      const pass = await vscode.window.showInputBox({
+        prompt: `Passphrase for key ${fp}`,
+        password: true,
+        placeHolder: 'kept for this connection only — re-entered on reconnect',
+      });
+      if (pass === undefined) {
+        await disableIdentityIn(deps, id, root);
+        disabledRepos.push(root);
+        continue;
+      }
+      deps.sessionPassphrases.set(fp, pass);
+      r = await useIn(root); // retry with the fresh passphrase
+      fp = needsPassphrase(r);
+    }
+    if (fp) {
+      deps.sessionPassphrases.delete(fp); // wrong passphrase — drop it
+      await disableIdentityIn(deps, id, root);
+      disabledRepos.push(root);
       continue;
     }
     const heldBy = (r.data as { conflict?: { heldBy?: { session: string } } | null })?.conflict?.heldBy;
     if (heldBy) conflicts.push(`${root}: ${heldBy.session}`);
   }
+
+  if (disabledRepos.length > 0) {
+    vscode.window.showWarningMessage(
+      `Git Colabor: passphrase wrong or cancelled — identity disabled, repo left without an active identity (${disabledRepos.join(', ')}). Click the identity to retry.`,
+    );
+  }
   if (conflicts.length > 0) {
     vscode.window.showWarningMessage(`Git Colabor: overridden — held by ${conflicts.join(', ')}.`);
   }
+}
+
+/** Disable the identity and deactivate it in one repo (passphrase failure flow). */
+async function disableIdentityIn(deps: CommandDeps, id: string, root: string): Promise<void> {
+  const r = await deps.cli.run(['identity', 'disable', id], { cwd: root });
+  if (!r.ok) reportError(r);
+  else deps.log.warn(`identity ${id} disabled (repo ${root} left without an active identity)`);
 }
 
 type KeyPickItem = vscode.QuickPickItem & { path?: string; skip?: boolean; clear?: boolean };
@@ -234,7 +290,20 @@ async function addIdentity(deps: CommandDeps): Promise<void> {
   const args = ['identity', 'add', '--name', name, '--email', email];
   if (key && key.trim()) args.push('--key', key.trim());
   if (pc && pc.trim()) args.push('--passphrase-command', pc.trim());
-  await run(deps, args);
+  const data = await run<{ identity: IdentityJson; encrypted: boolean | null }>(deps, args);
+  // encrypted key without a passphrase command → collect the passphrase now;
+  // it lives in memory for THIS connection only (reconnects re-prompt)
+  if (data?.encrypted === true && !pc && data.identity.sshKeyFingerprint) {
+    const pass = await vscode.window.showInputBox({
+      prompt: `Passphrase for key ${data.identity.sshKeyFingerprint}`,
+      password: true,
+      placeHolder: 'kept for this connection only — re-entered on reconnect',
+    });
+    if (pass !== undefined) {
+      deps.sessionPassphrases.set(data.identity.sshKeyFingerprint, pass);
+      deps.log.info(`session passphrase stored for ${data.identity.sshKeyFingerprint}`);
+    }
+  }
 }
 
 async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> {

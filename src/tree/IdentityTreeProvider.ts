@@ -141,8 +141,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         !!s.signing?.enabled && !!s.signing.key && s.signing.key === (i as { sshKeyPath?: string }).sshKeyPath;
       const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'person';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
-        description: `${i.email}${i.isDefault ? ' · default' : ''}${i.imported ? ' · imported' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.imported ? '\n(imported from repo history)' : ''}`,
+        description: `${i.email}${i.isDefault ? ' · default' : ''}${i.imported ? ' · imported' : ''}${i.disabled ? ' · disabled' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.imported ? '\n(imported from repo history)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },

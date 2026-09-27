@@ -13,7 +13,9 @@ export type IdentityJson = {
   sshKeyFingerprint?: string;
   host?: string;
   hasKey: boolean;
+  keyEncrypted?: boolean;
   imported?: boolean;
+  disabled?: boolean;
   isDefault: boolean;
 };
 

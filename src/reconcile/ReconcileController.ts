@@ -40,6 +40,15 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
   const status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
   const activeId = status?.activeIdentity?.id ?? defaultIdentity();
 
+  // A disabled identity (passphrase failure flow) must NOT be re-applied by
+  // reconcile — `identity use` would silently re-enable it. Leave the repo
+  // identity-less until the user explicitly clicks the identity again.
+  const resolved = status?.identities.find((i) => i.id === activeId);
+  if (status?.activeIdentity?.disabled || resolved?.disabled) {
+    logger.info(`reconcile[${root}]: identity ${activeId} is disabled — leaving repo identity-less`);
+    return;
+  }
+
   if (activeId) {
     const args = ['identity', 'use', activeId, '--source', 'ext'];
     if (name && email) {
