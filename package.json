@@ -110,7 +110,7 @@
         "command": "gitColabor.useIdentity",
         "title": "Use Identity…",
         "category": "Git Colabor",
-        "icon": "$(getting-started-item-checked)"
+        "icon": "$(pass-filled)"
       },
       {
         "command": "gitColabor.addIdentity",
@@ -128,7 +128,7 @@
         "command": "gitColabor.logoutIdentity",
         "title": "Logout Identity",
         "category": "Git Colabor",
-        "icon": "$(getting-started-item-unchecked)"
+        "icon": "$(circle-large-outline)"
       },
       {
         "command": "gitColabor.selectCoAuthors",
