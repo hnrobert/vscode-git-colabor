@@ -52,7 +52,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 remote_server_dir() {
   local want_commit
   want_commit="$(code --version | sed -n 2p)"
-  ssh "$HOST" "
+  ssh -o IdentitiesOnly=yes "$HOST" "
     s=\$(ls -d ~/.vscode-server/cli/servers/Stable-$want_commit/server 2>/dev/null | head -1)
     [ -n \"\$s\" ] || s=\$(ls -d ~/.vscode-server/cli/servers/Stable-*/server 2>/dev/null | sort -V | tail -1)
     [ -n \"\$s\" ] || { echo 'no vscode-server found on host' >&2; exit 1; }
@@ -65,14 +65,14 @@ remote_server_dir() {
 # mtime changes. (Windows running a build from before this mechanism need
 # one last manual "Developer: Reload Window".)
 touch_reload_marker() {
-  ssh "$HOST" 'mkdir -p "$HOME/.config/git-colabor" && touch "$HOME/.config/git-colabor/dev-reload"'
+  ssh -o IdentitiesOnly=yes "$HOST" 'mkdir -p "$HOME/.config/git-colabor" && touch "$HOME/.config/git-colabor/dev-reload"'
 }
 
 # Provision the demo repo on the host (idempotent): a short history with
 # several committers (so identity auto-import has candidates the moment the
 # window opens) plus a .git-coauthors catalogue.
 setup_demo_repo() {
-  ssh "$HOST" '
+  ssh -o IdentitiesOnly=yes "$HOST" '
     set -e
     dir="'"$REMOTE_DIR"'"
     if [ -d "$dir/.git" ]; then
@@ -113,15 +113,15 @@ do_install() {
   # \$HOME so the path expands on the host, not locally (remote $HOME may
   # differ, and a literal ~ would not expand inside the quoted command).
   REMOTE_VSIX="\$HOME/git-colabor-dev.vsix"
-  ssh "$HOST" "cat > $REMOTE_VSIX" < "$VSIX"
+  ssh -o IdentitiesOnly=yes "$HOST" "cat > $REMOTE_VSIX" < "$VSIX"
 
   echo "==> install into vscode-server on $HOST"
   SERVER="$(remote_server_dir)"
-  ssh "$HOST" "\"$SERVER/node\" \"$SERVER/out/server-main.js\" --install-extension \"$REMOTE_VSIX\" --force"
-  ssh "$HOST" "rm -f $REMOTE_VSIX"
+  ssh -o IdentitiesOnly=yes "$HOST" "\"$SERVER/node\" \"$SERVER/out/server-main.js\" --install-extension \"$REMOTE_VSIX\" --force"
+  ssh -o IdentitiesOnly=yes "$HOST" "rm -f $REMOTE_VSIX"
 
   echo "==> verify"
-  if ssh "$HOST" "\"$SERVER/node\" \"$SERVER/out/server-main.js\" --list-extensions --show-versions" | grep -F "hnrobert.vscode-git-colabor@"; then
+  if ssh -o IdentitiesOnly=yes "$HOST" "\"$SERVER/node\" \"$SERVER/out/server-main.js\" --list-extensions --show-versions" | grep -F "hnrobert.vscode-git-colabor@"; then
     echo "    installed server-side ✓"
   else
     echo "    ERROR: extension not found in server list" >&2
@@ -142,7 +142,7 @@ within ~2s (windows still running a pre-marker build need one last manual
 case "$COMMAND" in
   dev)
     if [ -z "${3:-}" ]; then
-      REMOTE_DIR="$(ssh "$HOST" 'echo "$HOME/git-colabor-demo"')"
+      REMOTE_DIR="$(ssh -o IdentitiesOnly=yes "$HOST" 'echo "$HOME/git-colabor-demo"')"
     else
       REMOTE_DIR="$3"
     fi
@@ -156,12 +156,12 @@ case "$COMMAND" in
     ;;
 
   logs)
-    ssh "$HOST" 'LOGS=$(ls -td ~/.vscode-server/data/logs/*/ 2>/dev/null | head -1); find "$LOGS" -path "*exthost*" -name "*.log" 2>/dev/null | head -3 | xargs -r tail -f'
+    ssh -o IdentitiesOnly=yes "$HOST" 'LOGS=$(ls -td ~/.vscode-server/data/logs/*/ 2>/dev/null | head -1); find "$LOGS" -path "*exthost*" -name "*.log" 2>/dev/null | head -3 | xargs -r tail -f'
     ;;
 
   status)
     SERVER="$(remote_server_dir)"
     echo "server: $HOST:$SERVER"
-    ssh "$HOST" "\"$SERVER/node\" \"$SERVER/out/server-main.js\" --list-extensions --show-versions" | grep -i "vscode-git-colabor" || echo "(git-colabor not installed on $HOST)"
+    ssh -o IdentitiesOnly=yes "$HOST" "\"$SERVER/node\" \"$SERVER/out/server-main.js\" --list-extensions --show-versions" | grep -i "vscode-git-colabor" || echo "(git-colabor not installed on $HOST)"
     ;;
 esac

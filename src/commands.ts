@@ -370,6 +370,14 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
         && c.publicEmail.toLowerCase() !== c.attributedEmail?.toLowerCase()) {
       items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: `public email${stats}`, name, email: c.publicEmail });
     }
+    // extra emails mined from the user's public commits (profile email is
+    // often null — e.g. hnrobert@qq.com shows up here for the hnrobert login)
+    for (const email of c.commitEmails ?? []) {
+      if (email.toLowerCase() === c.noreplyEmail.toLowerCase()) continue;
+      if (email.toLowerCase() === c.attributedEmail?.toLowerCase()) continue;
+      if (email.toLowerCase() === c.publicEmail?.toLowerCase()) continue;
+      items.push({ label: `$(git-commit) ${label}`, description: email, detail: `seen in public commits${stats}`, name, email });
+    }
   }
   if (items.length === 0) {
     if (parsed.kind === 'email') {

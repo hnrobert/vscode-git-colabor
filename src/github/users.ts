@@ -28,6 +28,8 @@ export type IdentityCandidate = {
    * instead and this stays undefined.
    */
   attributedEmail?: string;
+  /** extra emails seen in the user's PUBLIC commits (profile email often null) */
+  commitEmails?: string[];
 };
 
 export type ParsedQuery = { kind: 'login'; login: string } | { kind: 'email'; email: string };
@@ -82,16 +84,46 @@ const asCandidate = (user: GitHubUser): IdentityCandidate => ({
   publicEmail: user.publicEmail,
 });
 
+/**
+ * Emails a login has used in PUBLIC commits (`author:<login>` commit search,
+ * first page): surfaces bound-but-not-profile emails like hnrobert@qq.com
+ * even when the profile email is null. Returns distinct non-noreply emails
+ * sorted by frequency.
+ */
+async function commitEmailsOfLogin(login: string): Promise<string[]> {
+  const search = await ghFetch<{ items: { commit: { author: { email?: string } } }[] }>(
+    `/search/commits?q=${encodeURIComponent(`author:${login}`)}&sort=author-date&order=desc&per_page=100`,
+  );
+  if (!search?.items?.length) return [];
+  const counts = new Map<string, number>();
+  for (const it of search.items) {
+    const email = it.commit?.author?.email?.toLowerCase();
+    if (!email || email.endsWith('@users.noreply.github.com')) continue;
+    counts.set(email, (counts.get(email) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
+}
+
+/** Attach commit-mined emails as extra options to a candidate. */
+async function withCommitEmails(c: IdentityCandidate): Promise<IdentityCandidate> {
+  try {
+    const emails = await commitEmailsOfLogin(c.user.login);
+    return { ...c, commitEmails: emails.slice(0, 3) };
+  } catch {
+    return c; // mining is best-effort — the noreply option always exists
+  }
+}
+
 /** Exact user, else login-prefix search results (details enriched for the top 5). */
 async function byLogin(login: string): Promise<IdentityCandidate[]> {
   const exact = await getUser(login);
-  if (exact) return [asCandidate(exact)];
+  if (exact) return [await withCommitEmails(asCandidate(exact))];
   const search = await ghFetch<{ items: { login: string }[] }>(
     `/search/users?q=${encodeURIComponent(login)}&per_page=5`,
   );
   if (!search || search.items.length === 0) return [];
   const users = await Promise.all(search.items.map((i) => getUser(i.login)));
-  return users.filter((u): u is GitHubUser => !!u).map(asCandidate);
+  return Promise.all(users.filter((u): u is GitHubUser => !!u).map((u) => withCommitEmails(asCandidate(u))));
 }
 
 /** Aggregate commit-search items into per-login stats (pure — unit-tested). */
