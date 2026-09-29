@@ -218,7 +218,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       const item = new ColaborItem(a.name, 'coauthor-item', {
         description: a.email,
         tooltip: `${a.name} <${a.email}>\nclick to ${isInMessage ? 'remove' : 'append'} in the commit message`,
-        icon: isInMessage ? 'dash' : 'plus',
+        icon: isInMessage ? 'diff-remove' : 'diff-insert',
       });
       item.command = {
         command: 'gitColabor._toggleCoAuthor',
