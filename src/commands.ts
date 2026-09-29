@@ -166,14 +166,31 @@ async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
 
 type UseResult = Extract<JsonResult, { ok: true }> | Extract<JsonResult, { ok: false }>;
 
-/** The use result needs a passphrase we don't have (encrypted key, not loaded). */
+/**
+ * The use result has a key that did not load (encrypted key, agent missing,
+ * legacy identities without the keyEncrypted flag) → prompt for a passphrase.
+ * Returns the fingerprint to prompt for.
+ */
 function needsPassphrase(r: UseResult): string | undefined {
   if (!r.ok) return undefined;
-  const d = r.data as { identity?: { keyEncrypted?: boolean; sshKeyFingerprint?: string }; keyLoaded?: { loaded: boolean } | null };
-  if (d.identity?.keyEncrypted && d.identity.sshKeyFingerprint && d.keyLoaded && !d.keyLoaded.loaded) {
+  const d = r.data as {
+    identity?: { hasKey?: boolean; sshKeyFingerprint?: string };
+    keyLoaded?: { loaded: boolean } | null;
+  };
+  if (d.identity?.hasKey && d.identity.sshKeyFingerprint && d.keyLoaded && !d.keyLoaded.loaded) {
     return d.identity.sshKeyFingerprint;
   }
   return undefined;
+}
+
+/** "no ssh-agent running" — the key still works at push time via the askpass
+ * prefix baked into core.sshCommand, so this is not a disable-worthy failure
+ * once we hold the passphrase. */
+function agentMissing(r: UseResult): boolean {
+  if (!r.ok) return false;
+  const d = r.data as { keyLoaded?: { message?: string; via?: string } | null };
+  const text = `${d.keyLoaded?.message ?? ''} ${d.keyLoaded?.via ?? ''}`;
+  return text.includes('Could not open a connection');
 }
 
 async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<void> {
@@ -210,10 +227,17 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
       fp = needsPassphrase(r);
     }
     if (fp) {
-      deps.sessionPassphrases.delete(fp); // wrong passphrase — drop it
-      await disableIdentityIn(deps, id, root);
-      disabledRepos.push(root);
-      continue;
+      // no ssh-agent on the host → the agent load can never succeed, but the
+      // passphrase still unlocks the key at push time via SSH_ASKPASS; treat
+      // as usable. Anything else (wrong passphrase, other failures) disables.
+      if (agentMissing(r) && deps.sessionPassphrases.has(fp)) {
+        deps.log.info(`no ssh-agent on host — key ${fp} will unlock at push time via askpass`);
+      } else {
+        deps.sessionPassphrases.delete(fp); // wrong passphrase — drop it
+        await disableIdentityIn(deps, id, root);
+        disabledRepos.push(root);
+        continue;
+      }
     }
     const heldBy = (r.data as { conflict?: { heldBy?: { session: string } } | null })?.conflict?.heldBy;
     if (heldBy) conflicts.push(`${root}: ${heldBy.session}`);
