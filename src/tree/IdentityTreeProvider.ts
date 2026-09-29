@@ -139,7 +139,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // identity's key (tree labels render $(codicon) literally — no label icons)
       const signingWithThisKey =
         !!s.signing?.enabled && !!s.signing.key && s.signing.key === (i as { sshKeyPath?: string }).sshKeyPath;
-      const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'person';
+      const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
         description: `${i.email}${i.isDefault ? ' · default' : ''}${i.imported ? ' · imported' : ''}${i.disabled ? ' · disabled' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.imported ? '\n(imported from repo history)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
