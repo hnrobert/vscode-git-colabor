@@ -260,11 +260,6 @@
     "menus": {
       "view/title": [
         {
-          "command": "gitColabor.useIdentity",
-          "when": "view == gitColabor.identitiesView",
-          "group": "navigation@1"
-        },
-        {
           "command": "gitColabor.addIdentity",
           "when": "view == gitColabor.identitiesView",
           "group": "navigation@2"
