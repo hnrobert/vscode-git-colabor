@@ -356,9 +356,12 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
   const items: PickItem[] = [];
   for (const c of candidates) {
     const label = `${c.user.name ?? c.user.login} (${c.user.login})`;
-    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: 'private (noreply)', name: c.user.name ?? c.user.login, email: c.noreplyEmail });
+    const stats = c.stats
+      ? ` · ${c.stats.commits} public commits · ${c.stats.repos} repos${c.stats.lastSeen ? ` · last ${c.stats.lastSeen.slice(0, 7)}` : ''}`
+      : '';
+    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: `private (noreply)${stats}`, name: c.user.name ?? c.user.login, email: c.noreplyEmail });
     if (c.publicEmail && c.publicEmail.toLowerCase() !== c.noreplyEmail.toLowerCase()) {
-      items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: 'public email', name: c.user.name ?? c.user.login, email: c.publicEmail });
+      items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: `public email${stats}`, name: c.user.name ?? c.user.login, email: c.publicEmail });
     }
   }
   if (items.length === 0) {

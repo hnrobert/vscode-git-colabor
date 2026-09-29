@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseGitHubQuery } from '../../src/github/users.js';
+import { aggregateCommitHits, parseGitHubQuery } from '../../src/github/users.js';
 
 describe('parseGitHubQuery', () => {
   it('parses profile URLs (scheme, www, trailing slash)', () => {
@@ -18,6 +18,8 @@ describe('parseGitHubQuery', () => {
       kind: 'login',
       login: 'octocat',
     });
+    // old login-only noreply format
+    expect(parseGitHubQuery('alice@users.noreply.github.com')).toEqual({ kind: 'login', login: 'alice' });
   });
 
   it('parses plain and noreply-looking emails as email queries', () => {
@@ -33,5 +35,26 @@ describe('parseGitHubQuery', () => {
     expect(parseGitHubQuery('   ')).toBeUndefined();
     expect(parseGitHubQuery('https://gitlab.com/foo')).toBeUndefined();
     expect(parseGitHubQuery('not a query!!')).toBeUndefined();
+  });
+});
+
+describe('aggregateCommitHits', () => {
+  const hit = (login: string | null, repo: string, date: string) => ({
+    author: login ? { login } : null,
+    commit: { author: { date } },
+    repository: { full_name: repo },
+  });
+
+  it('counts commits, distinct repos, and last-seen per login; skips unlinked commits', () => {
+    const agg = aggregateCommitHits([
+      hit('alice', 'a/repo', '2026-09-01T00:00:00Z'),
+      hit('alice', 'a/repo', '2026-08-01T00:00:00Z'),
+      hit('alice', 'other/repo', '2025-01-01T00:00:00Z'),
+      hit('alice-dev', 'a/repo', '2023-04-05T00:00:00Z'),
+      hit(null, 'a/repo', '2026-09-20T00:00:00Z'), // not linked to an account
+    ]);
+    expect(agg.size).toBe(2);
+    expect(agg.get('alice')).toMatchObject({ commits: 3, repos: new Set(['a/repo', 'other/repo']), lastSeen: '2026-09-01T00:00:00Z' });
+    expect(agg.get('alice-dev')).toMatchObject({ commits: 1, repos: new Set(['a/repo']), lastSeen: '2023-04-05T00:00:00Z' });
   });
 });

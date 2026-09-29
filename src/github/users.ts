@@ -19,6 +19,8 @@ export type IdentityCandidate = {
   /** derived private address: `${id}+${login}@users.noreply.github.com` */
   noreplyEmail: string;
   publicEmail?: string;
+  /** public-activity evidence from GitHub commit attribution (email search) */
+  stats?: { commits: number; repos: number; lastSeen?: string };
 };
 
 export type ParsedQuery = { kind: 'login'; login: string } | { kind: 'email'; email: string };
@@ -27,8 +29,8 @@ export type ParsedQuery = { kind: 'login'; login: string } | { kind: 'email'; em
 export function parseGitHubQuery(raw: string): ParsedQuery | undefined {
   const s = raw.trim();
   if (!s) return undefined;
-  // a noreply address resolves straight back to the login
-  const noreply = s.match(/^(\d+)\+([^@+]+)@users\.noreply\.github\.com$/i);
+  // a noreply address resolves straight back to the login (new id+login and old login-only formats)
+  const noreply = s.match(/^(?:(\d+)\+)?([^@+]+)@users\.noreply\.github\.com$/i);
   if (noreply) return { kind: 'login', login: noreply[2] };
   // @handle must be checked before the generic email branch (it contains @)
   const handle = s.match(/^@([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})$/);
@@ -85,21 +87,78 @@ async function byLogin(login: string): Promise<IdentityCandidate[]> {
   return users.filter((u): u is GitHubUser => !!u).map(asCandidate);
 }
 
-/** Email search only matches PUBLIC profile emails — the noreply address is
- * still derived for every hit so a "private" identity email is always offered. */
+/** Aggregate commit-search items into per-login stats (pure — unit-tested). */
+export type RawCommitHit = {
+  author: { login: string } | null;
+  commit: { author: { date?: string } };
+  repository: { full_name: string };
+};
+
+export function aggregateCommitHits(items: RawCommitHit[]): Map<string, { commits: number; repos: Set<string>; lastSeen?: string }> {
+  const byLogin = new Map<string, { commits: number; repos: Set<string>; lastSeen?: string }>();
+  for (const it of items) {
+    const login = it.author?.login;
+    if (!login) continue; // commit not linked to a GitHub account
+    const agg = byLogin.get(login) ?? { commits: 0, repos: new Set<string>(), lastSeen: undefined };
+    agg.commits += 1;
+    agg.repos.add(it.repository.full_name);
+    if (it.commit.author.date && (!agg.lastSeen || it.commit.author.date > agg.lastSeen)) {
+      agg.lastSeen = it.commit.author.date;
+    }
+    byLogin.set(login, agg);
+  }
+  return byLogin;
+}
+
+/**
+ * Email resolution runs TWO independent resolvers:
+ *  1. user search `in:email` — only matches PUBLIC profile emails;
+ *  2. commit search `author-email:` — finds accounts whose PUBLIC COMMITS in
+ *     any repo used this email (works even when the profile email is private,
+ *     via GitHub's commit attribution). Each leg degrades independently.
+ * Commit-attribution hits carry stats; the searched email itself is offered
+ * for them (publicly evidenced by those commits).
+ */
 async function byEmail(email: string): Promise<IdentityCandidate[]> {
-  const search = await ghFetch<{ items: { login: string }[] }>(
-    `/search/users?q=${encodeURIComponent(`${email} in:email`)}&per_page=5`,
-  );
-  if (!search || search.items.length === 0) return [];
-  const users = await Promise.all(search.items.map((i) => getUser(i.login)));
-  return users
-    .filter((u): u is GitHubUser => !!u)
-    .map(asCandidate)
-    .map((c) =>
-      // the searched email is public information — surface it as the public one
-      c.user.publicEmail?.toLowerCase() === email.toLowerCase() ? c : { ...c, publicEmail: email },
-    );
+  const [profileHits, commitSearch] = await Promise.allSettled([
+    ghFetch<{ items: { login: string }[] }>(
+      `/search/users?q=${encodeURIComponent(`${email} in:email`)}&per_page=5`,
+    ),
+    ghFetch<{ items: RawCommitHit[] }>(
+      `/search/commits?q=${encodeURIComponent(`author-email:${email}`)}&sort=author-date&order=desc&per_page=100`,
+    ),
+  ]);
+
+  const candidates = new Map<string, IdentityCandidate>();
+
+  if (profileHits.status === 'fulfilled' && profileHits.value?.items.length) {
+    const users = await Promise.all(profileHits.value.items.slice(0, 5).map((i) => getUser(i.login)));
+    for (const u of users) {
+      if (u) candidates.set(u.login, { ...asCandidate(u), publicEmail: email });
+    }
+  }
+
+  if (commitSearch.status === 'fulfilled' && commitSearch.value?.items.length) {
+    const stats = aggregateCommitHits(commitSearch.value.items);
+    const ranked = [...stats.entries()].sort((a, b) => b[1].commits - a[1].commits).slice(0, 5);
+    for (const [login, agg] of ranked) {
+      if (candidates.has(login)) {
+        // already a profile hit — attach the stats as extra evidence
+        candidates.get(login)!.stats = { commits: agg.commits, repos: agg.repos.size, lastSeen: agg.lastSeen };
+        continue;
+      }
+      const u = await getUser(login);
+      if (u) {
+        candidates.set(u.login, {
+          ...asCandidate(u),
+          publicEmail: u.publicEmail ?? email, // the searched email is publicly evidenced by the commits
+          stats: { commits: agg.commits, repos: agg.repos.size, lastSeen: agg.lastSeen },
+        });
+      }
+    }
+  }
+
+  return [...candidates.values()];
 }
 
 export async function searchCandidates(query: ParsedQuery): Promise<IdentityCandidate[]> {
