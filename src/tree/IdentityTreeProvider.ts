@@ -103,10 +103,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const items: ColaborItem[] = [];
 
     items.push(
-      new ColaborItem('Identities', 'identities-group', {
+      new ColaborItem('Identity', 'identities-group', {
         collapsible: vscode.TreeItemCollapsibleState.Expanded,
         description: String(s.identities.length),
-        icon: 'list-selection',
+        icon: 'person',
       }),
     );
 
