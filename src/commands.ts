@@ -356,12 +356,19 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
   const items: PickItem[] = [];
   for (const c of candidates) {
     const label = `${c.user.name ?? c.user.login} (${c.user.login})`;
+    const name = c.user.name ?? c.user.login;
     const stats = c.stats
       ? ` · ${c.stats.commits} public commits · ${c.stats.repos} repos${c.stats.lastSeen ? ` · last ${c.stats.lastSeen.slice(0, 7)}` : ''}`
       : '';
-    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: `private (noreply)${stats}`, name: c.user.name ?? c.user.login, email: c.noreplyEmail });
-    if (c.publicEmail && c.publicEmail.toLowerCase() !== c.noreplyEmail.toLowerCase()) {
-      items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: `public email${stats}`, name: c.user.name ?? c.user.login, email: c.publicEmail });
+    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: `private (noreply)${stats}`, name, email: c.noreplyEmail });
+    // the searched email bound only via commit attribution → PRIVATE address
+    if (c.attributedEmail) {
+      items.push({ label: `$(eye-closed) ${label}`, description: c.attributedEmail, detail: `private email · bound via commits${stats}`, name, email: c.attributedEmail });
+    }
+    // the user's visible profile email (may differ from the searched one)
+    if (c.publicEmail && c.publicEmail.toLowerCase() !== c.noreplyEmail.toLowerCase()
+        && c.publicEmail.toLowerCase() !== c.attributedEmail?.toLowerCase()) {
+      items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: `public email${stats}`, name, email: c.publicEmail });
     }
   }
   if (items.length === 0) {

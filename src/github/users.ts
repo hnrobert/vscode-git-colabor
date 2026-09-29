@@ -21,6 +21,13 @@ export type IdentityCandidate = {
   publicEmail?: string;
   /** public-activity evidence from GitHub commit attribution (email search) */
   stats?: { commits: number; repos: number; lastSeen?: string };
+  /**
+   * The searched email when ONLY commit attribution bound it (the user's
+   * bound-but-not-public address) — rendered as "private email". When the
+   * address is also the public profile email, `publicEmail` carries it
+   * instead and this stays undefined.
+   */
+  attributedEmail?: string;
 };
 
 export type ParsedQuery = { kind: 'login'; login: string } | { kind: 'email'; email: string };
@@ -149,9 +156,12 @@ async function byEmail(email: string): Promise<IdentityCandidate[]> {
       }
       const u = await getUser(login);
       if (u) {
+        const isPublicProfileEmail = u.publicEmail?.toLowerCase() === email.toLowerCase();
         candidates.set(u.login, {
           ...asCandidate(u),
-          publicEmail: u.publicEmail ?? email, // the searched email is publicly evidenced by the commits
+          // the searched email is commit-attributed; only "public" if it is
+          // also the visible profile email, otherwise a private bound address
+          ...(isPublicProfileEmail ? {} : { attributedEmail: email }),
           stats: { commits: agg.commits, repos: agg.repos.size, lastSeen: agg.lastSeen },
         });
       }
