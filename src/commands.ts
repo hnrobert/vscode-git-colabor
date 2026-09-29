@@ -5,6 +5,7 @@ import { pickRepository } from './scm/Sync.js';
 import { appendTrailer, parseCoAuthors, removeTrailerOnce } from './scm/trailers.js';
 import { setCoAuthorMemory, type MemoryScope } from './config.js';
 import { scanPrivateKeys } from './ssh/scanPrivateKeys.js';
+import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from './github/users.js';
 import type { CliClient } from './cli/CliClient.js';
 import type { GitApi } from './git-ext/GitApi.js';
 import type { Secrets } from './secrets/Secrets.js';
@@ -281,10 +282,77 @@ function pickPrivateKey(allowClear = false): Promise<string | null | undefined> 
 }
 
 async function addIdentity(deps: CommandDeps): Promise<void> {
-  const name = await vscode.window.showInputBox({ prompt: 'Identity name', placeHolder: 'Alice Example' });
-  if (!name) return;
-  const email = await vscode.window.showInputBox({ prompt: 'Identity email', placeHolder: 'alice@example.com' });
-  if (!email) return;
+  const source = await vscode.window.showQuickPick(
+    [
+      { label: '$(github) From GitHub…', description: 'search by profile URL, @username, or email', github: true },
+      { label: '$(person-add) Custom identity…', description: 'name + email typed by hand', github: false },
+    ],
+    { placeHolder: 'Add identity — choose a source' },
+  );
+  if (!source) return;
+
+  let name: string | undefined;
+  let email: string | undefined;
+
+  if (source.github) {
+    const picked = await pickFromGitHub();
+    if (!picked) return;
+    name = picked.name;
+    email = picked.email;
+  } else {
+    name = await vscode.window.showInputBox({ prompt: 'Identity name', placeHolder: 'Alice Example' });
+    if (!name) return;
+    email = await vscode.window.showInputBox({ prompt: 'Identity email', placeHolder: 'alice@example.com' });
+    if (!email) return;
+  }
+  await finishIdentity(deps, name, email);
+}
+
+/** GitHub lookup: URL / @handle / login / email in, identity candidate out. */
+async function pickFromGitHub(): Promise<{ name: string; email: string } | undefined> {
+  const raw = await vscode.window.showInputBox({
+    prompt: 'GitHub profile URL, @username, username, or email',
+    placeHolder: 'github.com/octocat / @octocat / octocat / me@example.com',
+  });
+  if (!raw) return undefined;
+  const parsed = parseGitHubQuery(raw);
+  if (!parsed) {
+    vscode.window.showWarningMessage('Git Colabor: could not parse that as a GitHub URL, username, or email.');
+    return undefined;
+  }
+  let candidates: IdentityCandidate[];
+  try {
+    candidates = await searchCandidates(parsed);
+  } catch (e) {
+    vscode.window.showWarningMessage(`Git Colabor: GitHub lookup failed (${e instanceof Error ? e.message : String(e)}).`);
+    return undefined;
+  }
+
+  type PickItem = vscode.QuickPickItem & { name: string; email: string };
+  const items: PickItem[] = [];
+  for (const c of candidates) {
+    const label = `${c.user.name ?? c.user.login} (${c.user.login})`;
+    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: 'private (noreply)', name: c.user.name ?? c.user.login, email: c.noreplyEmail });
+    if (c.publicEmail && c.publicEmail.toLowerCase() !== c.noreplyEmail.toLowerCase()) {
+      items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: 'public email', name: c.user.name ?? c.user.login, email: c.publicEmail });
+    }
+  }
+  if (items.length === 0) {
+    if (parsed.kind === 'email') {
+      // not found on GitHub — offer the typed email as a plain custom identity
+      const fallback = parsed.email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+      items.push({ label: `$(person-add) Add “${parsed.email}” as custom identity`, description: 'no GitHub user with this public email', name: fallback, email: parsed.email });
+    } else {
+      vscode.window.showInformationMessage(`Git Colabor: no GitHub user found for “${parsed.login}”.`);
+      return undefined;
+    }
+  }
+  const chosen = await vscode.window.showQuickPick(items, { placeHolder: 'Select the identity to add' });
+  return chosen ? { name: chosen.name, email: chosen.email } : undefined;
+}
+
+/** Shared tail of both add paths: optional key + passphrase command + CLI add. */
+async function finishIdentity(deps: CommandDeps, name: string, email: string): Promise<void> {
   const key = await pickPrivateKey();
   const pc = await vscode.window.showInputBox({ prompt: 'Passphrase command (optional)', placeHolder: 'op read "op://Private/ssh/pass"' });
   const args = ['identity', 'add', '--name', name, '--email', email];
