@@ -437,12 +437,24 @@ async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
     ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
     : await pickIdentity(deps, 'Select identity to logout (clear key)');
   if (!identity) return;
-  const data = await run<{ cleared: { agent: boolean } }>(deps, ['identity', 'logout', identity.id]);
-  if (data) {
-    vscode.window.showInformationMessage(
-      `Logged out "${identity.name}" (agent: ${data.cleared.agent ? 'removed' : 'n/a'}; the key file itself is never touched).`,
-    );
+  // logout every session repo — without an explicit cwd the CLI inherits the
+  // extension host's process cwd, which is NOT a repo under Remote-SSH, so
+  // the repo state would never be cleared and the tree kept showing the
+  // identity as active
+  const roots = deps.git.repoRoots;
+  let agentRemoved = false;
+  if (roots.length === 0) {
+    const data = await run<{ cleared: { agent: boolean } }>(deps, ['identity', 'logout', identity.id]);
+    agentRemoved = data?.cleared.agent ?? false;
+  } else {
+    for (const root of roots) {
+      const data = await run<{ cleared: { agent: boolean } }>(deps, ['identity', 'logout', identity.id], { cwd: root });
+      agentRemoved = agentRemoved || (data?.cleared.agent ?? false);
+    }
   }
+  vscode.window.showInformationMessage(
+    `Logged out "${identity.name}" (agent: ${agentRemoved ? 'removed' : 'n/a'}; the key file itself is never touched).`,
+  );
 }
 
 async function selectCoAuthors(deps: CommandDeps): Promise<void> {
