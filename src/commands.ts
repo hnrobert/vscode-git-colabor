@@ -215,7 +215,7 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
       const pass = await vscode.window.showInputBox({
         prompt: `Passphrase for key ${fp}`,
         password: true,
-        placeHolder: 'kept for this connection only — re-entered on reconnect',
+        placeHolder: 'session only',
       });
       if (pass === undefined) {
         await disableIdentityIn(deps, id, root);
@@ -245,7 +245,7 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
 
   if (disabledRepos.length > 0) {
     vscode.window.showWarningMessage(
-      `Git Colabor: passphrase wrong or cancelled — identity disabled, repo left without an active identity (${disabledRepos.join(', ')}). Click the identity to retry.`,
+      `Git Colabor: passphrase failed — identity disabled. Click to retry.`,
     );
   }
   if (conflicts.length > 0) {
@@ -407,7 +407,7 @@ async function finishIdentity(deps: CommandDeps, name: string, email: string): P
     const pass = await vscode.window.showInputBox({
       prompt: `Passphrase for key ${data.identity.sshKeyFingerprint}`,
       password: true,
-      placeHolder: 'kept for this connection only — re-entered on reconnect',
+      placeHolder: 'session only',
     });
     if (pass !== undefined) {
       deps.sessionPassphrases.set(data.identity.sshKeyFingerprint, pass);
@@ -423,7 +423,7 @@ async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
     : await pickIdentity(deps, 'Select identity to remove');
   if (!identity) return;
   const confirm = await vscode.window.showWarningMessage(
-    `Remove identity "${identity.name}"? (its key file is referenced, never deleted)`,
+    `Remove identity "${identity.name}"?`,
     { modal: true },
     'Remove',
   );
@@ -452,9 +452,7 @@ async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
       agentRemoved = agentRemoved || (data?.cleared.agent ?? false);
     }
   }
-  vscode.window.showInformationMessage(
-    `Logged out "${identity.name}" (agent: ${agentRemoved ? 'removed' : 'n/a'}; the key file itself is never touched).`,
-  );
+  vscode.window.showInformationMessage(`Logged out "${identity.name}".`);
 }
 
 async function selectCoAuthors(deps: CommandDeps): Promise<void> {
@@ -594,14 +592,14 @@ async function modifyIdentityField(
   } else {
     const isName = field === 'name';
     const value = await vscode.window.showInputBox({
-      prompt: `${isName ? 'Identity name' : 'Identity email'} (saved to the machine-level identity store)`,
+      prompt: `${isName ? 'Identity name' : 'Identity email'} `,
       value: isName ? cur.name : cur.email,
     });
     if (value === undefined || value.trim() === '') return;
     await run(deps, ['identity', 'set', id, isName ? '--name' : '--email', value.trim()]);
   }
   vscode.window.showInformationMessage(
-    'Git Colabor: change saved to the machine-level identity store (~/.config/git-colabor/identities.json).',
+    'Identity updated.',
   );
   await deps.provider?.reload();
 }
