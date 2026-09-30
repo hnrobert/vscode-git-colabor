@@ -134,8 +134,12 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
    * Priority dedup: user > machine > project. A lower-priority identity is
    * suppressed when a higher-priority one matches on name + key + remote
    * (email when no key/remote). The active identity always shows.
+   * Project-scope identities only show when the current repo is in their
+   * `importedFrom` list — to make one visible everywhere, right-click →
+   * "Remember on Machine" (promotes to machine scope).
    */
   private filterByPriority(identities: StatusIdentityJson[]): StatusIdentityJson[] {
+    const currentRepo = this.git.selectedRepoRoot();
     const rank = (s?: string) => (s === 'user' ? 0 : s === 'machine' ? 1 : 2);
     const sorted = [...identities].sort((a, b) => rank(a.scope) - rank(b.scope));
     const seen = new Set<string>();
@@ -144,6 +148,12 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       if (id.active) {
         out.push(id);
         continue;
+      }
+      // project-scope: only show if found in the CURRENT repo (or no source
+      // recorded — legacy entries stay visible so they're not silently lost)
+      const isProject = (id.scope ?? (id.imported ? 'project' : 'machine')) === 'project';
+      if (isProject && currentRepo && id.importedFrom && id.importedFrom.length > 0) {
+        if (!id.importedFrom.includes(currentRepo)) continue;
       }
       const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : `${id.email}`;
       if (seen.has(key)) continue;
