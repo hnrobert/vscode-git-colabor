@@ -207,6 +207,53 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   runReconcile();
   refresh();
 
+  // After the first status paints, check the active identity: if it has an
+  // encrypted key and we have no passphrase in this session (fresh window /
+  // reload / reconnect), prompt immediately. Cancel or wrong passphrase
+  // disables the identity (same as the in-use failure flow).
+  void provider.reload().then(async (status) => {
+    const active = status?.activeIdentity;
+    if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
+    if (sessionPassphrases.has(active.sshKeyFingerprint)) return; // already have it
+    const keyLoaded = status?.identities.find((i) => i.id === active.id)?.hasKey;
+    if (!keyLoaded) return; // key file missing — nothing to prompt for
+    const pass = await vscode.window.showInputBox({
+      prompt: `Passphrase for ${active.name}'s key ${active.sshKeyFingerprint}`,
+      password: true,
+      placeHolder: 'session only',
+    });
+    if (pass === undefined || !status?.repo) {
+      // cancelled → disable, same as the wrong-passphrase flow in applyUse
+      const roots = git.repoRoots;
+      for (const root of roots) {
+        const r = await cli.run(['identity', 'disable', active.id], { cwd: root });
+        if (!r.ok) logger.warn(`disable after passphrase cancel failed in ${root}`);
+      }
+      if (pass === undefined) {
+        vscode.window.showWarningMessage(`Git Colabor: passphrase cancelled — ${active.name} disabled.`);
+      }
+      void provider.reload();
+      return;
+    }
+    sessionPassphrases.set(active.sshKeyFingerprint, pass);
+    logger.info(`session passphrase pre-stored for ${active.name}'s key on window open`);
+    // verify it's correct — if not, disable
+    const verify = await cli.run(['identity', 'use', active.id, '--source', 'ext']);
+    const fp = verify.ok
+      ? ((verify.data as { identity?: { keyEncrypted?: boolean; sshKeyFingerprint?: string }; keyLoaded?: { loaded: boolean } })?.identity?.sshKeyFingerprint)
+      : undefined;
+    const loaded = verify.ok ? (verify.data as { keyLoaded?: { loaded: boolean } })?.keyLoaded?.loaded : false;
+    if (fp && !loaded) {
+      sessionPassphrases.delete(fp); // wrong passphrase
+      const roots = git.repoRoots;
+      for (const root of roots) {
+        await cli.run(['identity', 'disable', active.id], { cwd: root });
+      }
+      vscode.window.showWarningMessage(`Git Colabor: wrong passphrase — ${active.name} disabled. Click to retry.`);
+      void provider.reload();
+    }
+  });
+
   logger.info('git colabor activated');
 }
 
