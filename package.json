@@ -240,6 +240,11 @@
         "command": "gitColabor._stopSigningCommits",
         "title": "Stop Signing Commits",
         "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor.showHiddenIdentities",
+        "title": "Show Hidden Identities…",
+        "category": "Git Colabor"
       }
     ],
     "views": {
@@ -274,6 +279,11 @@
           "command": "gitColabor.openSettings",
           "when": "view == gitColabor.identitiesView",
           "group": "2_misc@1"
+        },
+        {
+          "command": "gitColabor.showHiddenIdentities",
+          "when": "view == gitColabor.identitiesView",
+          "group": "3_hidden"
         }
       ],
       "view/item/context": [

@@ -243,6 +243,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? ((verify.data as { identity?: { keyEncrypted?: boolean; sshKeyFingerprint?: string }; keyLoaded?: { loaded: boolean } })?.identity?.sshKeyFingerprint)
       : undefined;
     const loaded = verify.ok ? (verify.data as { keyLoaded?: { loaded: boolean } })?.keyLoaded?.loaded : false;
+    // reload the tree so the key-loaded state (green icon etc.) reflects reality
+    void provider.reload();
     if (fp && !loaded) {
       sessionPassphrases.delete(fp); // wrong passphrase
       const roots = git.repoRoots;

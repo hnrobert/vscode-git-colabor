@@ -46,6 +46,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor.addCoAuthor', () => addCoAuthor(deps).then(refresh));
   reg('gitColabor.suggestCoAuthors', () => notImplemented(deps, 'suggestCoAuthors', 'M5'));
   reg('gitColabor.openCoAuthorsFile', () => openCoAuthorsFile());
+  reg('gitColabor.showHiddenIdentities', () => showHiddenIdentities(deps).then(refresh));
   reg('gitColabor.revertRepo', () => revertRepo(deps).then(refresh));
   reg('gitColabor.showAudit', () => showAudit(deps));
   reg('gitColabor.reload', async () => {
@@ -645,6 +646,26 @@ async function showAudit(deps: CommandDeps): Promise<void> {
   const content = (data.entries as object[]).map((e) => JSON.stringify(e)).join('\n') + '\n';
   const doc = await vscode.workspace.openTextDocument({ content, language: 'jsonl' });
   await vscode.window.showTextDocument(doc);
+}
+
+/** List hidden identities and let the user restore one to auto-import. */
+async function showHiddenIdentities(deps: CommandDeps): Promise<void> {
+  const data = await run<{ hidden: string[] }>(deps, ['identity', 'hidden', '--json']);
+  if (!data || data.hidden.length === 0) {
+    vscode.window.showInformationMessage('Git Colabor: no hidden identities.');
+    return;
+  }
+  const picked = await vscode.window.showQuickPick(
+    data.hidden.map((email) => ({
+      label: `$(eye) ${email}`,
+      description: 'hidden — will be re-imported on next repo open',
+      email,
+    })),
+    { placeHolder: 'Select an identity to unhide (restore for auto-import)' },
+  );
+  if (!picked) return;
+  await run(deps, ['identity', 'unhide', picked.email]);
+  vscode.window.showInformationMessage(`Git Colabor: ${picked.email} un-hidden.`);
 }
 
 async function openCoAuthorsFile(): Promise<void> {

@@ -38,7 +38,13 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
 
   const statusRes = await cli.run(['identity', 'status'], { cwd: root });
   const status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
-  const activeId = status?.activeIdentity?.id ?? defaultIdentity();
+
+  // Post-logout guard: if the repo is already managed but has no active
+  // identity, the user intentionally logged out — do NOT auto-apply
+  // defaultIdentity. Only fall back to defaultIdentity on a fresh repo
+  // (managed=false) where nothing has been set yet.
+  const fallback = status?.managed ? undefined : defaultIdentity();
+  const activeId = status?.activeIdentity?.id ?? fallback;
 
   // A disabled identity (passphrase failure flow) must NOT be re-applied by
   // reconcile — `identity use` would silently re-enable it. Leave the repo
