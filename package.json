@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with git-mob-style co-authors.",
   "license": "MIT",
-  "icon": "git-colabor/assets/images/git-co-author-enhanced-outline.png",
+  "icon": "git-colabor/assets/images/git-co-author-enhanced.png",
   "type": "module",
   "categories": [
     "SCM Providers",
