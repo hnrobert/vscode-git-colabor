@@ -1,9 +1,9 @@
 {
   "name": "vscode-git-colabor",
   "displayName": "Git Colabor",
-  "publisher": "hnrobert",
+  "publisher": "HNRobert",
   "version": "0.1.0",
-  "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with git-mob-style co-authors.",
+  "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with better co-authors managing experience.",
   "license": "MIT",
   "icon": "git-colabor/assets/images/git-co-author-enhanced.png",
   "type": "module",

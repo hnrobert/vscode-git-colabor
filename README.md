@@ -1,6 +1,6 @@
 # Git Colabor
 
-A VS Code extension + CLI that switches the Git **committer + pusher identity** and **SSH key** per repository, and manages git-mob-style **co-authors** — built for shared machines, multiple accounts, Remote-SSH, Codespaces, and dev containers.
+A VS Code extension + CLI that switches the Git **committer + pusher identity** and **SSH key** per repository, and manages **co-authors** with a better experience — built for shared machines, multiple accounts, Remote-SSH, Codespaces, and dev containers.
 
 ## Why
 

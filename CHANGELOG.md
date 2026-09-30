@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `git colabor identity import` — add every distinct repo-history committer as a key-less identity (idempotent; hidden-email list keeps removed imports from resurrecting; a manual re-add un-hides). Runs automatically when the extension opens a repo.
 - `git colabor identity set` — edit an identity in place (name / email / key / passphrase-command).
 - **Opt-in SSH commit signing** — `git colabor identity sign <id> [--off]` and a right-click toggle on identity rows; writes `commit.gpgsign` + `gpg.format=ssh` + `user.signingKey`, re-binding to the applied identity while enabled. Never on by default.
-- One **merged Co-authors list** with git-mob-style `+`/`-` rows that follow the SCM commit-message input box; candidates merge the `.git-coauthors` catalogue, all identities (minus the active one), settings memory, and repo commit history.
+- One **merged Co-authors list** with `+`/`-` rows that follow the SCM commit-message input box; candidates merge the `.git-coauthors` catalogue, all identities (minus the active one), settings memory, and repo commit history.
 - Identity right-click menus: modify section (change name/email/key), per-scope memory, and hide (user/machine/workspace) for history-imported identities.
 - **Session-wide identity application** — one window applies identities, reconcile, and signing across every open repository (incl. multi-root and submodules).
 - `build-scripts/remote-dev.sh` — one-command remote deploy (vsix into the host's vscode-server) with marker-driven full window reload; `~/.ssh` private-key picker on identity add; themed tree icons (green = key, verified badge = signing).
