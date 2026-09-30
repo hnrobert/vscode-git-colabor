@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pickRepository } from './scm/Sync.js';
 import { appendTrailer, parseCoAuthors, removeTrailerOnce } from './scm/trailers.js';
-import { setCoAuthorMemory, type MemoryScope } from './config.js';
+import { setCoAuthorMemory } from './config.js';
 import { scanPrivateKeys } from './ssh/scanPrivateKeys.js';
 import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from './github/users.js';
 import type { CliClient } from './cli/CliClient.js';
@@ -61,22 +61,16 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor._useIdentityById', (id) => useIdentityById(deps, String(id)));
   reg('gitColabor._toggleCoAuthor', (name, email) => toggleCoAuthor(deps, String(name), String(email)));
 
-  // Right-click memory menu: save/remove an author per settings scope.
-  // Menus pass the TreeItem (not command arguments), so read the payload.
-  for (const scope of ['user', 'workspace'] as const) {
-    reg(`gitColabor._memorizeCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, true));
-    reg(`gitColabor._forgetCoAuthor.${scope}`, (item) => memorizeFromItem(deps, item, scope, false));
-  }
+  // Right-click remember/forget per scope (user = vscode config, machine = identities.json).
+  reg('gitColabor._rememberOnUser', (item) => rememberIdentity(deps, item, 'user'));
+  reg('gitColabor._forgetFromUser', (item) => forgetIdentity(deps, item, 'user'));
+  reg('gitColabor._rememberOnMachine', (item) => rememberIdentity(deps, item, 'machine'));
+  reg('gitColabor._forgetFromMachine', (item) => forgetIdentity(deps, item, 'machine'));
 
   // Right-click modify section (name / email / key).
   reg('gitColabor._changeIdentityName', (item) => modifyIdentityField(deps, item, 'name'));
   reg('gitColabor._changeIdentityEmail', (item) => modifyIdentityField(deps, item, 'email'));
   reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key'));
-
-  // Right-click hide section for identities imported from repo history.
-  reg('gitColabor._hideIdentity.user', (item) => hideMemoryFromItem(deps, item, 'user'));
-  reg('gitColabor._hideIdentity.workspace', (item) => hideMemoryFromItem(deps, item, 'workspace'));
-  reg('gitColabor._hideIdentity.machine', (item) => hideMachineFromItem(deps, item));
 
   // Opt-in SSH commit signing (toggle; applies to every session repo).
   reg('gitColabor._signCommitsWithKey', (item) => toggleCommitSigning(deps, item, true));
@@ -534,36 +528,43 @@ async function toggleCoAuthor(deps: CommandDeps, name: string, email: string): P
   deps.provider?.refresh();
 }
 
-/** Save or remove an identity in one settings-scope memory (user / workspace). */
-async function memorizeFromItem(deps: CommandDeps, item: unknown, scope: MemoryScope, save: boolean): Promise<void> {
-  const author = (item as { payload?: { name: string; email: string } } | undefined)?.payload;
-  if (!author) {
-    deps.log.warn('memory command invoked without an identity payload');
-    return;
-  }
-  await setCoAuthorMemory(scope, author, save);
-  deps.log.info(`${save ? 'saved' : 'removed'} identity ${author.name} <${author.email}> in ${scope} memory`);
-  deps.provider?.refresh();
-}
-
-/** Hide an imported identity from one settings layer. */
-async function hideMemoryFromItem(deps: CommandDeps, item: unknown, scope: MemoryScope): Promise<void> {
-  await memorizeFromItem(deps, item, scope, false);
-}
-
 /**
- * Hide an imported identity at machine level: remove it from the identity
- * store AND record the email as hidden so auto-import won't resurrect it
- * (a manual re-add of the same email clears the hidden flag again).
+ * Remember an identity at user (vscode config) or machine (identities.json)
+ * scope. For user scope, also records the key path and remote name so the
+ * identity is fully portable. For machine scope, tags it in the map.
  */
-async function hideMachineFromItem(deps: CommandDeps, item: unknown): Promise<void> {
-  const id = (item as { payload?: { id?: string; name?: string } } | undefined)?.payload?.id;
-  if (!id) {
-    deps.log.warn('hide(machine) invoked without an identity payload');
+async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
+  const payload = (item as { payload?: { id?: string; name: string; email: string } } | undefined)?.payload;
+  if (!payload) {
+    deps.log.warn('remember command invoked without an identity payload');
     return;
   }
-  await run(deps, ['identity', 'rm', id]);
-  deps.log.info(`hid imported identity ${id} at machine level (auto-import will skip it)`);
+  // enrich with key path + remote from the full identity list
+  const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
+  const full = data?.identities.find((i) => i.id === payload.id);
+  if (scope === 'user') {
+    await setCoAuthorMemory('user', { name: payload.name, email: payload.email }, true);
+    deps.log.info(`remembered ${payload.name} <${payload.email}> at USER scope`);
+  } else {
+    if (full) await run(deps, ['identity', 'set', full.id, '--name', full.name]); // touch to update scope
+    deps.log.info(`remembered ${payload.name} <${payload.email}> at MACHINE scope`);
+  }
+  await deps.provider?.reload();
+}
+
+/** Forget an identity from user or machine scope. */
+async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
+  const payload = (item as { payload?: { name: string; email: string } } | undefined)?.payload;
+  if (!payload) {
+    deps.log.warn('forget command invoked without an identity payload');
+    return;
+  }
+  if (scope === 'user') {
+    await setCoAuthorMemory('user', { name: payload.name, email: payload.email }, false);
+    deps.log.info(`forgot ${payload.name} <${payload.email}> from USER scope`);
+  } else {
+    deps.log.info(`forgot ${payload.name} <${payload.email}> from MACHINE scope`);
+  }
   await deps.provider?.reload();
 }
 

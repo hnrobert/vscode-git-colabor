@@ -5,7 +5,7 @@ import { parseCoAuthors } from '../scm/trailers.js';
 import { coAuthorMemories, coAuthorMemoryScopeMap } from '../config.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
-import type { StatusJson } from '../types.js';
+import type { StatusIdentityJson, StatusJson } from '../types.js';
 
 type Candidate = { name: string; email: string };
 
@@ -130,10 +130,44 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     return items;
   }
 
+  /**
+   * Priority dedup: user > machine > project. A lower-priority identity is
+   * suppressed when a higher-priority one matches on name + key + remote
+   * (email when no key/remote). The active identity always shows.
+   */
+  private filterByPriority(identities: StatusIdentityJson[]): StatusIdentityJson[] {
+    const rank = (s?: string) => (s === 'user' ? 0 : s === 'machine' ? 1 : 2);
+    const sorted = [...identities].sort((a, b) => rank(a.scope) - rank(b.scope));
+    const seen = new Set<string>();
+    const out: StatusIdentityJson[] = [];
+    for (const id of sorted) {
+      if (id.active) {
+        out.push(id);
+        continue;
+      }
+      const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : `${id.email}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(id);
+    }
+    return out.sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1;
+      return rank(a.scope) - rank(b.scope);
+    });
+  }
+
+  /**
+   * Identity rows filtered by the priority display rule:
+   *   user (vscode config) > machine (identities.json) > project (repo scan)
+   * A lower-priority identity is HIDDEN when a higher-priority one has the
+   * same name + key + remote. Identities with no key and no remote match by
+   * email. The active identity always shows regardless of scope.
+   */
   private identityItems(): ColaborItem[] {
     const s = this.status!;
     const memoryMap = coAuthorMemoryScopeMap(s.identities.map((i) => i.email));
-    return s.identities.map((i) => {
+    const visible = this.filterByPriority(s.identities);
+    return visible.map((i) => {
       // icon shape stays uniform (person / check); GREEN = has a usable key;
       // the verified check-badge appears only while the repo signs with this
       // identity's key (tree labels render $(codicon) literally — no label icons)
@@ -147,14 +181,16 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
-      // contextValue bits drive the right-click menus: -u/-w = remembered in
-      // that settings layer, -g = imported from repo history (remove becomes
-      // hide), -k = has a usable key (can sign), -s = repo signs with THIS key
+      // contextValue bits drive the right-click menus: -ru/-rm = remembered
+      // on user/machine, -g = imported from repo history, -k = usable key,
+      // -s = repo signs with THIS key
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
+      const isUserScope = i.scope === 'user' || saved.user;
+      const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
         item.kind +
-        (saved.user ? '-u' : '') +
-        (saved.workspace ? '-w' : '') +
+        (isUserScope ? '-ru' : '') +
+        (isMachineScope ? '-rm' : '') +
         (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +
         (signingWithThisKey ? '-s' : '');
@@ -185,7 +221,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const activeEmail = s.activeIdentity?.email.toLowerCase();
     for (const a of s.selected) push(a.name, a.email);
     for (const a of s.available) push(a.name, a.email);
-    for (const i of s.identities) {
+    // identities follow the same priority-filtered display, minus the active one
+    for (const i of this.filterByPriority(s.identities)) {
       if (i.email.toLowerCase() === activeEmail) continue;
       push(i.name, i.email);
     }
