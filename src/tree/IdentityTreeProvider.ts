@@ -168,23 +168,27 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const memoryMap = coAuthorMemoryScopeMap(s.identities.map((i) => i.email));
     const visible = this.filterByPriority(s.identities);
     return visible.map((i) => {
-      // icon shape stays uniform (person / check); GREEN = has a usable key;
-      // the verified check-badge appears only while the repo signs with this
-      // identity's key (tree labels render $(codicon) literally — no label icons)
       const signingWithThisKey =
         !!s.signing?.enabled && !!s.signing.key && s.signing.key === (i as { sshKeyPath?: string }).sshKeyPath;
       const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
+      // source label reflects where this identity was found
+      const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
+      const sourceLabel =
+        i.scope === 'user' || saved.user
+          ? 'found in user memory'
+          : i.scope === 'machine' || (!i.scope && !i.imported)
+            ? 'found in machine memory'
+            : 'found in repo';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
-        description: `${i.email}${i.isDefault ? ' · default' : ''}${i.imported ? ' · imported' : ''}${i.disabled ? ' · disabled' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.imported ? '\n(imported from repo history)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
+        description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}\n(${sourceLabel})${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -ru/-rm = remembered
       // on user/machine, -g = imported from repo history, -k = usable key,
-      // -s = repo signs with THIS key
-      const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
+      // -s = repo signs with THIS key (reuses `saved` from the source label)
       const isUserScope = i.scope === 'user' || saved.user;
       const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
