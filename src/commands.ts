@@ -658,14 +658,24 @@ async function showHiddenIdentities(deps: CommandDeps): Promise<void> {
   const picked = await vscode.window.showQuickPick(
     data.hidden.map((email) => ({
       label: `$(eye) ${email}`,
-      description: 'hidden — will be re-imported on next repo open',
+      description: 'hidden — click to restore',
       email,
     })),
     { placeHolder: 'Select an identity to unhide (restore for auto-import)' },
   );
   if (!picked) return;
-  await run(deps, ['identity', 'unhide', picked.email]);
+  const unhidden = await run<{ unhid: string }>(deps, ['identity', 'unhide', picked.email]);
+  if (!unhidden) return;
   vscode.window.showInformationMessage(`Git Colabor: ${picked.email} un-hidden.`);
+  // force a re-import for every session repo — the auto-import only runs
+  // once per repo, so the un-hidden email would never come back otherwise
+  for (const root of deps.git.repoRoots) {
+    const r = await deps.cli.run(['identity', 'import', '--json'], { cwd: root });
+    if (r.ok) {
+      const added = ((r.data as { added?: { email: string }[] }).added ?? []).map((a) => a.email);
+      if (added.length > 0) deps.log.info(`re-imported ${added.join(', ')} in ${root}`);
+    }
+  }
 }
 
 async function openCoAuthorsFile(): Promise<void> {
