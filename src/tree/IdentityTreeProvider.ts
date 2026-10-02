@@ -13,7 +13,7 @@ type Candidate = { name: string; email: string };
  * TreeDataProvider for the `gitColabor.identitiesView` SCM view. Renders the active identity,
  * the identity list, and one merged co-author list whose rows show `+`/`-` depending on whether
  * that author's trailer is present in the SCM commit-message input. Clicking a row toggles it.
- * Candidates merge the `.git-coauthors` catalogue, remembered co-authors
+ * Candidates are the priority-filtered identity list
  * (user/machine/workspace settings), and the repo's historical commit authors.
  */
 export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem> {
@@ -210,14 +210,14 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   /**
    * Merged, email-deduped co-author candidates, ordered by proximity:
-   * current selection → `.git-coauthors` catalogue → all known identities
+   * current selection → priority-filtered identities
    * (minus the currently-active one — you don't co-author yourself) →
    * remembered co-authors (all settings layers) → repo commit history.
    */
   /**
    * Co-author candidates STRICTLY mirror the identity display list (same
    * priority filter, same dedup) minus the currently active identity. No
-   * .git-coauthors, no settings memory, no raw history — only what appears
+   * .git-coauthors, no settings memory, only what appears
    * in the Identities group can be a co-author.
    */
   private coAuthorCandidates(): Candidate[] {
@@ -240,7 +240,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const candidates = this.coAuthorCandidates();
     if (candidates.length === 0) {
       return [
-        new ColaborItem('No co-authors found — add them to .git-coauthors, save memories, or commit with others', 'no-identity', {
+        new ColaborItem('No co-authors found — add identities or commit with others', 'no-identity', {
           icon: 'info',
         }),
       ];

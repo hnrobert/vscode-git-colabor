@@ -203,11 +203,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger.warn('vscode.git API unavailable yet; retrying with backoff');
     tryLater(500, 8); // 0.5s 1s 2s 4s 5s 5s 5s 5s ≈ 28s window
   }
-  context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (doc.fileName.endsWith('.git-coauthors')) refresh();
-    }),
-  );
   context.subscriptions.push({ dispose() { stateWatchers.forEach((w) => w.close()); } });
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
