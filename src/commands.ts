@@ -409,6 +409,63 @@ async function finishIdentity(deps: CommandDeps, name: string, email: string): P
       deps.log.info(`session passphrase stored for ${data.identity.sshKeyFingerprint}`);
     }
   }
+
+  // scope picker — where should this identity live?
+  if (data?.identity.id) await pickAndApplyScope(deps, data.identity.id, name);
+}
+
+/**
+ * Final step of Add Identity: pick where the identity is scoped.
+ * User (cross-machine) / Machine (this host) / specific repo (project scope,
+ * only visible in that repo). Repo options list the focused repo first.
+ */
+async function pickAndApplyScope(deps: CommandDeps, id: string, name: string): Promise<void> {
+  const focused = deps.git.selectedRepoRoot();
+  const roots = deps.git.repoRoots;
+
+  type ScopeItem = vscode.QuickPickItem & { scope?: 'user' | 'machine' | 'project'; repoRoot?: string };
+  const items: ScopeItem[] = [
+    { label: '$(globe) User', description: 'cross-machine — follows your VS Code profile', scope: 'user' },
+    { label: '$(vm) Machine', description: 'this host only — stored in identities.json', scope: 'machine' },
+  ];
+
+  // repo options (divider + focused first, then others)
+  if (roots.length > 0) {
+    items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+    const ordered = focused ? [focused, ...roots.filter((r) => r !== focused)] : roots;
+    for (const root of ordered) {
+      const short = root.split('/').pop() ?? root;
+      items.push({
+        label: `$(folder) ${short}`,
+        description: root === focused ? 'current repo' : root,
+        scope: 'project',
+        repoRoot: root,
+      });
+    }
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: `Where should "${name}" live?`,
+  });
+  if (!picked) return; // cancelled → defaults to machine scope
+
+  if (picked.scope === 'user') {
+    // save in VS Code user settings (coAuthorIdentities)
+    const identity = (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === id);
+    if (identity) {
+      await setCoAuthorMemory('user', { name: identity.name, email: identity.email }, true);
+      await run(deps, ['identity', 'set', id, '--scope', 'machine']);
+      deps.log.info(`identity ${name} scoped to USER`);
+    }
+  } else if (picked.scope === 'project' && picked.repoRoot) {
+    // project scope: identity only visible in that specific repo
+    await run(deps, ['identity', 'set', id, '--scope', 'project']);
+    deps.log.info(`identity ${name} scoped to PROJECT (${picked.repoRoot})`);
+  } else {
+    // machine scope (default)
+    await run(deps, ['identity', 'set', id, '--scope', 'machine']);
+    deps.log.info(`identity ${name} scoped to MACHINE`);
+  }
 }
 
 async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
