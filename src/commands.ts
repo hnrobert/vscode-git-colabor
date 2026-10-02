@@ -517,7 +517,7 @@ async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'user' 
 
 /** Forget an identity from user or machine scope. */
 async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
-  const payload = (item as { payload?: { name: string; email: string } } | undefined)?.payload;
+  const payload = (item as { payload?: { id?: string; name: string; email: string } } | undefined)?.payload;
   if (!payload) {
     deps.log.warn('forget command invoked without an identity payload');
     return;
@@ -526,7 +526,10 @@ async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 
     await setCoAuthorMemory('user', { name: payload.name, email: payload.email }, false);
     deps.log.info(`forgot ${payload.name} <${payload.email}> from USER scope`);
   } else {
-    deps.log.info(`forgot ${payload.name} <${payload.email}> from MACHINE scope`);
+    // demote back to project scope — the identity only shows in repos whose
+    // history contains their commits
+    if (payload.id) await run(deps, ['identity', 'set', payload.id, '--scope', 'project']);
+    deps.log.info(`forgot ${payload.name} <${payload.email}> from MACHINE scope (demoted to project)`);
   }
   await deps.provider?.reload();
 }
