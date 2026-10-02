@@ -11,7 +11,7 @@ import { GitApi } from './git-ext/GitApi.js';
 import { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
 import { StatusBar } from './statusbar/StatusBar.js';
 import { ScmSync, pickRepository } from './scm/Sync.js';
-import { registerCommands } from './commands.js';
+import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 
 let askpass: AskpassServer | undefined;

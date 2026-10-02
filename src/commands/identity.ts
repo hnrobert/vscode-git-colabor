@@ -1,142 +1,18 @@
 import * as vscode from 'vscode';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { pickRepository } from './scm/Sync.js';
-import { appendTrailer, parseCoAuthors, removeTrailerOnce } from './scm/trailers.js';
-import { setCoAuthorMemory } from './config.js';
-import { scanPrivateKeys } from './ssh/scanPrivateKeys.js';
-import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from './github/users.js';
-import type { CliClient } from './cli/CliClient.js';
-import type { GitApi } from './git-ext/GitApi.js';
-import type { Secrets } from './secrets/Secrets.js';
-import type { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
-import type { DiagnosticJson, IdentityJson, JsonResult } from './types.js';
+import { setCoAuthorMemory } from '../config.js';
+import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from '../github/users.js';
+import type { IdentityJson, JsonResult } from '../types.js';
+import {
+  pickIdentity,
+  pickPrivateKey,
+  reportError,
+  requireRepo,
+  rowIdentityId,
+  run,
+  type CommandDeps,
+} from './shared.js';
 
-export type CommandDeps = {
-  cli: CliClient;
-  git: GitApi;
-  secrets: Secrets;
-  log: vscode.LogOutputChannel;
-  provider?: IdentityTreeProvider;
-  /** session-scoped key passphrases (fingerprint → passphrase); in-memory only */
-  sessionPassphrases: Map<string, string>;
-};
-
-export function registerCommands(context: vscode.ExtensionContext, deps: CommandDeps): void {
-  const reg = (cmd: string, fn: (...args: unknown[]) => Promise<void> | Thenable<void> | void) =>
-    context.subscriptions.push(
-      vscode.commands.registerCommand(cmd, (...args: unknown[]) => {
-        Promise.resolve(fn(...args)).catch((e) =>
-          deps.log.error(e instanceof Error ? e.message : String(e)),
-        );
-      }),
-    );
-
-  const refresh = async (): Promise<void> => {
-    await deps.provider?.reload();
-  };
-
-  reg('gitColabor.doctor', () => doctor(deps));
-  reg('gitColabor.useIdentity', (item) => useIdentity(deps, item).then(refresh));
-  reg('gitColabor.addIdentity', () => addIdentity(deps).then(refresh));
-  reg('gitColabor.removeIdentity', (item) => removeIdentity(deps, item).then(refresh));
-  reg('gitColabor.logoutIdentity', (item) => logoutIdentity(deps, item).then(refresh));
-  reg('gitColabor.soloCoAuthors', () => soloCoAuthors(deps).then(refresh));
-  reg('gitColabor.showHiddenIdentities', () => showHiddenIdentities(deps).then(refresh));
-  reg('gitColabor.revertRepo', () => revertRepo(deps).then(refresh));
-  reg('gitColabor.showAudit', () => showAudit(deps));
-  reg('gitColabor.reload', async () => {
-    await refresh();
-    vscode.window.showInformationMessage('Git Colabor: reloaded.');
-  });
-  reg('gitColabor.openSettings', () =>
-    vscode.commands.executeCommand('workbench.action.openSettings', '@ext:hnrobert.vscode-git-colabor'),
-  );
-
-  // Tree-item click targets (invoked with arguments from the TreeItem command).
-  reg('gitColabor._useIdentityById', (id) => useIdentityById(deps, String(id)));
-  reg('gitColabor._toggleCoAuthor', (name, email) => toggleCoAuthor(deps, String(name), String(email)));
-
-  // Right-click remember/forget per scope (user = vscode config, machine = identities.json).
-  reg('gitColabor._rememberOnUser', (item) => rememberIdentity(deps, item, 'user'));
-  reg('gitColabor._forgetFromUser', (item) => forgetIdentity(deps, item, 'user'));
-  reg('gitColabor._rememberOnMachine', (item) => rememberIdentity(deps, item, 'machine'));
-  reg('gitColabor._forgetFromMachine', (item) => forgetIdentity(deps, item, 'machine'));
-
-  // Right-click modify section (name / email / key).
-  reg('gitColabor._changeIdentityName', (item) => modifyIdentityField(deps, item, 'name'));
-  reg('gitColabor._changeIdentityEmail', (item) => modifyIdentityField(deps, item, 'email'));
-  reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key'));
-
-  // Opt-in SSH commit signing (toggle; applies to every session repo).
-  reg('gitColabor._signCommitsWithKey', (item) => toggleCommitSigning(deps, item, true));
-  reg('gitColabor._stopSigningCommits', (item) => toggleCommitSigning(deps, item, false));
-}
-
-/**
- * Identity id from a tree-row invocation (context menus / inline buttons pass
- * the TreeItem); undefined when invoked from the palette or view title — the
- * caller should fall back to a quick pick then.
- */
-function rowIdentityId(item: unknown): string | undefined {
-  return (item as { payload?: { id?: string } } | undefined)?.payload?.id;
-}
-
-function requireRepo(deps: CommandDeps): string | undefined {
-  const root = deps.git.selectedRepoRoot();
-  if (!root) {
-    vscode.window.showWarningMessage('Git Colabor: no git repository in the current workspace.');
-    return undefined;
-  }
-  return root;
-}
-
-function reportError(r: Extract<JsonResult, { ok: false }>): void {
-  const hints = r.error.hints && r.error.hints.length > 0 ? `\n${r.error.hints.join('\n')}` : '';
-  vscode.window.showErrorMessage(`Git Colabor: ${r.error.message}${hints}`);
-}
-
-async function run<T = unknown>(deps: CommandDeps, args: string[], opts: { cwd?: string } = {}): Promise<T | undefined> {
-  const r = await deps.cli.run(args, opts);
-  if (!r.ok) {
-    reportError(r);
-    return undefined;
-  }
-  return r.data as T;
-}
-
-async function pickIdentity(deps: CommandDeps, placeholder: string): Promise<IdentityJson | undefined> {
-  const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
-  if (!data) return undefined;
-  if (data.identities.length === 0) {
-    vscode.window.showInformationMessage('Git Colabor: no identities yet. Use "Add Identity…".');
-    return undefined;
-  }
-  const items = data.identities.map((i) => ({
-    label: `${i.isDefault ? '$(star) ' : ''}${i.name}`,
-    description: i.email,
-    detail: i.hasKey ? `key ${i.sshKeyFingerprint}` : 'no SSH key',
-    identity: i,
-  }));
-  const sel = await vscode.window.showQuickPick(items, { placeHolder: placeholder });
-  return sel?.identity;
-}
-
-async function doctor(deps: CommandDeps): Promise<void> {
-  const cwd = deps.git.selectedRepoRoot();
-  const data = await run<{ diagnostics: DiagnosticJson[] }>(deps, ['identity', 'doctor'], { cwd });
-  if (!data) return;
-  const out = data.diagnostics.map((d) => `[${d.status}] ${d.check}${d.detail ? ` — ${d.detail}` : ''}`).join('\n');
-  deps.log.info(`doctor:\n${out}`);
-  const fails = data.diagnostics.filter((d) => d.status === 'fail').length;
-  const choice = await vscode.window.showInformationMessage(
-    `Git Colabor doctor: ${fails === 0 ? 'all checks OK' : `${fails} issue(s) found`}`,
-    'Show Output',
-  );
-  if (choice === 'Show Output') deps.log.show();
-}
-
-async function useIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
+export async function useIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
   const rowId = rowIdentityId(item);
@@ -149,7 +25,7 @@ async function useIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
   await applyUse(deps, identity.id, cwd);
 }
 
-async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
+export async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
   await applyUse(deps, id, cwd);
@@ -251,52 +127,7 @@ async function disableIdentityIn(deps: CommandDeps, id: string, root: string): P
   else deps.log.warn(`identity ${id} disabled (repo ${root} left without an active identity)`);
 }
 
-type KeyPickItem = vscode.QuickPickItem & { path?: string; skip?: boolean; clear?: boolean };
-
-/**
- * Pick the SSH private key for an identity: prefills the expanded `~/.ssh/`
- * path and offers the private key files actually found there
- * (content-scanned); any other path can be typed instead, Esc skips.
- * With `allowClear`, an extra entry returns `null` meaning "remove the key".
- */
-function pickPrivateKey(allowClear = false): Promise<string | null | undefined> {
-  const dir = join(homedir(), '.ssh');
-  return new Promise((resolve) => {
-    const pick = vscode.window.createQuickPick<KeyPickItem>();
-    pick.title = 'SSH private key';
-    pick.placeholder = 'Pick a key from ~/.ssh, type another path, or Esc to skip';
-    pick.matchOnDescription = true;
-    pick.matchOnDetail = true;
-    void scanPrivateKeys(dir).then((keys) => {
-      const items: KeyPickItem[] = [
-        ...keys.map((k) => ({ label: `$(key) ${k.name}`, description: k.path, detail: k.kind, path: k.path })),
-        { label: '$(circle-slash) No SSH key (skip)', skip: true },
-      ];
-      if (allowClear) items.push({ label: '$(trash) Clear the key reference', clear: true });
-      pick.items = items;
-      pick.activeItems = keys.length > 0 ? [items[0]] : [items[items.length - 1]];
-    });
-    pick.value = `${dir}/`;
-    pick.onDidAccept(() => {
-      const active = pick.activeItems[0];
-      if (active?.skip) resolve(undefined);
-      else if (active?.clear) resolve(null);
-      else if (active?.path) resolve(active.path);
-      else {
-        const typed = pick.value.trim();
-        resolve(typed !== '' && !typed.endsWith('/') ? typed : undefined);
-      }
-      pick.hide();
-    });
-    pick.onDidHide(() => {
-      resolve(undefined);
-      pick.dispose();
-    });
-    pick.show();
-  });
-}
-
-async function addIdentity(deps: CommandDeps): Promise<void> {
+export async function addIdentity(deps: CommandDeps): Promise<void> {
   const source = await vscode.window.showQuickPick(
     [
       { label: '$(github) From GitHub…', description: 'search by profile URL, @username, or email', github: true },
@@ -468,7 +299,7 @@ async function pickAndApplyScope(deps: CommandDeps, id: string, name: string): P
   }
 }
 
-async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
+export async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
   const rowId = rowIdentityId(item);
   const identity = rowId
     ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
@@ -483,7 +314,7 @@ async function removeIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
   await run(deps, ['identity', 'rm', identity.id]);
 }
 
-async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
+export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
   const rowId = rowIdentityId(item);
   const identity = rowId
     ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
@@ -507,55 +338,12 @@ async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
   vscode.window.showInformationMessage(`Logged out "${identity.name}".`);
 }
 
-async function soloCoAuthors(deps: CommandDeps): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
-  await run(deps, ['coauthor', 'solo'], { cwd });
-}
-
-/**
- * Toggle one co-author in the SCM commit-message input: append its trailer
- * (formatted into the trailer block at the end) when absent, remove one
- * occurrence when present. Keeps the CLI selection / commit template in
- * sync behind the scenes — but only when every trailer in the box maps to
- * the catalogue, so manually typed trailers are never clobbered.
- */
-async function toggleCoAuthor(deps: CommandDeps, name: string, email: string): Promise<void> {
-  const repo = pickRepository(deps.git);
-  if (!repo) {
-    vscode.window.showWarningMessage('Git Colabor: no git repository in the current workspace.');
-    return;
-  }
-  const value = repo.inputBox.value;
-  const present = parseCoAuthors(value).some((a) => a.email.toLowerCase() === email.toLowerCase());
-  repo.inputBox.value = present ? removeTrailerOnce(value, email) : appendTrailer(value, { name, email });
-  deps.log.info(`${present ? 'removed' : 'appended'} co-author trailer for ${name} <${email}>`);
-
-  // best-effort CLI sync so `colabor.selected` + commit template follow the box
-  const cwd = deps.git.selectedRepoRoot();
-  if (!cwd) {
-    deps.provider?.refresh();
-    return;
-  }
-  const after = parseCoAuthors(repo.inputBox.value);
-  const catalogue = [...(deps.provider?.current?.selected ?? []), ...(deps.provider?.current?.available ?? [])];
-  const byEmail = new Map(catalogue.map((a) => [a.email.toLowerCase(), a.key]));
-  const keys = after.map((a) => byEmail.get(a.email.toLowerCase()));
-  if (keys.every((k): k is string => typeof k === 'string')) {
-    if (keys.length === 0) await run(deps, ['coauthor', 'solo'], { cwd });
-    else await run(deps, ['coauthor', 'use', ...new Set(keys)], { cwd });
-  } else {
-    deps.log.info('box has trailers outside the catalogue; leaving CLI selection unchanged');
-  }
-  deps.provider?.refresh();
-}
-
 /**
  * Remember an identity at user (vscode config) or machine (identities.json)
  * scope. For user scope, also records the key path and remote name so the
  * identity is fully portable. For machine scope, tags it in the map.
  */
-async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
+export async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
   const payload = (item as { payload?: { id?: string; name: string; email: string } } | undefined)?.payload;
   if (!payload) {
     deps.log.warn('remember command invoked without an identity payload');
@@ -573,7 +361,7 @@ async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'user' 
 }
 
 /** Forget an identity from user or machine scope. */
-async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
+export async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
   const payload = (item as { payload?: { id?: string; name: string; email: string } } | undefined)?.payload;
   if (!payload) {
     deps.log.warn('forget command invoked without an identity payload');
@@ -595,7 +383,7 @@ async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 
  * Modify one field of an identity (name / email / key reference). Changes
  * land in the machine-level identity store — the user is told so.
  */
-async function modifyIdentityField(
+export async function modifyIdentityField(
   deps: CommandDeps,
   item: unknown,
   field: 'name' | 'email' | 'key',
@@ -627,77 +415,4 @@ async function modifyIdentityField(
     'Identity updated.',
   );
   await deps.provider?.reload();
-}
-
-/**
- * Toggle opt-in SSH commit signing with an identity's key — across every
- * open repository of the session (same as identity application).
- */
-async function toggleCommitSigning(deps: CommandDeps, item: unknown, on: boolean): Promise<void> {
-  const id = (item as { payload?: { id?: string } } | undefined)?.payload?.id;
-  if (!id) {
-    deps.log.warn('signing command invoked without an identity payload');
-    return;
-  }
-  const roots = deps.git.repoRoots;
-  if (roots.length === 0) {
-    vscode.window.showWarningMessage('Git Colabor: no git repository in the current workspace.');
-    return;
-  }
-  for (const root of roots) {
-    const r = await deps.cli.run(['identity', 'sign', id, ...(on ? [] : ['--off'])], { cwd: root });
-    if (!r.ok) reportError(r);
-  }
-  deps.log.info(`commit signing ${on ? 'ON' : 'OFF'} for identity ${id} across ${roots.length} repo(s)`);
-  await deps.provider?.reload();
-}
-
-async function revertRepo(deps: CommandDeps): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
-  const confirm = await vscode.window.showWarningMessage(
-    'Revert this repo to its pre-tool identity state?',
-    { modal: true },
-    'Revert',
-  );
-  if (confirm !== 'Revert') return;
-  await run(deps, ['identity', 'revert'], { cwd });
-}
-
-async function showAudit(deps: CommandDeps): Promise<void> {
-  const data = await run<{ entries: unknown[] }>(deps, ['identity', 'audit', '--tail', '100']);
-  if (!data) return;
-  const content = (data.entries as object[]).map((e) => JSON.stringify(e)).join('\n') + '\n';
-  const doc = await vscode.workspace.openTextDocument({ content, language: 'jsonl' });
-  await vscode.window.showTextDocument(doc);
-}
-
-/** List hidden identities and let the user restore one to auto-import. */
-async function showHiddenIdentities(deps: CommandDeps): Promise<void> {
-  const data = await run<{ hidden: string[] }>(deps, ['identity', 'hidden', '--json']);
-  if (!data || data.hidden.length === 0) {
-    vscode.window.showInformationMessage('Git Colabor: no hidden identities.');
-    return;
-  }
-  const picked = await vscode.window.showQuickPick(
-    data.hidden.map((email) => ({
-      label: `$(eye) ${email}`,
-      description: 'hidden — click to restore',
-      email,
-    })),
-    { placeHolder: 'Select an identity to unhide (restore for auto-import)' },
-  );
-  if (!picked) return;
-  const unhidden = await run<{ unhid: string }>(deps, ['identity', 'unhide', picked.email]);
-  if (!unhidden) return;
-  vscode.window.showInformationMessage(`Git Colabor: ${picked.email} un-hidden.`);
-  // force a re-import for every session repo — the auto-import only runs
-  // once per repo, so the un-hidden email would never come back otherwise
-  for (const root of deps.git.repoRoots) {
-    const r = await deps.cli.run(['identity', 'import', '--json'], { cwd: root });
-    if (r.ok) {
-      const added = ((r.data as { added?: { email: string }[] }).added ?? []).map((a) => a.email);
-      if (added.length > 0) deps.log.info(`re-imported ${added.join(', ')} in ${root}`);
-    }
-  }
 }
