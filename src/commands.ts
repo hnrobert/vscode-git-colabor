@@ -318,6 +318,11 @@ async function addIdentity(deps: CommandDeps): Promise<void> {
     if (!picked) return;
     name = picked.name;
     email = picked.email;
+    if (!name) {
+      // email fallback — no GitHub match, ask for a name
+      name = await vscode.window.showInputBox({ prompt: 'Identity name' });
+      if (!name) return;
+    }
   } else {
     name = await vscode.window.showInputBox({ prompt: 'Identity name', placeHolder: 'Alice Example' });
     if (!name) return;
@@ -377,8 +382,7 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
   if (items.length === 0) {
     if (parsed.kind === 'email') {
       // not found on GitHub — offer the typed email as a plain custom identity
-      const fallback = parsed.email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
-      items.push({ label: `$(person-add) Add “${parsed.email}” as custom identity`, description: 'no GitHub user with this public email', name: fallback, email: parsed.email });
+      items.push({ label: `$(person-add) Add “${parsed.email}” as custom identity`, description: 'no GitHub user with this public email', name: '', email: parsed.email });
     } else {
       vscode.window.showInformationMessage(`Git Colabor: no GitHub user found for “${parsed.login}”.`);
       return undefined;

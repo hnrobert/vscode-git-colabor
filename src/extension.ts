@@ -157,6 +157,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, 400);
     });
   };
+
+  // ui.onDidChange doesn't reliably fire when clicking between repos in the
+  // SCM view (multi-root) — poll the selected repo root as a belt-and-braces
+  // detector so the tree always follows the focused repo
+  let lastFocusedRoot: string | undefined = git.selectedRepoRoot();
+  const focusPoll = setInterval(() => {
+    const root = git.selectedRepoRoot();
+    if (root !== lastFocusedRoot) {
+      lastFocusedRoot = root;
+      logger.info(`focused repo changed → ${root ?? '(none)'}`);
+      refresh();
+    }
+  }, 1000);
+  context.subscriptions.push({ dispose() { clearInterval(focusPoll); } });
   context.subscriptions.push({ dispose() { gitSub?.dispose(); } });
 
   if ((await git.activate()) === '') {

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ColaborItem } from './items.js';
 import { pickRepository } from '../scm/Sync.js';
 import { parseCoAuthors } from '../scm/trailers.js';
-import { coAuthorMemories, coAuthorMemoryScopeMap } from '../config.js';
+import { coAuthorMemoryScopeMap } from '../config.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
 import type { StatusIdentityJson, StatusJson } from '../types.js';
@@ -23,8 +23,6 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   private status: StatusJson | undefined;
   /** authors found in the repo's commit history (`coauthor suggest`) */
   private historyCandidates: Candidate[] = [];
-  /** guards stale `coauthor suggest` responses from overwriting newer reloads */
-  private suggestGen = 0;
   /** repo root already auto-imported for (identity import is idempotent, run once per repo) */
   private importedRoot: string | undefined;
   /** fired after each reload with the latest status (for status bar / SCM sync) */
@@ -36,43 +34,37 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
 
-  /** Re-fetch `identity status` and refresh the tree; history authors load in the background. */
+  /** Re-fetch `identity status` + repo committers (in parallel) and paint once. */
   async reload(): Promise<StatusJson | undefined> {
     const root = this.git.selectedRepoRoot();
-    const r = await this.cli.run(['identity', 'status'], { cwd: root });
-    this.status = r.ok ? (r.data as StatusJson) : undefined;
-    this.historyCandidates = [];
-    // paint the tree as soon as status is in — `coauthor suggest` runs
-    // `git shortlog` over the whole history and used to block first render
+    const [statusRes, suggRes] = await Promise.all([
+      this.cli.run(['identity', 'status'], { cwd: root }),
+      root
+        ? this.cli.run(['coauthor', 'suggest', '--json'], { cwd: root }).catch(() => undefined)
+        : Promise.resolve(undefined),
+    ]);
+    this.status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
+    // always set (never leave stale data from a previous repo)
+    this.historyCandidates = suggRes?.ok
+      ? ((suggRes.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
+          name: a.name,
+          email: a.email,
+        }))
+      : [];
+    // single paint with complete, correct data for the CURRENT repo
     this._onDidChange.fire(undefined);
     this.onDidReload.fire(this.status);
-    const gen = ++this.suggestGen;
-    if (root && this.status?.inRepo) {
+
+    // auto-import committers (once per repo, background, idempotent)
+    if (root && this.status?.inRepo && root !== this.importedRoot) {
+      this.importedRoot = root;
       void this.cli
-        .run(['coauthor', 'suggest', '--json'], { cwd: root })
-        .then((sugg) => {
-          if (gen !== this.suggestGen) return; // a newer reload superseded us
-          this.historyCandidates = ((sugg.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
-            name: a.name,
-            email: a.email,
-          }));
-          this._onDidChange.fire(undefined); // second paint with history authors
+        .run(['identity', 'import', '--json'], { cwd: root })
+        .then((r) => {
+          const added = r.ok ? ((r.data as { added?: unknown[] }).added ?? []) : [];
+          if (added.length > 0) void this.reload();
         })
         .catch(() => {});
-
-      // Auto-import every distinct committer from the repo history as a
-      // key-less identity (once per repo — import is idempotent anyway).
-      // Runs after the first paint; a second reload surfaces new identities.
-      if (root !== this.importedRoot) {
-        this.importedRoot = root;
-        void this.cli
-          .run(['identity', 'import', '--json'], { cwd: root })
-          .then((r) => {
-            const added = r.ok ? ((r.data as { added?: unknown[] }).added ?? []) : [];
-            if (added.length > 0) void this.reload(); // same root now — no re-import loop
-          })
-          .catch(() => {});
-      }
     }
     return this.status;
   }
@@ -105,7 +97,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     items.push(
       new ColaborItem('Identity', 'identities-group', {
         collapsible: vscode.TreeItemCollapsibleState.Expanded,
-        description: String(s.identities.length),
+        // count matches what the list actually shows (filtered), not the
+        // raw identity map size — prevents "10" in the title vs "1" below
+        description: String(this.filterByPriority(s.identities).length),
         icon: 'person',
       }),
     );
@@ -134,13 +128,14 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
    * Priority dedup: user > machine > project. A lower-priority identity is
    * suppressed when a higher-priority one matches on name + key + remote
    * (email when no key/remote). The active identity always shows.
-   * Project-scope identities only show when the current repo is in their
-   * `importedFrom` list — to make one visible everywhere, right-click →
-   * "Remember on Machine" (promotes to machine scope).
+   * Project-scope identities only show when their email appears in the
+   * current repo's committer history (historyCandidates, re-scanned on every
+   * reload). To make one visible everywhere, right-click → "Remember on Machine".
    */
   private filterByPriority(identities: StatusIdentityJson[]): StatusIdentityJson[] {
-    const currentRepo = this.git.selectedRepoRoot();
     const rank = (s?: string) => (s === 'user' ? 0 : s === 'machine' ? 1 : 2);
+    const repoEmails = new Set(this.historyCandidates.map((c) => c.email.toLowerCase()));
+    const inRepo = !!this.status?.inRepo;
     const sorted = [...identities].sort((a, b) => rank(a.scope) - rank(b.scope));
     const seen = new Set<string>();
     const out: StatusIdentityJson[] = [];
@@ -149,12 +144,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         out.push(id);
         continue;
       }
-      // project-scope: only show if found in the CURRENT repo (or no source
-      // recorded — legacy entries stay visible so they're not silently lost)
+      // project-scope: strictly filtered to the current repo's committers
+      // (suggest runs synchronously with status, so this is always accurate)
       const isProject = (id.scope ?? (id.imported ? 'project' : 'machine')) === 'project';
-      if (isProject && currentRepo && id.importedFrom && id.importedFrom.length > 0) {
-        if (!id.importedFrom.includes(currentRepo)) continue;
-      }
+      if (isProject && inRepo && !repoEmails.has(id.email.toLowerCase())) continue;
       const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : `${id.email}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -221,28 +214,19 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
    * (minus the currently-active one — you don't co-author yourself) →
    * remembered co-authors (all settings layers) → repo commit history.
    */
+  /**
+   * Co-author candidates STRICTLY mirror the identity display list (same
+   * priority filter, same dedup) minus the currently active identity. No
+   * .git-coauthors, no settings memory, no raw history — only what appears
+   * in the Identities group can be a co-author.
+   */
   private coAuthorCandidates(): Candidate[] {
     const s = this.status;
     if (!s) return [];
-    const seen = new Set<string>();
-    const merged: Candidate[] = [];
-    const push = (name: string, email: string): void => {
-      const id = email.toLowerCase();
-      if (seen.has(id)) return;
-      seen.add(id);
-      merged.push({ name, email });
-    };
     const activeEmail = s.activeIdentity?.email.toLowerCase();
-    for (const a of s.selected) push(a.name, a.email);
-    for (const a of s.available) push(a.name, a.email);
-    // identities follow the same priority-filtered display, minus the active one
-    for (const i of this.filterByPriority(s.identities)) {
-      if (i.email.toLowerCase() === activeEmail) continue;
-      push(i.name, i.email);
-    }
-    for (const a of coAuthorMemories()) push(a.name, a.email);
-    for (const a of this.historyCandidates) push(a.name, a.email);
-    return merged;
+    return this.filterByPriority(s.identities)
+      .filter((i) => i.email.toLowerCase() !== activeEmail)
+      .map((i) => ({ name: i.name, email: i.email }));
   }
 
   /**

@@ -17,7 +17,6 @@ export type IdentityJson = {
   imported?: boolean;
   disabled?: boolean;
   scope?: 'user' | 'machine' | 'project';
-  importedFrom?: string[];
   remoteKeys?: Record<string, string>;
   isDefault: boolean;
 };
