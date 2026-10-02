@@ -126,6 +126,7 @@ User-facing docs live in [docs/](docs/) — when you change behavior, update the
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow, protocols |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, key & passphrase handling |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build, test, packaging, release |
+| [docs/RELEASE.md](docs/RELEASE.md) | Release procedure checklist |
 | [git-colabor/README.md](git-colabor/README.md) | Standalone CLI reference |
 
 Docs commits use `docs(scope): …` like any other change.

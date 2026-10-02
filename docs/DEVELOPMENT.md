@@ -1,6 +1,6 @@
 # Development Guide
 
-How to build, test, package, and release Git Colabor. For the problem statement see [REQUIREMENTS.md](REQUIREMENTS.md); for how the pieces fit together see [ARCHITECTURE.md](ARCHITECTURE.md).
+How to build, test, package, and release Git Colabor. For the problem statement see [REQUIREMENTS.md](REQUIREMENTS.md); for how the pieces fit together see [ARCHITECTURE.md](ARCHITECTURE.md); for the full release procedure see [RELEASE.md](RELEASE.md).
 
 ## Table of contents
 
