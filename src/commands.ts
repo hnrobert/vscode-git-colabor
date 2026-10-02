@@ -41,11 +41,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor.addIdentity', () => addIdentity(deps).then(refresh));
   reg('gitColabor.removeIdentity', (item) => removeIdentity(deps, item).then(refresh));
   reg('gitColabor.logoutIdentity', (item) => logoutIdentity(deps, item).then(refresh));
-  reg('gitColabor.selectCoAuthors', () => selectCoAuthors(deps).then(refresh));
   reg('gitColabor.soloCoAuthors', () => soloCoAuthors(deps).then(refresh));
-  reg('gitColabor.addCoAuthor', () => addCoAuthor(deps).then(refresh));
-  reg('gitColabor.suggestCoAuthors', () => notImplemented(deps, 'suggestCoAuthors', 'M5'));
-  reg('gitColabor.openCoAuthorsFile', () => openCoAuthorsFile());
   reg('gitColabor.showHiddenIdentities', () => showHiddenIdentities(deps).then(refresh));
   reg('gitColabor.revertRepo', () => revertRepo(deps).then(refresh));
   reg('gitColabor.showAudit', () => showAudit(deps));
@@ -454,45 +450,10 @@ async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise<void> 
   vscode.window.showInformationMessage(`Logged out "${identity.name}".`);
 }
 
-async function selectCoAuthors(deps: CommandDeps): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
-  const data = await run<{
-    available: { key: string; name: string; email: string }[];
-    selected: { key: string; name: string; email: string }[];
-  }>(deps, ['identity', 'status'], { cwd });
-  if (!data) return;
-  const selectedKeys = new Set(data.selected.map((s) => s.key));
-  const picks = [...data.available, ...data.selected].map((a) => ({
-    label: a.name,
-    description: a.email,
-    picked: selectedKeys.has(a.key),
-    key: a.key,
-  }));
-  const chosen = await vscode.window.showQuickPick(picks, {
-    placeHolder: 'Select co-authors for this repo',
-    canPickMany: true,
-  });
-  if (!chosen) return;
-  const keys = chosen.map((c) => c.key);
-  if (keys.length === 0) await run(deps, ['coauthor', 'solo'], { cwd });
-  else await run(deps, ['coauthor', 'use', ...keys], { cwd });
-}
-
 async function soloCoAuthors(deps: CommandDeps): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
   await run(deps, ['coauthor', 'solo'], { cwd });
-}
-
-async function addCoAuthor(deps: CommandDeps): Promise<void> {
-  const initials = await vscode.window.showInputBox({ prompt: 'Co-author initials/key', placeHolder: 'jd' });
-  if (!initials) return;
-  const name = await vscode.window.showInputBox({ prompt: 'Co-author name', placeHolder: 'Jane Doe' });
-  if (!name) return;
-  const email = await vscode.window.showInputBox({ prompt: 'Co-author email', placeHolder: 'jane@example.com' });
-  if (!email) return;
-  await run(deps, ['coauthor', 'add', initials, name, email]);
 }
 
 /**
@@ -543,14 +504,12 @@ async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'user' 
     deps.log.warn('remember command invoked without an identity payload');
     return;
   }
-  // enrich with key path + remote from the full identity list
-  const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
-  const full = data?.identities.find((i) => i.id === payload.id);
   if (scope === 'user') {
     await setCoAuthorMemory('user', { name: payload.name, email: payload.email }, true);
     deps.log.info(`remembered ${payload.name} <${payload.email}> at USER scope`);
   } else {
-    if (full) await run(deps, ['identity', 'set', full.id, '--name', full.name]); // touch to update scope
+    // promote to machine scope in the identity store — shows in every repo
+    if (payload.id) await run(deps, ['identity', 'set', payload.id, '--scope', 'machine']);
     deps.log.info(`remembered ${payload.name} <${payload.email}> at MACHINE scope`);
   }
   await deps.provider?.reload();
@@ -681,19 +640,4 @@ async function showHiddenIdentities(deps: CommandDeps): Promise<void> {
       if (added.length > 0) deps.log.info(`re-imported ${added.join(', ')} in ${root}`);
     }
   }
-}
-
-async function openCoAuthorsFile(): Promise<void> {
-  const uri = vscode.Uri.file(join(homedir(), '.git-coauthors'));
-  try {
-    await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(uri);
-  } catch {
-    vscode.window.showWarningMessage(`Git Colabor: could not open ${uri.fsPath} (it may not exist yet).`);
-  }
-}
-
-async function notImplemented(deps: CommandDeps, name: string, milestone: string): Promise<void> {
-  deps.log.warn(`${name} ships in ${milestone}`);
-  vscode.window.showInformationMessage(`Git Colabor: "${name}" is part of ${milestone}.`);
 }

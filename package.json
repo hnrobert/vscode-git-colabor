@@ -131,28 +131,8 @@
         "icon": "$(circle-large-outline)"
       },
       {
-        "command": "gitColabor.selectCoAuthors",
-        "title": "Select Co-authors…",
-        "category": "Git Colabor"
-      },
-      {
         "command": "gitColabor.soloCoAuthors",
         "title": "Solo (clear co-authors)",
-        "category": "Git Colabor"
-      },
-      {
-        "command": "gitColabor.addCoAuthor",
-        "title": "Add Co-author…",
-        "category": "Git Colabor"
-      },
-      {
-        "command": "gitColabor.suggestCoAuthors",
-        "title": "Suggest Co-authors",
-        "category": "Git Colabor"
-      },
-      {
-        "command": "gitColabor.openCoAuthorsFile",
-        "title": "Open .git-coauthors",
         "category": "Git Colabor"
       },
       {
