@@ -4,22 +4,17 @@ Step-by-step procedure for releasing the VS Code extension and the `git-colabor`
 
 ## Overview
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│  pre-release checks (both repos, local)                  │
-│  ├── full test suite green                               │
-│  ├── CHANGELOG.md updated                                │
-│  └── submodule pushed FIRST (CI timing)                  │
-├─────────────────────────────────────────────────────────┤
-│  CLI release (git-colabor repo)                          │
-│  └── Actions → Publish → version → npm                   │
-├─────────────────────────────────────────────────────────┤
-│  Extension release (vscode-git-colabor repo)             │
-│  └── Actions → Release → version + beta → vsix →         │
-│      Marketplace + OpenVSX + GitHub Release              │
-├─────────────────────────────────────────────────────────┤
-│  post-release verify                                     │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A[Pre-release checks<br/>both repos, local] --> A1[Full test suite green]
+    A1 --> A2[CHANGELOG.md updated]
+    A2 --> A3[Submodule pushed FIRST<br/>CI timing]
+    A3 --> B[CLI Release<br/>git-colabor repo]
+    B --> B1[Actions → Publish → version → npm]
+    B1 --> C[Extension Release<br/>vscode-git-colabor repo]
+    C --> C1[Actions → Release → version + beta]
+    C1 --> C2[.vsix → Marketplace + OpenVSX<br/>+ GitHub Release]
+    C2 --> D[Post-release verify]
 ```
 
 ## 1. Pre-release checklist
