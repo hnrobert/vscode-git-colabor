@@ -220,13 +220,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // scoped memory only), prompt immediately, then verify WITHOUT loading into
   // any agent (`identity agent --verify`). Cancel or wrong passphrase disables
   // the identity (same as the in-use failure flow).
-  // Re-runnable: under Remote-SSH the vscode.git API (and thus the repo
-  // status / activeIdentity) often isn't ready at activation — onAcquired()
-  // runs this again once the API lands. `promptedKeys` keeps a completed
-  // decision from repeating; a null activeIdentity leaves it free to retry.
+  // Re-runnable from THREE triggers: activation, late vscode.git API
+  // acquisition, and every provider reload (the event delivers the status —
+  // no extra CLI call). The third matters because the encryption flag can be
+  // healed MID-SESSION: reconcile's `identity use` self-heals stale stored
+  // flags, so the one-shot check at activation may have seen `keyEncrypted:
+  // false` and skipped; the next reload event then sees the healed state and
+  // prompts. `promptedKeys` keeps a completed decision from repeating; a null
+  // activeIdentity leaves it free to retry.
   const promptedKeys = new Set<string>();
-  const maybePromptActiveKey = async (): Promise<void> => {
-    const status = await provider.reload().catch(() => undefined);
+  const maybePromptActiveKey = async (prefetched?: Awaited<ReturnType<IdentityTreeProvider['reload']>>): Promise<void> => {
+    const status = prefetched ?? (await provider.reload().catch(() => undefined));
     const active = status?.activeIdentity;
     if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
     const fp = active.sshKeyFingerprint;
@@ -272,6 +276,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void provider.reload();
     }
   };
+  // every tree/status refresh re-evaluates the prompt condition using the
+  // delivered status (guards make the miss path free; the healed-flag case
+  // above is exactly what this catches)
+  context.subscriptions.push(provider.onDidReload.event((s) => { void maybePromptActiveKey(s ?? undefined); }));
   void maybePromptActiveKey();
 
   logger.info('git colabor activated');
