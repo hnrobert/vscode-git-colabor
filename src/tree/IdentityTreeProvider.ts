@@ -183,15 +183,15 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
             ? 'found in machine memory'
             : 'found in repo';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
-        description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}\n(${sourceLabel})${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
+        description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -ru/-rm = remembered
       // on user/machine, -g = imported from repo history, -k = usable key,
-      // -s = repo signs with THIS key (reuses `saved` from the source label)
+      // -a = key loaded in ssh-agent, -s = repo signs with THIS key
       const isUserScope = i.scope === 'user' || saved.user;
       const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
@@ -200,6 +200,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         (isMachineScope ? '-rm' : '') +
         (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +
+        (i.inAgent ? '-a' : '') +
         (signingWithThisKey ? '-s' : '');
       if (!i.active) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };

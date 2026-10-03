@@ -21,7 +21,7 @@ export type RunOpts = {
  * Spawns the bundled git-colabor CLI (`resources/cli.cjs`) via the VS Code Server's Node
  * (`process.execPath`) so it works under Remote-SSH/Codespaces without relying on $PATH.
  * Arg-array invocation; the askpass bridge env is forwarded so the CLI's ssh-add can reach
- * VS Code SecretStorage passphrases.
+ * session-scoped passphrases.
  */
 export class CliClient {
   constructor(private readonly deps: CliClientDeps) {}

@@ -4,14 +4,12 @@ import { join } from 'node:path';
 import { scanPrivateKeys } from '../ssh/scanPrivateKeys.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
-import type { Secrets } from '../secrets/Secrets.js';
 import type { IdentityTreeProvider } from '../tree/IdentityTreeProvider.js';
 import type { IdentityJson, JsonResult } from '../types.js';
 
 export type CommandDeps = {
   cli: CliClient;
   git: GitApi;
-  secrets: Secrets;
   log: vscode.LogOutputChannel;
   provider?: IdentityTreeProvider;
   /** session-scoped key passphrases (fingerprint → passphrase); in-memory only */

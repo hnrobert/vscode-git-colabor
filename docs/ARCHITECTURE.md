@@ -13,7 +13,6 @@ flowchart LR
         REC ["ReconcileController"]
         SYNC ["ScmSync (input box)"]
         APS ["AskpassServer<br/>(UNIX socket)"]
-        SEC ["Secrets<br/>(SecretStorage)"]
         CC ["CliClient"]
     end
     subgraph cli ["git-colabor CLI (submodule, bundled)"]
@@ -46,13 +45,12 @@ Key decisions:
 | `extension.ts` | Activation: session id (`ext_<hex>`), AskpassServer + session file, GitApi, CliClient, tree view, status bar, ScmSync, commands, watchers, reconcile wiring; dispose logic |
 | `cli/CliClient.ts` | Spawns `resources/cli.cjs` with `process.execPath` (the VS Code Server's Node — no `$PATH` dependency), injects `GIT_COLABOR_SOURCE=ext` + askpass env, parses the JSON envelope, maps spawn/parse failures to `SPAWN_FAILED` / `BAD_JSON` |
 | `askpass/AskpassServer.ts` | `node:net` UNIX socket `<dataDir>/askpass-<sessionId>.sock` (dir `0700`, socket `0600`); one request per connection: `{"token","fingerprint"}` → passphrase bytes; silent close on any failure so callers fall through |
-| `secrets/Secrets.ts` | SecretStorage wrapper; keys `ssh-pass:<fingerprint>` |
 | `git-ext/GitApi.ts` | Minimal typed wrapper over `vscode.git` API v1: repositories, open/close/`ui.onDidChange` subscription, selected-repo resolution **and `repoRoots` (all open repos — identity actions apply session-wide)** |
-| `tree/IdentityTreeProvider.ts`, `tree/items.ts` | SCM view `gitColabor.identitiesView`: guidance rows only at the top (no repo / no active identity — the active identity is NOT duplicated at root; the Identities group marks it ✓), Identities group, and **one merged Co-authors list** (`.git-coauthors` catalogue ∪ all identities minus the active one ∪ `gitColabor.coAuthorIdentities` memory in user/machine/workspace layers ∪ repo commit history, email-deduped; empty state explains how to add) whose rows show `+`/`-` by whether the author's trailer is in the SCM input box (polled — the git API has no inputBox change event; no context menu on these rows — clicking toggles the trailer); identity rows instead carry the memory bits in their contextValue, driving the right-click "save/remove as co-author memory" menu (per scope, three items) |
+| `tree/IdentityTreeProvider.ts`, `tree/items.ts` | SCM view `gitColabor.identitiesView`: guidance rows only at the top (no repo / no active identity — the active identity is NOT duplicated at root; the Identities group marks it ✓), Identities group, and **one merged Co-authors list** (all identities minus the active one ∪ `gitColabor.coAuthorIdentities` memory in user/machine/workspace layers ∪ repo commit history, email-deduped; empty state explains how to add) whose rows show `+`/`-` by whether the author's trailer is in the SCM input box (polled — the git API has no inputBox change event; no context menu on these rows — clicking toggles the trailer); identity rows instead carry the memory bits in their contextValue (`-k` key, `-a` key-in-agent, `-s` signing, `-ru`/`-rm` remembered), driving the right-click modify / agent load-remove / signing / remember-forget menus |
 | `statusbar/StatusBar.ts` | `$(person) name · +N`; click → identity picker |
 | `scm/Sync.ts` | Idempotent reseed of `Co-authored-by:` trailers into the SCM input box (skip when the sorted-email key is unchanged) |
 | `reconcile/ReconcileController.ts` | Setting-wins enforcement (§6) |
-| `commands.ts` | All palette commands + internal tree-click commands |
+| `commands/` | All palette commands + internal tree-click commands, split by area (`identity.ts`, `coauthor.ts`, `signing.ts`, `misc.ts`, `shared.ts`, `index.ts`) |
 | `config.ts`, `log.ts`, `types.ts` | Settings access (incl. `gitColabor.coAuthorIdentities` user/workspace memory), output channel, local mirror of the CLI JSON types (`StatusJson` incl. `signing`) |
 
 ## 3. The `--json` bridge
@@ -70,7 +68,7 @@ Every CLI command accepts `--json` and prints one compact line:
 
 ## 4. The askpass bridge (passphrase channel)
 
-Goal: `ssh-add` needs the passphrase; the extension holds it in SecretStorage; it must never appear on `argv` (visible in `ps`), in the CLI's logs, or in the audit log.
+Goal: `ssh-add` needs the passphrase; the extension holds it in a **session-scoped in-memory map** (never on disk — closing the window, reloading, or a Remote-SSH reconnect drops it and re-prompts); it must never appear on `argv` (visible in `ps`), in the CLI's logs, or in the audit log.
 
 ```mermaid
 sequenceDiagram
@@ -82,13 +80,15 @@ sequenceDiagram
     C->>S: setsid ssh-add <key> (env: SSH_ASKPASS=askpass.cjs, SSH_ASKPASS_REQUIRE=force, GIT_COLABOR_ASKPASS_SOCK/TOKEN)
     S->>A: prompts for passphrase
     A->>E: {"token","fingerprint"}\n over askpass-<sessionId>.sock
-    E->>E: timingSafeEqual(token); lookup ssh-pass:<fingerprint> in SecretStorage
+    E->>E: timingSafeEqual(token); lookup in sessionPassphrases (memory)
     E-->>A: passphrase bytes (or silent close)
     A-->>S: passphrase on stdout
     S-->>C: key loaded (or fail → next strategy)
 ```
 
-- **Load strategy chain** (never throws; reports `via`): plain `ssh-add` → macOS keychain (`--apple-use-keychain`, when supported) → askpass bridge → interactive tty. Outside the extension the same chain applies with `passphrase-command` in place of the socket.
+- **No auto-load:** `identity use` never touches ssh-agent — it applies the config and reports agent presence (`agent.inAgent`). Putting a key INTO the agent is the explicit `identity agent <id>` command (tree right-click "Load Key into ssh-agent"); `--remove` takes it out. Passphrase correctness is checked without any agent write via `identity agent <id> --verify` (`ssh-keygen -y` under the askpass env).
+- **Load strategy chain** (manual load only; never throws; reports `via`): plain `ssh-add` → macOS keychain (`--apple-use-keychain`, when supported) → askpass bridge → interactive tty.
+- **Push-time delivery:** when a bridge session exists (env socket or a live `session-*.json`), the SSH_ASKPASS prefix is baked into `core.sshCommand` so push/fetch fetches the passphrase from the session store. Without a bridge the bare `ssh -i <key>` is written instead — ssh then uses ssh-agent if the key is loaded, else prompts on the tty each operation (pure-CLI behavior; `identity use` prints an `agent-reminder` pointing at `ssh-add <key>`).
 - **Discovery for terminal use:** the extension writes `<dataDir>/session-<pid>.json` (`0600`: sessionId, socketPath, token), so a user-invoked `git colabor` in the integrated terminal can find the bridge even though it wasn't spawned by the extension.
 - **Failure is silent by design:** on any protocol error the server closes without writing, and the caller falls through to the next strategy rather than blocking a commit.
 
@@ -120,7 +120,7 @@ sequenceDiagram
 | Watcher | Event | Action |
 | --- | --- | --- |
 | `fs.watch(<each repo>/.git/colabor/state.json)` (one watcher per open repo) | terminal `git colabor` ran out-of-band in any repo | 300 ms debounce → tree/statusbar refresh only |
-| `onDidSaveTextDocument` | `.git-coauthors` saved | refresh |
+| `onDidSaveTextDocument` | (reserved — no-op today) | refresh |
 | `vscode.git` subscription | repo open/close, selection change | 400 ms debounce → reconcile + refresh |
 | `provider.onDidReload` | every reload | status bar update + ScmSync reseed |
 
@@ -135,9 +135,8 @@ ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value
 | Audit log | `…/git-colabor/audit.log` (JSONL) | CLI | `0600` per append |
 | Askpass socket + session file | `…/git-colabor/askpass-<session>.sock`, `session-<pid>.json` | extension | `0600` (dir `0700`) |
 | Per-repo state | `<git-dir>/colabor/state.json` | CLI | `0600`, atomic |
-| Co-author catalogue | `.git-coauthors` (repo → home fallback) | CLI / user | — |
 | Commit template | `~/.gitmessage` or `commit.template` | CLI | — |
-| Passphrases | VS Code SecretStorage (`ssh-pass:<fp>`) | extension | VS Code-managed |
+| Passphrases | session-scoped in-memory map (extension host process) | extension | never on disk |
 | Git config (local) | `user.name`, `user.email`, `core.sshCommand`, `colabor.managed`, `colabor.managed-by`, `colabor.selected` (multi) | CLI | — |
 
 Atomicity rule: every JSON store is written via write-tmp-then-rename, so a crash mid-write never corrupts state.

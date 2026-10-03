@@ -14,6 +14,8 @@ export type IdentityJson = {
   host?: string;
   hasKey: boolean;
   keyEncrypted?: boolean;
+  /** key fingerprint currently held by ssh-agent (live check per status call) */
+  inAgent?: boolean;
   imported?: boolean;
   disabled?: boolean;
   scope?: 'user' | 'machine' | 'project';

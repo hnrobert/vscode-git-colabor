@@ -7,16 +7,16 @@ import type { CliLogger } from '../cli/CliClient.js';
 
 export type AskpassDeps = {
   sessionId: string;
-  /** Look up a passphrase for an SSH key fingerprint from VS Code SecretStorage. */
+  /** Look up a session-scoped passphrase for an SSH key fingerprint (in-memory). */
   secretLookup: (fingerprint: string) => Promise<string | undefined>;
   log?: CliLogger;
 };
 
 /**
- * UNIX-domain socket server that serves SSH key passphrases from VS Code SecretStorage to the
+ * UNIX-domain socket server that serves session-scoped SSH key passphrases to the
  * CLI's SSH_ASKPASS helper (and to ssh-add). Matches the CLI's `askSocket` protocol:
  * request = one JSON line `{token, fingerprint}`; response = the passphrase bytes (then close).
- * On any failure, close without writing so the helper falls through to passphraseCommand/tty.
+ * On any failure, close without writing so the helper falls through to tty.
  */
 export class AskpassServer {
   private readonly token = randomBytes(32).toString('hex');

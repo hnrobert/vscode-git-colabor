@@ -34,50 +34,42 @@ export async function useIdentityById(deps: CommandDeps, id: string): Promise<vo
 type UseResult = Extract<JsonResult, { ok: true }> | Extract<JsonResult, { ok: false }>;
 
 /**
- * The use result has a key that did not load (encrypted key, agent missing,
- * legacy identities without the keyEncrypted flag) → prompt for a passphrase.
- * Returns the fingerprint to prompt for.
+ * The use result carries an encrypted key that is NOT in ssh-agent → the
+ * session store needs a passphrase for push-time askpass. Returns the
+ * fingerprint to prompt for.
  */
 function needsPassphrase(r: UseResult): string | undefined {
   if (!r.ok) return undefined;
   const d = r.data as {
-    identity?: { hasKey?: boolean; sshKeyFingerprint?: string };
-    keyLoaded?: { loaded: boolean } | null;
+    identity?: { hasKey?: boolean; keyEncrypted?: boolean; sshKeyFingerprint?: string };
+    agent?: { inAgent: boolean } | null;
   };
-  if (d.identity?.hasKey && d.identity.sshKeyFingerprint && d.keyLoaded && !d.keyLoaded.loaded) {
-    return d.identity.sshKeyFingerprint;
+  const i = d.identity;
+  if (i?.hasKey && i.keyEncrypted && i.sshKeyFingerprint && d.agent && !d.agent.inAgent) {
+    return i.sshKeyFingerprint;
   }
   return undefined;
-}
-
-/** "no ssh-agent running" — the key still works at push time via the askpass
- * prefix baked into core.sshCommand, so this is not a disable-worthy failure
- * once we hold the passphrase. */
-function agentMissing(r: UseResult): boolean {
-  if (!r.ok) return false;
-  const d = r.data as { keyLoaded?: { message?: string; via?: string } | null };
-  const text = `${d.keyLoaded?.message ?? ''} ${d.keyLoaded?.via ?? ''}`;
-  return text.includes('Could not open a connection');
 }
 
 async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<void> {
   // one session, one identity configuration: apply to EVERY open repository
   const roots = deps.git.repoRoots.length > 0 ? deps.git.repoRoots : [cwd];
   const conflicts: string[] = [];
-  const disabledRepos: string[] = [];
+  const failedRepos: string[] = [];
 
   const useIn = (root: string) => deps.cli.run(['identity', 'use', id, '--source', 'ext'], { cwd: root });
 
   for (const root of roots) {
-    let r = await useIn(root);
+    const r = await useIn(root);
     if (!r.ok) {
       reportError(r);
       continue;
     }
-    // encrypted key that did not load → prompt once per key (this connection),
-    // retry once; wrong passphrase / cancelled prompt / any other failure
-    // disables the identity in this repo and leaves it identity-less
-    let fp = needsPassphrase(r);
+    // encrypted key not in the agent and nothing banked yet → prompt once per
+    // key (this connection), bank it for push-time askpass, and verify it
+    // WITHOUT loading into any agent (`identity agent --verify`). Cancel or
+    // wrong passphrase disables the identity in this repo.
+    const fp = needsPassphrase(r);
     if (fp && !deps.sessionPassphrases.has(fp)) {
       const pass = await vscode.window.showInputBox({
         prompt: `Passphrase for key ${fp}`,
@@ -86,31 +78,25 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
       });
       if (pass === undefined) {
         await disableIdentityIn(deps, id, root);
-        disabledRepos.push(root);
+        failedRepos.push(root);
         continue;
       }
       deps.sessionPassphrases.set(fp, pass);
-      r = await useIn(root); // retry with the fresh passphrase
-      fp = needsPassphrase(r);
-    }
-    if (fp) {
-      // no ssh-agent on the host → the agent load can never succeed, but the
-      // passphrase still unlocks the key at push time via SSH_ASKPASS; treat
-      // as usable. Anything else (wrong passphrase, other failures) disables.
-      if (agentMissing(r) && deps.sessionPassphrases.has(fp)) {
-        deps.log.info(`no ssh-agent on host — key ${fp} will unlock at push time via askpass`);
-      } else {
+      const v = await deps.cli.run(['identity', 'agent', id, '--verify'], { cwd: root });
+      const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
+      if (!verified) {
         deps.sessionPassphrases.delete(fp); // wrong passphrase — drop it
         await disableIdentityIn(deps, id, root);
-        disabledRepos.push(root);
+        failedRepos.push(root);
         continue;
       }
+      deps.log.info(`passphrase verified for key ${fp} (session only)`);
     }
     const heldBy = (r.data as { conflict?: { heldBy?: { session: string } } | null })?.conflict?.heldBy;
     if (heldBy) conflicts.push(`${root}: ${heldBy.session}`);
   }
 
-  if (disabledRepos.length > 0) {
+  if (failedRepos.length > 0) {
     vscode.window.showWarningMessage(
       `Git Colabor: passphrase failed — identity disabled. Click to retry.`,
     );
@@ -125,6 +111,56 @@ async function disableIdentityIn(deps: CommandDeps, id: string, root: string): P
   const r = await deps.cli.run(['identity', 'disable', id], { cwd: root });
   if (!r.ok) reportError(r);
   else deps.log.warn(`identity ${id} disabled (repo ${root} left without an active identity)`);
+}
+
+/**
+ * Manual ssh-agent management — the ONLY path that puts a key into the agent.
+ * Load prompts for the passphrase first when the key is encrypted and none is
+ * banked in this session (the CLI's askpass bridge reads it during ssh-add).
+ */
+export async function toggleAgentKey(deps: CommandDeps, item: unknown, action: 'load' | 'remove'): Promise<void> {
+  const rowId = rowIdentityId(item);
+  const identity = rowId
+    ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
+    : await pickIdentity(deps, action === 'load' ? 'Select identity to load into ssh-agent' : 'Select identity to remove from ssh-agent');
+  if (!identity) return;
+  if (!identity.hasKey) {
+    vscode.window.showWarningMessage(`Git Colabor: "${identity.name}" has no SSH key.`);
+    return;
+  }
+  if (
+    action === 'load' &&
+    identity.keyEncrypted &&
+    identity.sshKeyFingerprint &&
+    !deps.sessionPassphrases.has(identity.sshKeyFingerprint)
+  ) {
+    const pass = await vscode.window.showInputBox({
+      prompt: `Passphrase for key ${identity.sshKeyFingerprint}`,
+      password: true,
+      placeHolder: 'session only',
+    });
+    if (pass === undefined) return;
+    deps.sessionPassphrases.set(identity.sshKeyFingerprint, pass);
+  }
+  const data = await run<{ loaded?: boolean; removed?: boolean; inAgent: boolean; message?: string }>(
+    deps,
+    ['identity', 'agent', identity.id, ...(action === 'remove' ? ['--remove'] : [])],
+  );
+  if (!data) return;
+  if (action === 'load') {
+    if (data.inAgent) {
+      vscode.window.showInformationMessage(`Git Colabor: key loaded into ssh-agent (${identity.sshKeyFingerprint}).`);
+    } else if (data.loaded && data.message) {
+      // e.g. keygen-verify on an agent-less host: verified but not in an agent
+      vscode.window.showWarningMessage(`Git Colabor: ${data.message}`);
+    } else if (data.message) {
+      vscode.window.showWarningMessage(`Git Colabor: ${data.message}`);
+    }
+  } else if (data.removed) {
+    vscode.window.showInformationMessage('Git Colabor: key removed from ssh-agent.');
+  } else {
+    vscode.window.showWarningMessage('Git Colabor: key was not in ssh-agent.');
+  }
 }
 
 export async function addIdentity(deps: CommandDeps): Promise<void> {
@@ -219,17 +255,15 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
   return chosen ? { name: chosen.name, email: chosen.email } : undefined;
 }
 
-/** Shared tail of both add paths: optional key + passphrase command + CLI add. */
+/** Shared tail of both add paths: optional key + CLI add + passphrase capture. */
 async function finishIdentity(deps: CommandDeps, name: string, email: string): Promise<void> {
   const key = await pickPrivateKey();
-  const pc = await vscode.window.showInputBox({ prompt: 'Passphrase command (optional)', placeHolder: 'op read "op://Private/ssh/pass"' });
   const args = ['identity', 'add', '--name', name, '--email', email];
   if (key && key.trim()) args.push('--key', key.trim());
-  if (pc && pc.trim()) args.push('--passphrase-command', pc.trim());
   const data = await run<{ identity: IdentityJson; encrypted: boolean | null }>(deps, args);
-  // encrypted key without a passphrase command → collect the passphrase now;
-  // it lives in memory for THIS connection only (reconnects re-prompt)
-  if (data?.encrypted === true && !pc && data.identity.sshKeyFingerprint) {
+  // encrypted key → collect the passphrase now; it lives in memory for THIS
+  // connection only (reconnects re-prompt)
+  if (data?.encrypted === true && data.identity.sshKeyFingerprint) {
     const pass = await vscode.window.showInputBox({
       prompt: `Passphrase for key ${data.identity.sshKeyFingerprint}`,
       password: true,
@@ -237,7 +271,7 @@ async function finishIdentity(deps: CommandDeps, name: string, email: string): P
     });
     if (pass !== undefined) {
       deps.sessionPassphrases.set(data.identity.sshKeyFingerprint, pass);
-      deps.log.info(`session passphrase stored for ${data.identity.sshKeyFingerprint}`);
+      deps.log.info(`passphrase stored (session only) for ${data.identity.sshKeyFingerprint}`);
     }
   }
 
@@ -334,6 +368,10 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
       const data = await run<{ cleared: { agent: boolean } }>(deps, ['identity', 'logout', identity.id], { cwd: root });
       agentRemoved = agentRemoved || (data?.cleared.agent ?? false);
     }
+  }
+  // purge the session passphrase so the next use prompts fresh
+  if (identity.sshKeyFingerprint) {
+    deps.sessionPassphrases.delete(identity.sshKeyFingerprint);
   }
   vscode.window.showInformationMessage(`Logged out "${identity.name}".`);
 }

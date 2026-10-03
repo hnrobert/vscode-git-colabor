@@ -6,7 +6,6 @@ import { initLog } from './log.js';
 import { cliPath } from './config.js';
 import { CliClient } from './cli/CliClient.js';
 import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
-import { Secrets } from './secrets/Secrets.js';
 import { GitApi } from './git-ext/GitApi.js';
 import { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
 import { StatusBar } from './statusbar/StatusBar.js';
@@ -22,16 +21,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   logger.info('activating git colabor');
 
   const sessionId = 'ext_' + randomBytes(4).toString('hex');
-  const secrets = new Secrets(context.secrets);
 
   // Session-scoped key passphrases (in-memory only — a Remote-SSH reconnect
-  // restarts the extension host, so every new connection re-prompts). They
-  // take priority over SecretStorage in the askpass lookup chain.
+  // restarts the extension host, so every new connection re-prompts).
   const sessionPassphrases = new Map<string, string>();
 
   askpass = new AskpassServer({
     sessionId,
-    secretLookup: async (fp) => sessionPassphrases.get(fp) ?? (await secrets.get(fp)),
+    secretLookup: async (fp) => sessionPassphrases.get(fp),
     log: logger,
   });
   let askpassInfo: { socketPath: string; token: string } | undefined;
@@ -101,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, 2000);
   context.subscriptions.push({ dispose() { clearInterval(reloadPoll); } });
 
-  registerCommands(context, { cli, git, secrets, log: logger, provider, sessionPassphrases });
+  registerCommands(context, { cli, git, log: logger, provider, sessionPassphrases });
 
   // refresh = re-seed state watchers (one per open repo) + reload the tree
   let watchedRepos = new Set<string>();
@@ -217,24 +214,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   refresh();
 
   // After the first status paints, check the active identity: if it has an
-  // encrypted key and we have no passphrase in this session (fresh window /
-  // reload / reconnect), prompt immediately. Cancel or wrong passphrase
-  // disables the identity (same as the in-use failure flow).
+  // encrypted key that is NOT in ssh-agent and we hold no passphrase in this
+  // session (fresh window / reload / reconnect — passphrases are session-
+  // scoped memory only), prompt immediately, then verify WITHOUT loading into
+  // any agent (`identity agent --verify`). Cancel or wrong passphrase disables
+  // the identity (same as the in-use failure flow).
   void provider.reload().then(async (status) => {
     const active = status?.activeIdentity;
     if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
     if (sessionPassphrases.has(active.sshKeyFingerprint)) return; // session store
-    // SecretStorage may still have it from a previous session (it persists
-    // across restarts) — check before prompting the user unnecessarily
-    const stored = await secrets.get(active.sshKeyFingerprint);
-    if (stored) {
-      sessionPassphrases.set(active.sshKeyFingerprint, stored);
-      logger.info(`passphrase for ${active.name} restored from SecretStorage (no prompt needed)`);
-      void provider.reload();
-      return;
-    }
-    const keyLoaded = status?.identities.find((i) => i.id === active.id)?.hasKey;
-    if (!keyLoaded) return; // key file missing — nothing to prompt for
+    const row = status?.identities.find((i) => i.id === active.id);
+    if (row?.inAgent) return; // key already held by the agent — nothing to unlock
     const pass = await vscode.window.showInputBox({
       prompt: `Passphrase for ${active.name}'s key ${active.sshKeyFingerprint}`,
       password: true,
@@ -254,17 +244,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     sessionPassphrases.set(active.sshKeyFingerprint, pass);
-    logger.info(`session passphrase pre-stored for ${active.name}'s key on window open`);
-    // verify it's correct — if not, disable
-    const verify = await cli.run(['identity', 'use', active.id, '--source', 'ext']);
-    const fp = verify.ok
-      ? ((verify.data as { identity?: { keyEncrypted?: boolean; sshKeyFingerprint?: string }; keyLoaded?: { loaded: boolean } })?.identity?.sshKeyFingerprint)
-      : undefined;
-    const loaded = verify.ok ? (verify.data as { keyLoaded?: { loaded: boolean } })?.keyLoaded?.loaded : false;
-    // reload the tree so the key-loaded state (green icon etc.) reflects reality
+    logger.info(`passphrase stored (session only) for ${active.name}'s key on window open`);
+    // verify via the bridge WITHOUT loading (ssh-keygen -y under askpass)
+    const verify = await cli.run(['identity', 'agent', active.id, '--verify']);
+    const verified = verify.ok ? (verify.data as { verified?: boolean }).verified === true : false;
     void provider.reload();
-    if (fp && !loaded) {
-      sessionPassphrases.delete(fp); // wrong passphrase
+    if (!verified) {
+      sessionPassphrases.delete(active.sshKeyFingerprint); // wrong passphrase
       const roots = git.repoRoots;
       for (const root of roots) {
         await cli.run(['identity', 'disable', active.id], { cwd: root });

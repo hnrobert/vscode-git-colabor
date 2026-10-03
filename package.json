@@ -187,6 +187,16 @@
         "category": "Git Colabor"
       },
       {
+        "command": "gitColabor._loadKeyIntoAgent",
+        "title": "Load Key into ssh-agent",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._removeKeyFromAgent",
+        "title": "Remove Key from ssh-agent",
+        "category": "Git Colabor"
+      },
+      {
         "command": "gitColabor.showHiddenIdentities",
         "title": "Show Hidden Identities…",
         "category": "Git Colabor"
@@ -281,6 +291,16 @@
           "command": "gitColabor._changeIdentityKey",
           "when": "viewItem =~ /^(identity|active-identity)/",
           "group": "1_modify@3"
+        },
+        {
+          "command": "gitColabor._loadKeyIntoAgent",
+          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-a)/",
+          "group": "3_agent@1"
+        },
+        {
+          "command": "gitColabor._removeKeyFromAgent",
+          "when": "viewItem =~ /-a/",
+          "group": "3_agent@2"
         },
         {
           "command": "gitColabor._signCommitsWithKey",

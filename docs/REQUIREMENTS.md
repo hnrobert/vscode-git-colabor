@@ -43,7 +43,7 @@ Existing tools cover slices of this (git-mob handles co-authors; nothing handles
 
 | ID | Requirement | Status |
 | --- | --- | --- |
-| FR-1 | Create identities (name, email, optional SSH private key import, optional passphrase command, host, default flag); remove identities | ✅ |
+| FR-1 | Create identities (name, email, optional SSH private key import, host, default flag); remove identities | ✅ |
 | FR-2 | List identities with key fingerprints; mark the default | ✅ |
 | FR-3 | `identity use` applies per repo: writes local `user.name`, `user.email`, `core.sshCommand` (`ssh -i <key> -o IdentitiesOnly=yes`), and bookkeeping markers `colabor.managed`, `colabor.managed-by` | ✅ |
 | FR-4 | First-touch backup of the repo's prior identity config; `identity revert` restores it exactly (including "was unset") | ✅ |
@@ -77,8 +77,8 @@ Existing tools cover slices of this (git-mob handles co-authors; nothing handles
 | FR-17 | Command palette: use / add / remove / logout / revert / audit log / doctor / open `.git-coauthors` / reload / settings | ✅ |
 | FR-18 | Settings-wins reconcile: `gitColabor.user.*` overrides always re-applied (`--as-name`/`--as-email`); `gitColabor.defaultIdentity` auto-activates; re-run on repo open/close/selection and on settings change | ✅ |
 | FR-19 | SCM input-box co-author sync: idempotently reseed `Co-authored-by:` trailers; never clobber user typing (skip when unchanged) | ✅ |
-| FR-20 | Terminal-drift watchers: `fs.watch` on `.git/colabor/state.json` (300 ms debounce) and save-hook on `.git-coauthors` refresh the UI after out-of-band CLI runs | ✅ |
-| FR-21 | Passphrase storage in VS Code SecretStorage; askpass UNIX-socket server so the CLI's `ssh-add` can fetch passphrases from the extension | ✅ |
+| FR-20 | Terminal-drift watchers: `fs.watch` on `.git/colabor/state.json` (300 ms debounce) refreshes the UI after out-of-band CLI runs | ✅ |
+| FR-21 | Session-scoped passphrase memory (never on disk); askpass UNIX-socket server so the CLI's `ssh-add`/`ssh` can fetch passphrases from the extension; ssh-agent loads are manual only (`identity agent`, tree right-click) | ✅ |
 | FR-22 | Fully workspace-side execution: the extension spawns the bundled CLI with the VS Code Server's own Node (`process.execPath`), never relying on remote `$PATH` — Remote-SSH / Codespaces / dev containers behave like local | ✅ |
 | FR-23 | Co-author suggestions surfaced in the UI (`suggestCoAuthors` command) | ⏳ stub (CLI `suggest` works) |
 

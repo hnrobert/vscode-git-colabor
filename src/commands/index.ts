@@ -7,6 +7,7 @@ import {
   modifyIdentityField,
   rememberIdentity,
   removeIdentity,
+  toggleAgentKey,
   useIdentity,
   useIdentityById,
 } from './identity.js';
@@ -65,4 +66,8 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   // Opt-in SSH commit signing (toggle; applies to every session repo).
   reg('gitColabor._signCommitsWithKey', (item) => toggleCommitSigning(deps, item, true));
   reg('gitColabor._stopSigningCommits', (item) => toggleCommitSigning(deps, item, false));
+
+  // Manual ssh-agent key management (the only path that loads keys into the agent).
+  reg('gitColabor._loadKeyIntoAgent', (item) => toggleAgentKey(deps, item, 'load').then(refresh));
+  reg('gitColabor._removeKeyFromAgent', (item) => toggleAgentKey(deps, item, 'remove').then(refresh));
 }
