@@ -171,8 +171,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const memoryMap = coAuthorMemoryScopeMap(s.identities.map((i) => i.email));
     const visible = this.filterByPriority(s.identities);
     return visible.map((i) => {
+      // signing.key may be the .pub sibling (agent-based signing) — compare key-path-insensitive
+      const signingKeyPath = s.signing?.key?.replace(/\.pub$/, '');
       const signingWithThisKey =
-        !!s.signing?.enabled && !!s.signing.key && s.signing.key === (i as { sshKeyPath?: string }).sshKeyPath;
+        !!s.signing?.enabled && !!signingKeyPath && signingKeyPath === (i as { sshKeyPath?: string }).sshKeyPath;
       const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
       // source label reflects where this identity was found
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };

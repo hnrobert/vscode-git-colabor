@@ -183,6 +183,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       wireGitEvents();
       runReconcile();
       refresh();
+      void maybePromptActiveKey(); // the one-shot check at activation raced the API
     };
     const tryLater = (delayMs: number, attemptsLeft: number): void => {
       const t = setTimeout(() => {
@@ -219,14 +220,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // scoped memory only), prompt immediately, then verify WITHOUT loading into
   // any agent (`identity agent --verify`). Cancel or wrong passphrase disables
   // the identity (same as the in-use failure flow).
-  void provider.reload().then(async (status) => {
+  // Re-runnable: under Remote-SSH the vscode.git API (and thus the repo
+  // status / activeIdentity) often isn't ready at activation — onAcquired()
+  // runs this again once the API lands. `promptedKeys` keeps a completed
+  // decision from repeating; a null activeIdentity leaves it free to retry.
+  const promptedKeys = new Set<string>();
+  const maybePromptActiveKey = async (): Promise<void> => {
+    const status = await provider.reload().catch(() => undefined);
     const active = status?.activeIdentity;
     if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
-    if (sessionPassphrases.has(active.sshKeyFingerprint)) return; // session store
+    const fp = active.sshKeyFingerprint;
+    if (promptedKeys.has(fp)) return;
     const row = status?.identities.find((i) => i.id === active.id);
-    if (row?.inAgent) return; // key already held by the agent — nothing to unlock
+    if (sessionPassphrases.has(fp) || row?.inAgent) {
+      promptedKeys.add(fp); // covered — remember the decision
+      return;
+    }
+    promptedKeys.add(fp);
     const pass = await vscode.window.showInputBox({
-      prompt: `Passphrase for ${active.name}'s key ${active.sshKeyFingerprint}`,
+      prompt: `Passphrase for ${active.name}'s key ${fp}`,
       password: true,
       placeHolder: 'session only',
     });
@@ -243,14 +255,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void provider.reload();
       return;
     }
-    sessionPassphrases.set(active.sshKeyFingerprint, pass);
+    sessionPassphrases.set(fp, pass);
     logger.info(`passphrase stored (session only) for ${active.name}'s key on window open`);
     // verify via the bridge WITHOUT loading (ssh-keygen -y under askpass)
     const verify = await cli.run(['identity', 'agent', active.id, '--verify']);
     const verified = verify.ok ? (verify.data as { verified?: boolean }).verified === true : false;
     void provider.reload();
     if (!verified) {
-      sessionPassphrases.delete(active.sshKeyFingerprint); // wrong passphrase
+      sessionPassphrases.delete(fp); // wrong passphrase
+      promptedKeys.delete(fp); // allow a retry on the next check
       const roots = git.repoRoots;
       for (const root of roots) {
         await cli.run(['identity', 'disable', active.id], { cwd: root });
@@ -258,7 +271,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.showWarningMessage(`Git Colabor: wrong passphrase — ${active.name} disabled. Click to retry.`);
       void provider.reload();
     }
-  });
+  };
+  void maybePromptActiveKey();
 
   logger.info('git colabor activated');
 }
