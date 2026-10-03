@@ -223,7 +223,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void provider.reload().then(async (status) => {
     const active = status?.activeIdentity;
     if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
-    if (sessionPassphrases.has(active.sshKeyFingerprint)) return; // already have it
+    if (sessionPassphrases.has(active.sshKeyFingerprint)) return; // session store
+    // SecretStorage may still have it from a previous session (it persists
+    // across restarts) — check before prompting the user unnecessarily
+    const stored = await secrets.get(active.sshKeyFingerprint);
+    if (stored) {
+      sessionPassphrases.set(active.sshKeyFingerprint, stored);
+      logger.info(`passphrase for ${active.name} restored from SecretStorage (no prompt needed)`);
+      void provider.reload();
+      return;
+    }
     const keyLoaded = status?.identities.find((i) => i.id === active.id)?.hasKey;
     if (!keyLoaded) return; // key file missing — nothing to prompt for
     const pass = await vscode.window.showInputBox({
