@@ -420,11 +420,14 @@ export async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'u
 /**
  * Modify one field of an identity (name / email / key reference). Changes
  * land in the machine-level identity store — the user is told so.
+ * Key mode with `allowClearKey: false` is the "Add SSH Key" variant shown
+ * for key-less identities (no clear option — there is nothing to clear).
  */
 export async function modifyIdentityField(
   deps: CommandDeps,
   item: unknown,
   field: 'name' | 'email' | 'key',
+  opts: { allowClearKey?: boolean } = {},
 ): Promise<void> {
   const id = (item as { payload?: { id?: string } } | undefined)?.payload?.id;
   if (!id) {
@@ -436,7 +439,7 @@ export async function modifyIdentityField(
   if (!cur) return;
 
   if (field === 'key') {
-    const pick = await pickPrivateKey(true);
+    const pick = await pickPrivateKey(opts.allowClearKey !== false);
     if (pick === undefined) return; // cancelled / skip
     if (pick === null) await run(deps, ['identity', 'set', id, '--no-key']);
     else await run(deps, ['identity', 'set', id, '--key', pick]);

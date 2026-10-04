@@ -172,6 +172,11 @@
         "category": "Git Colabor"
       },
       {
+        "command": "gitColabor._addIdentityKey",
+        "title": "Add SSH Key for Identity…",
+        "category": "Git Colabor"
+      },
+      {
         "command": "gitColabor._changeIdentityKey",
         "title": "Change Identity Key…",
         "category": "Git Colabor"
@@ -278,6 +283,36 @@
           "group": "2_remove"
         },
         {
+          "command": "gitColabor._addIdentityKey",
+          "when": "viewItem =~ /^(identity|active-identity)(?!.*-k)/",
+          "group": "3_key@1"
+        },
+        {
+          "command": "gitColabor._changeIdentityKey",
+          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)/",
+          "group": "3_key@1"
+        },
+        {
+          "command": "gitColabor._loadKeyIntoAgent",
+          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-a)/",
+          "group": "3_key@2"
+        },
+        {
+          "command": "gitColabor._removeKeyFromAgent",
+          "when": "viewItem =~ /-a/",
+          "group": "3_key@3"
+        },
+        {
+          "command": "gitColabor._signCommitsWithKey",
+          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-s)/",
+          "group": "3_key@4"
+        },
+        {
+          "command": "gitColabor._stopSigningCommits",
+          "when": "viewItem =~ /-s/",
+          "group": "3_key@5"
+        },
+        {
           "command": "gitColabor._changeIdentityName",
           "when": "viewItem =~ /^(identity|active-identity)/",
           "group": "1_modify@1"
@@ -286,31 +321,6 @@
           "command": "gitColabor._changeIdentityEmail",
           "when": "viewItem =~ /^(identity|active-identity)/",
           "group": "1_modify@2"
-        },
-        {
-          "command": "gitColabor._changeIdentityKey",
-          "when": "viewItem =~ /^(identity|active-identity)/",
-          "group": "1_modify@3"
-        },
-        {
-          "command": "gitColabor._loadKeyIntoAgent",
-          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-a)/",
-          "group": "3_agent@1"
-        },
-        {
-          "command": "gitColabor._removeKeyFromAgent",
-          "when": "viewItem =~ /-a/",
-          "group": "3_agent@2"
-        },
-        {
-          "command": "gitColabor._signCommitsWithKey",
-          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-s)/",
-          "group": "4_sign@1"
-        },
-        {
-          "command": "gitColabor._stopSigningCommits",
-          "when": "viewItem =~ /-s/",
-          "group": "4_sign@1"
         },
         {
           "command": "gitColabor._rememberOnUser",

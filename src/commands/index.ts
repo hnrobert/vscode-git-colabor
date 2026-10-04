@@ -58,10 +58,13 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor._rememberOnMachine', (item) => rememberIdentity(deps, item, 'machine'));
   reg('gitColabor._forgetFromMachine', (item) => forgetIdentity(deps, item, 'machine'));
 
-  // Right-click modify section (name / email / key).
+  // Right-click modify section (name / email).
   reg('gitColabor._changeIdentityName', (item) => modifyIdentityField(deps, item, 'name'));
   reg('gitColabor._changeIdentityEmail', (item) => modifyIdentityField(deps, item, 'email'));
-  reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key'));
+
+  // Right-click key section: add (key-less identities) / change, agent, signing.
+  reg('gitColabor._addIdentityKey', (item) => modifyIdentityField(deps, item, 'key', { allowClearKey: false }).then(refresh));
+  reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key').then(refresh));
 
   // Opt-in SSH commit signing (toggle; applies to every session repo).
   reg('gitColabor._signCommitsWithKey', (item) => toggleCommitSigning(deps, item, true));
