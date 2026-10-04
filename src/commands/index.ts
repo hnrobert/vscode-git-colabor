@@ -3,6 +3,7 @@ import type { CommandDeps } from './shared.js';
 import {
   addIdentity,
   forgetIdentity,
+  hideThisIdentity,
   logoutIdentity,
   modifyIdentityField,
   rememberIdentity,
@@ -57,6 +58,10 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor._forgetFromUser', (item) => forgetIdentity(deps, item, 'user'));
   reg('gitColabor._rememberOnMachine', (item) => rememberIdentity(deps, item, 'machine'));
   reg('gitColabor._forgetFromMachine', (item) => forgetIdentity(deps, item, 'machine'));
+
+  // Machine-level hide (display + import); hide outranks remember. Restore
+  // via "Show Hidden Identities…".
+  reg('gitColabor._hideThisIdentity', (item) => hideThisIdentity(deps, item).then(refresh));
 
   // Right-click modify section (name / email).
   reg('gitColabor._changeIdentityName', (item) => modifyIdentityField(deps, item, 'name'));

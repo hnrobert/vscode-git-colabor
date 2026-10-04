@@ -198,7 +198,7 @@
       },
       {
         "command": "gitColabor._removeKeyFromAgent",
-        "title": "Remove Key from ssh-agent",
+        "title": "Unload Key from ssh-agent",
         "category": "Git Colabor"
       },
       {
@@ -219,6 +219,11 @@
       {
         "command": "gitColabor._forgetFromMachine",
         "title": "Forget from Machine",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._hideThisIdentity",
+        "title": "Hide This Identity on This Machine",
         "category": "Git Colabor"
       },
       {
@@ -341,6 +346,11 @@
           "command": "gitColabor._forgetFromMachine",
           "when": "viewItem =~ /-rm/",
           "group": "8_remember@2"
+        },
+        {
+          "command": "gitColabor._hideThisIdentity",
+          "when": "viewItem =~ /^(identity|active-identity)/",
+          "group": "9_hide"
         }
       ],
       "commandPalette": [

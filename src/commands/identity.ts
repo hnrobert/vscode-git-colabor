@@ -398,6 +398,25 @@ export async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 
   await deps.provider?.reload();
 }
 
+/**
+ * Hide an identity on this machine (machine-level, by email): it disappears
+ * from the identity list and co-author candidates across every scope — hide
+ * outranks user/machine remember. Restore via "Show Hidden Identities…".
+ */
+export async function hideThisIdentity(deps: CommandDeps, item: unknown): Promise<void> {
+  const payload = (item as { payload?: { name: string; email: string } } | undefined)?.payload;
+  if (!payload) {
+    deps.log.warn('hide command invoked without an identity payload');
+    return;
+  }
+  const data = await run<{ hidden: string }>(deps, ['identity', 'hide', payload.email]);
+  if (data) {
+    vscode.window.showInformationMessage(
+      `Hidden "${payload.name}" on this machine. Restore via "Show Hidden Identities…".`,
+    );
+  }
+}
+
 /** Forget an identity from user or machine scope. */
 export async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
   const payload = (item as { payload?: { id?: string; name: string; email: string } } | undefined)?.payload;

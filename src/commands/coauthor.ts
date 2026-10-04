@@ -59,7 +59,7 @@ export async function showHiddenIdentities(deps: CommandDeps): Promise<void> {
       description: 'hidden — click to restore',
       email,
     })),
-    { placeHolder: 'Select an identity to unhide (restore for auto-import)' },
+    { placeHolder: 'Select an identity to unhide (restores display and auto-import)' },
   );
   if (!picked) return;
   const unhidden = await run<{ unhid: string }>(deps, ['identity', 'unhide', picked.email]);
