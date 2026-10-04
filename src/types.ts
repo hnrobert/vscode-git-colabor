@@ -18,7 +18,8 @@ export type IdentityJson = {
   inAgent?: boolean;
   imported?: boolean;
   disabled?: boolean;
-  scope?: 'vscode' | 'machine' | 'project';
+  /** store-level scope; the "vscode memory" is a settings-layer flag, not a scope value */
+  scope?: 'machine' | 'project';
   remoteKeys?: Record<string, string>;
   isDefault: boolean;
 };

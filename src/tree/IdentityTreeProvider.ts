@@ -125,16 +125,17 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   }
 
   /**
-   * Priority dedup: user > machine > project. A lower-priority identity is
-   * suppressed when a higher-priority one matches on name + key + remote
-   * (email when no key/remote). The active identity always shows.
-   * Project-scope identities only show when their email appears in the
-   * current repo's committer history (historyCandidates, re-scanned on every
-   * reload). To make one visible everywhere, right-click → "Remember on VS
-   * Code User Settings" (cross-machine, travels with Settings Sync).
+   * Priority dedup: machine > project (the store's two real levels). A
+   * lower-priority identity is suppressed when a higher-priority one matches
+   * on name + key + remote (email when no key/remote). The active identity
+   * always shows. Project-scope identities only show when their email
+   * appears in the current repo's committer history (historyCandidates,
+   * re-scanned on every reload). To make one visible everywhere, right-click
+   * → "Remember on VS Code User Settings" — a settings-layer memory flag,
+   * not a store scope (travels with Settings Sync).
    */
   private filterByPriority(identities: StatusIdentityJson[]): StatusIdentityJson[] {
-    const rank = (s?: string) => (s === 'vscode' ? 0 : s === 'machine' ? 1 : 2);
+    const rank = (s?: string) => (s === 'machine' ? 0 : 1);
     const repoEmails = new Set(this.historyCandidates.map((c) => c.email.toLowerCase()));
     const inRepo = !!this.status?.inRepo;
     const sorted = [...identities].sort((a, b) => rank(a.scope) - rank(b.scope));
@@ -162,7 +163,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   /**
    * Identity rows filtered by the priority display rule:
-   *   user (vscode config) > machine (identities.json) > project (repo scan)
+   *   machine (identities.json) > project (repo scan)
+   * "vscode memory" is a display flag layered on top (settings-remembered
+   * rows keep their machine/project store scope), not a priority level.
    * A lower-priority identity is HIDDEN when a higher-priority one has the
    * same name + key + remote. Identities with no key and no remote match by
    * email. The active identity always shows regardless of scope.
@@ -179,12 +182,11 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
       // source label reflects where this identity was found
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
-      const sourceLabel =
-        i.scope === 'vscode' || saved.user
-          ? 'found in vscode memory'
-          : i.scope === 'machine' || (!i.scope && !i.imported)
-            ? 'found in machine memory'
-            : 'found in repo';
+      const sourceLabel = saved.user
+        ? 'found in vscode memory'
+        : i.scope === 'machine' || (!i.scope && !i.imported)
+          ? 'found in machine memory'
+          : 'found in repo';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
         description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
@@ -193,16 +195,16 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -rv = remembered in
-      // vscode settings (the inspect() API only surfaces the highest-priority
-      // effective layer, so user/workspace merge into one "vscode memory"
-      // label), -rm = machine scope, -g = imported from repo history,
-      // -k = usable key, -a = key loaded in ssh-agent, -s = repo signs with
-      // THIS key
-      const isVSCodeScope = i.scope === 'vscode' || saved.user;
+      // vscode settings (a settings-layer flag — the inspect() API only
+      // surfaces the highest-priority effective layer, so user/workspace
+      // merge into one "vscode memory" label), -rm = machine scope,
+      // -g = imported from repo history, -k = usable key, -a = key loaded in
+      // ssh-agent, -s = repo signs with THIS key
+      const rememberedInVSCode = saved.user;
       const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
         item.kind +
-        (isVSCodeScope ? '-rv' : '') +
+        (rememberedInVSCode ? '-rv' : '') +
         (isMachineScope ? '-rm' : '') +
         (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +
