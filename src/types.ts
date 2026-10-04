@@ -18,7 +18,7 @@ export type IdentityJson = {
   inAgent?: boolean;
   imported?: boolean;
   disabled?: boolean;
-  scope?: 'user' | 'machine' | 'project';
+  scope?: 'vscode' | 'machine' | 'project';
   remoteKeys?: Record<string, string>;
   isDefault: boolean;
 };

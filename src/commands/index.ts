@@ -53,9 +53,9 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor._useIdentityById', (id) => useIdentityById(deps, String(id)));
   reg('gitColabor._toggleCoAuthor', (name, email) => toggleCoAuthor(deps, String(name), String(email)));
 
-  // Right-click remember/forget per scope (user = vscode config, machine = identities.json).
-  reg('gitColabor._rememberOnUser', (item) => rememberIdentity(deps, item, 'user'));
-  reg('gitColabor._forgetFromUser', (item) => forgetIdentity(deps, item, 'user'));
+  // Right-click remember/forget in vscode user settings (the sole quick action).
+  reg('gitColabor._rememberOnUser', (item) => rememberIdentity(deps, item, 'vscode'));
+  reg('gitColabor._forgetFromUser', (item) => forgetIdentity(deps, item, 'vscode'));
   reg('gitColabor._rememberOnMachine', (item) => rememberIdentity(deps, item, 'machine'));
   reg('gitColabor._forgetFromMachine', (item) => forgetIdentity(deps, item, 'machine'));
 

@@ -130,10 +130,11 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
    * (email when no key/remote). The active identity always shows.
    * Project-scope identities only show when their email appears in the
    * current repo's committer history (historyCandidates, re-scanned on every
-   * reload). To make one visible everywhere, right-click → "Remember on Machine".
+   * reload). To make one visible everywhere, right-click → "Remember on VS
+   * Code User Settings" (cross-machine, travels with Settings Sync).
    */
   private filterByPriority(identities: StatusIdentityJson[]): StatusIdentityJson[] {
-    const rank = (s?: string) => (s === 'user' ? 0 : s === 'machine' ? 1 : 2);
+    const rank = (s?: string) => (s === 'vscode' ? 0 : s === 'machine' ? 1 : 2);
     const repoEmails = new Set(this.historyCandidates.map((c) => c.email.toLowerCase()));
     const inRepo = !!this.status?.inRepo;
     const sorted = [...identities].sort((a, b) => rank(a.scope) - rank(b.scope));
@@ -179,8 +180,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // source label reflects where this identity was found
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
       const sourceLabel =
-        i.scope === 'user' || saved.user
-          ? 'found in user memory'
+        i.scope === 'vscode' || saved.user
+          ? 'found in vscode memory'
           : i.scope === 'machine' || (!i.scope && !i.imported)
             ? 'found in machine memory'
             : 'found in repo';
@@ -191,14 +192,17 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
-      // contextValue bits drive the right-click menus: -ru/-rm = remembered
-      // on user/machine, -g = imported from repo history, -k = usable key,
-      // -a = key loaded in ssh-agent, -s = repo signs with THIS key
-      const isUserScope = i.scope === 'user' || saved.user;
+      // contextValue bits drive the right-click menus: -rv = remembered in
+      // vscode settings (the inspect() API only surfaces the highest-priority
+      // effective layer, so user/workspace merge into one "vscode memory"
+      // label), -rm = machine scope, -g = imported from repo history,
+      // -k = usable key, -a = key loaded in ssh-agent, -s = repo signs with
+      // THIS key
+      const isVSCodeScope = i.scope === 'vscode' || saved.user;
       const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
         item.kind +
-        (isUserScope ? '-ru' : '') +
+        (isVSCodeScope ? '-rv' : '') +
         (isMachineScope ? '-rm' : '') +
         (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +

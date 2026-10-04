@@ -288,9 +288,9 @@ async function pickAndApplyScope(deps: CommandDeps, id: string, name: string): P
   const focused = deps.git.selectedRepoRoot();
   const roots = deps.git.repoRoots;
 
-  type ScopeItem = vscode.QuickPickItem & { scope?: 'user' | 'machine' | 'project'; repoRoot?: string };
+  type ScopeItem = vscode.QuickPickItem & { scope?: 'vscode' | 'machine' | 'project'; repoRoot?: string };
   const items: ScopeItem[] = [
-    { label: '$(globe) User', description: 'cross-machine — follows your VS Code profile', scope: 'user' },
+    { label: '$(globe) VS Code Settings', description: 'cross-machine — travels with your VS Code profile', scope: 'vscode' },
     { label: '$(vm) Machine', description: 'this host only — stored in identities.json', scope: 'machine' },
   ];
 
@@ -314,13 +314,14 @@ async function pickAndApplyScope(deps: CommandDeps, id: string, name: string): P
   });
   if (!picked) return; // cancelled → defaults to machine scope
 
-  if (picked.scope === 'user') {
-    // save in VS Code user settings (coAuthorIdentities)
+  if (picked.scope === 'vscode') {
+    // save in VS Code user settings (coAuthorIdentities); 'user' below is the
+    // settings LAYER (ConfigurationTarget.Global), not the identity scope
     const identity = (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === id);
     if (identity) {
       await setCoAuthorMemory('user', { name: identity.name, email: identity.email }, true);
       await run(deps, ['identity', 'set', id, '--scope', 'machine']);
-      deps.log.info(`identity ${name} scoped to USER`);
+      deps.log.info(`identity ${name} scoped to VSCODE`);
     }
   } else if (picked.scope === 'project' && picked.repoRoot) {
     // project scope: identity only visible in that specific repo
@@ -381,15 +382,16 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
  * scope. For user scope, also records the key path and remote name so the
  * identity is fully portable. For machine scope, tags it in the map.
  */
-export async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
+export async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 'vscode' | 'machine'): Promise<void> {
   const payload = (item as { payload?: { id?: string; name: string; email: string } } | undefined)?.payload;
   if (!payload) {
     deps.log.warn('remember command invoked without an identity payload');
     return;
   }
-  if (scope === 'user') {
+  if (scope === 'vscode') {
+    // 'user' here is the settings LAYER (user settings file), not the scope name
     await setCoAuthorMemory('user', { name: payload.name, email: payload.email }, true);
-    deps.log.info(`remembered ${payload.name} <${payload.email}> at USER scope`);
+    deps.log.info(`remembered ${payload.name} <${payload.email}> in VSCODE settings`);
   } else {
     // promote to machine scope in the identity store — shows in every repo
     if (payload.id) await run(deps, ['identity', 'set', payload.id, '--scope', 'machine']);
@@ -418,15 +420,16 @@ export async function hideThisIdentity(deps: CommandDeps, item: unknown): Promis
 }
 
 /** Forget an identity from user or machine scope. */
-export async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'user' | 'machine'): Promise<void> {
+export async function forgetIdentity(deps: CommandDeps, item: unknown, scope: 'vscode' | 'machine'): Promise<void> {
   const payload = (item as { payload?: { id?: string; name: string; email: string } } | undefined)?.payload;
   if (!payload) {
     deps.log.warn('forget command invoked without an identity payload');
     return;
   }
-  if (scope === 'user') {
+  if (scope === 'vscode') {
+    // 'user' here is the settings LAYER (user settings file), not the scope name
     await setCoAuthorMemory('user', { name: payload.name, email: payload.email }, false);
-    deps.log.info(`forgot ${payload.name} <${payload.email}> from USER scope`);
+    deps.log.info(`forgot ${payload.name} <${payload.email}> from VSCODE settings`);
   } else {
     // demote back to project scope — the identity only shows in repos whose
     // history contains their commits

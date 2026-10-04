@@ -213,7 +213,7 @@
       },
       {
         "command": "gitColabor._rememberOnUser",
-        "title": "Remember on User",
+        "title": "Remember in VS Code User Settings",
         "category": "Git Colabor"
       },
       {
@@ -228,7 +228,7 @@
       },
       {
         "command": "gitColabor._forgetFromUser",
-        "title": "Forget from User",
+        "title": "Forget from VS Code User Settings",
         "category": "Git Colabor"
       }
     ],
@@ -329,12 +329,12 @@
         },
         {
           "command": "gitColabor._rememberOnUser",
-          "when": "viewItem =~ /^(identity|active-identity)(?!.*-ru)/",
+          "when": "viewItem =~ /^(identity|active-identity)(?!.*-rv)/",
           "group": "8_remember@1"
         },
         {
           "command": "gitColabor._forgetFromUser",
-          "when": "viewItem =~ /-ru/",
+          "when": "viewItem =~ /-rv/",
           "group": "8_remember@1"
         },
         {

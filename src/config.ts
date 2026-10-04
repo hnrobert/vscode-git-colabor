@@ -44,9 +44,13 @@ export function conflictWarningStaleMinutes(): number {
 }
 
 // --- remembered identities (gitColabor.coAuthorIdentities, "Name <email>" entries) ---
-// Two settings layers only: user (global, cross-machine) and workspace
-// (per repo, shareable). The machine level is the identity store itself
-// (~/.config/git-colabor/identities.json) — no third copy in VS Code settings.
+// Settings layers: user (global, cross-machine), workspace (per repo), and
+// vscode's "machine" layer — the remote window's Machine tab, where
+// ConfigurationTarget.Global writes can land from a remote extension host.
+// inspect() does NOT expose machineValue, so it is recovered by exclusion
+// (see coAuthorMemoriesByScope) and folded into "user": both mean "remembered
+// in vscode settings" for display purposes. The identity-map machine level
+// (~/.config/git-colabor/identities.json) is a separate concept entirely.
 
 export type MemoryScope = 'user' | 'workspace';
 
@@ -63,15 +67,29 @@ const asAuthorList = (v: unknown): ParsedAuthor[] =>
       })
     : [];
 
+const sameAuthors = (a: ParsedAuthor[], b: ParsedAuthor[]): boolean =>
+  a.length === b.length && a.every((x, i) => x.name === b[i].name && x.email === b[i].email);
+
 /** Both memory layers from ONE configuration inspect (cheap enough per render). */
 export function coAuthorMemoriesByScope(): Record<MemoryScope, ParsedAuthor[]> {
-  const inspect = vscode.workspace.getConfiguration('gitColabor').inspect('coAuthorIdentities') as
-    | CoAuthorsInspection
-    | undefined;
-  return {
-    user: asAuthorList(inspect?.globalValue),
-    workspace: asAuthorList(inspect?.workspaceValue),
-  };
+  const config = vscode.workspace.getConfiguration('gitColabor');
+  const inspect = config.inspect('coAuthorIdentities') as CoAuthorsInspection | undefined;
+  const user = asAuthorList(inspect?.globalValue);
+  const workspace = asAuthorList(inspect?.workspaceValue);
+  // window-scoped settings REPLACE per layer, so a non-empty effective value
+  // that matches neither exposed layer can only be the machine layer —
+  // recover it instead of losing entries inspect() cannot name.
+  const effective = asAuthorList(config.get('coAuthorIdentities'));
+  if (effective.length > 0 && !sameAuthors(effective, user) && !sameAuthors(effective, workspace)) {
+    const seen = new Set(user.map((a) => a.email.toLowerCase()));
+    for (const a of effective) {
+      if (!seen.has(a.email.toLowerCase())) {
+        user.push(a);
+        seen.add(a.email.toLowerCase());
+      }
+    }
+  }
+  return { user, workspace };
 }
 
 /** Deduped union of both memory layers (feeds the Co-authors list). */
