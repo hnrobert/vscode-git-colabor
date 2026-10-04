@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { randomBytes } from 'node:crypto';
-import { watch, statSync, type FSWatcher } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { readFileSync, watch, statSync, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { initLog } from './log.js';
 import { cliPath } from './config.js';
@@ -74,16 +74,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, 1500);
   context.subscriptions.push({ dispose() { clearInterval(inputPoll); } });
 
-  // Dev loop: `build-scripts/remote-dev.sh` touches <dataDir>/dev-reload after
-  // installing a fresh build; react with a FULL window reload (extension-host
-  // restarts alone cannot refresh package.json menu/command contributions).
-  // The baseline is seeded once at activation, so a stale marker never
-  // reloads on startup — but any later change (including the marker first
-  // appearing) does.
+  // Dev loop: `build-scripts/remote-dev.sh` rewrites <dataDir>/dev-reload after
+  // installing a fresh build; the marker content is the sha256 of the NEW
+  // package.json. Matching our own package.json means a code-only deploy
+  // (commands/menus unchanged) → restart just the extension host (cheap — the
+  // git extension and UI survive); a mismatch means new contributions → FULL
+  // window reload. The baseline is seeded once at activation, so a stale
+  // marker never reloads on startup — but any later change (including the
+  // marker first appearing) does.
   const reloadMarker = join(colaborDir(), 'dev-reload');
   const markerMtime = (): number | undefined => {
     try {
       return statSync(reloadMarker).mtimeMs;
+    } catch {
+      return undefined;
+    }
+  };
+  const markerHash = (): string | undefined => {
+    try {
+      return readFileSync(reloadMarker, 'utf8').trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const ownPackageHash = (): string | undefined => {
+    try {
+      return createHash('sha256').update(readFileSync(join(context.extensionPath, 'package.json'))).digest('hex');
     } catch {
       return undefined;
     }
@@ -93,8 +109,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const mtime = markerMtime();
     if (mtime === lastMarker) return;
     lastMarker = mtime;
-    logger.info('dev-reload marker changed — reloading window');
-    void vscode.commands.executeCommand('workbench.action.reloadWindow');
+    const want = markerHash();
+    if (want && want === ownPackageHash()) {
+      logger.info('dev-reload marker changed (code-only) — restarting extension host');
+      void vscode.commands.executeCommand('workbench.action.restartExtensionHost');
+    } else {
+      logger.info('dev-reload marker changed — reloading window');
+      void vscode.commands.executeCommand('workbench.action.reloadWindow');
+    }
   }, 2000);
   context.subscriptions.push({ dispose() { clearInterval(reloadPoll); } });
 
