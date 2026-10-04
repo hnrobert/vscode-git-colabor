@@ -60,12 +60,16 @@ remote_server_dir() {
   "
 }
 
-# Ask already-running windows on the host for a FULL reload: the extension
-# polls <dataDir>/dev-reload and runs workbench.action.reloadWindow when its
-# mtime changes. (Windows running a build from before this mechanism need
-# one last manual "Developer: Reload Window".)
+# Ask already-running windows on the host to pick up the new build: the
+# extension polls <dataDir>/dev-reload. The marker carries the sha256 of the
+# NEW package.json — when the running extension compares it against its own
+# package.json and they match (code-only deploy: commands/menus unchanged),
+# it restarts just the extension host; a mismatch (new commands/menus) needs
+# a full window reload. (Windows running a build from before this mechanism
+# need one last manual "Developer: Reload Window".)
 touch_reload_marker() {
-  ssh -o IdentitiesOnly=yes "$HOST" 'mkdir -p "$HOME/.config/git-colabor" && touch "$HOME/.config/git-colabor/dev-reload"'
+  HASH="$(shasum -a 256 "$ROOT/package.json" | cut -d' ' -f1)"
+  ssh -o IdentitiesOnly=yes "$HOST" "mkdir -p \"\$HOME/.config/git-colabor\" && printf '%s' '$HASH' > \"\$HOME/.config/git-colabor/dev-reload\""
 }
 
 # Provision the demo repo on the host (idempotent): a short history with
@@ -132,11 +136,40 @@ do_install() {
   touch_reload_marker
 
   echo "==> open remote window"
-  code --remote "ssh-remote+$HOST" "$REMOTE_DIR"
+  if host_has_window; then
+    echo "    a window is already connected — the reload marker above updated it; not opening another"
+  else
+    code --remote "ssh-remote+$HOST" "$REMOTE_DIR"
+  fi
   echo "
 Done. Windows on $HOST watch the dev-reload marker and reload themselves
 within ~2s (windows still running a pre-marker build need one last manual
 'Developer: Reload Window'). Live logs: $0 logs $HOST"
+}
+
+# Is a VS Code window with our extension already connected to this host?
+# A live askpass socket proves it (each window's extension host starts one;
+# dead hosts/windows leave stale files but the connect fails). Unknown
+# (no python3) counts as "no window" — the conservative default opens one.
+host_has_window() {
+  ssh -o IdentitiesOnly=yes "$HOST" 'python3 - <<"PY" 2>/dev/null
+import glob, json, os, socket, sys
+files = sorted(glob.glob(os.path.expanduser("~/.config/git-colabor/session-*.json")), key=os.path.getmtime, reverse=True)
+for f in files[:5]:
+    try:
+        d = json.load(open(f))
+    except Exception:
+        continue
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        s.settimeout(1)
+        s.connect(d["socketPath"])
+        s.close()
+        sys.exit(0)
+    except Exception:
+        continue
+sys.exit(1)
+PY'
 }
 
 case "$COMMAND" in
