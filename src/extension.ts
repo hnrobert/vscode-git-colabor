@@ -269,15 +269,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       placeHolder: 'session only',
     });
     if (pass === undefined || !status?.repo) {
-      // cancelled → disable, same as the wrong-passphrase flow in applyUse
-      const roots = git.repoRoots;
-      for (const root of roots) {
-        const r = await cli.run(['identity', 'disable', active.id], { cwd: root });
-        if (!r.ok) logger.warn(`disable after passphrase cancel failed in ${root}`);
-      }
-      if (pass === undefined) {
-        vscode.window.showWarningMessage(`Git Colabor: passphrase cancelled — ${active.name} disabled.`);
-      }
+      // This is a PASSIVE prompt (window opened / status refreshed) — unlike
+      // the explicit use flow, cancelling it must NOT disable the identity.
+      // The key simply stays locked until the user clicks the identity
+      // (explicit use re-prompts) or reloads.
+      logger.info(`passphrase prompt dismissed for ${active.name} (no disable — click the identity to retry)`);
       void provider.reload();
       return;
     }
