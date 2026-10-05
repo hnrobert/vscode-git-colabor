@@ -11,6 +11,7 @@ import {
   run,
   type CommandDeps,
 } from './shared.js';
+import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
 
 export async function useIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
   const cwd = requireRepo(deps);
@@ -164,6 +165,26 @@ export async function toggleAgentKey(deps: CommandDeps, item: unknown, action: '
 }
 
 export async function addIdentity(deps: CommandDeps): Promise<void> {
+  // the view-title "+" button opens this INTEGRATED menu first — identity or
+  // a standalone key, both one click away
+  const entry = await vscode.window.showQuickPick(
+    [
+      { label: '$(person-add) Add Identity…', description: 'name + email (GitHub search or custom), optional key', identity: true },
+      { label: '$(add) Generate New SSH Key…', description: 'ed25519 / rsa / ecdsa — directory, file name, comment, optional passphrase', generate: true },
+      { label: '$(clippy) Paste Private Key…', description: 'paste an existing private key, choose where to save it', paste: true },
+    ],
+    { placeHolder: 'Add identity or key' },
+  );
+  if (!entry) return;
+  if (entry.generate) {
+    await addKeyStandalone(deps, 'generate');
+    return;
+  }
+  if (entry.paste) {
+    await addKeyStandalone(deps, 'paste');
+    return;
+  }
+
   const source = await vscode.window.showQuickPick(
     [
       { label: '$(github) From GitHub…', description: 'search by profile URL, @username, or email', github: true },
@@ -403,6 +424,33 @@ export async function rememberIdentity(deps: CommandDeps, item: unknown, scope: 
     deps.log.info(`remembered ${payload.name} <${payload.email}> at MACHINE scope`);
   }
   await deps.provider?.reload();
+}
+
+/**
+ * Standalone key entry from the view-title "+" menu: run the generate/paste
+ * wizard, then offer to attach the fresh key to an existing identity
+ * (Esc skips the attach — the key file is already in place and can be
+ * attached later via "Add/Change SSH Key").
+ */
+export async function addKeyStandalone(deps: CommandDeps, kind: 'generate' | 'paste'): Promise<void> {
+  let path: string | undefined;
+  if (kind === 'generate') {
+    const made = await generateKeyWizard();
+    if (!made) return;
+    path = made.path;
+    if (made.encrypted && made.passphrase) {
+      deps.sessionPassphrases.set(made.fingerprint, made.passphrase);
+      deps.log.info(`passphrase for generated key ${made.fingerprint} banked (session only)`);
+    }
+  } else {
+    const made = await pasteKeyWizard();
+    if (!made) return;
+    path = made.path;
+  }
+  const identity = await pickIdentity(deps, 'Attach the new key to an identity? (Esc = not now)');
+  if (!identity) return;
+  await run(deps, ['identity', 'set', identity.id, '--key', path]);
+  vscode.window.showInformationMessage(`Git Colabor: key attached to "${identity.name}".`);
 }
 
 /**

@@ -84,22 +84,26 @@ export async function pickPrivateKey(allowClear = false, deps?: CommandDeps): Pr
     const pick = vscode.window.createQuickPick<KeyPickItem>();
     pick.title = 'SSH private key';
     pick.placeholder = 'Pick a key from ~/.ssh, type a path, generate or paste one — Esc to skip';
+    // NOTE: no programmatic pick.value prefill — a prefilled value acts as a
+    // filter (with matchOn*) and hides every item, showing an empty list
     pick.matchOnDescription = true;
     pick.matchOnDetail = true;
-    let typed = `${dir}/`;
+    let typed = '';
     pick.onDidChangeValue((v) => (typed = v));
-    void scanPrivateKeys(dir).then((keys) => {
-      const items: KeyPickItem[] = [
-        ...keys.map((k) => ({ label: `$(key) ${k.name}`, description: k.path, detail: k.kind, path: k.path })),
-        { label: '$(add) Generate New Key…', detail: 'ed25519 / rsa / ecdsa — directory, file name, comment, optional passphrase', generate: true },
-        { label: '$(clippy) Paste Private Key…', detail: 'paste an existing private key, choose where to save it', paste: true },
-        { label: '$(circle-slash) No SSH key (skip)', skip: true },
-      ];
-      if (allowClear) items.push({ label: '$(trash) Clear the key reference', clear: true });
-      pick.items = items;
-      pick.activeItems = keys.length > 0 ? [items[0]] : [items[2]];
-    });
-    pick.value = typed;
+    void scanPrivateKeys(dir)
+      .catch(() => [])
+      .then((keys) => {
+        const items: KeyPickItem[] = [
+          ...keys.map((k) => ({ label: `$(key) ${k.name}`, description: k.path, detail: k.kind, path: k.path })),
+          { label: '$(add) Generate New Key…', detail: 'ed25519 / rsa / ecdsa — directory, file name, comment, optional passphrase', generate: true },
+          { label: '$(clippy) Paste Private Key…', detail: 'paste an existing private key, choose where to save it', paste: true },
+          { label: '$(circle-slash) No SSH key (skip)', skip: true },
+        ];
+        if (allowClear) items.push({ label: '$(trash) Clear the key reference', clear: true });
+        pick.items = items;
+        // first scanned key, or Generate when ~/.ssh has none
+        pick.activeItems = [items[0]];
+      });
     pick.onDidAccept(() => {
       resolve({ item: pick.activeItems[0], typed });
       pick.hide();
