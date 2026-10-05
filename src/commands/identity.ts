@@ -257,13 +257,18 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
 
 /** Shared tail of both add paths: optional key + CLI add + passphrase capture. */
 async function finishIdentity(deps: CommandDeps, name: string, email: string): Promise<void> {
-  const key = await pickPrivateKey();
+  const key = await pickPrivateKey(false, deps);
   const args = ['identity', 'add', '--name', name, '--email', email];
   if (key && key.trim()) args.push('--key', key.trim());
   const data = await run<{ identity: IdentityJson; encrypted: boolean | null }>(deps, args);
   // encrypted key → collect the passphrase now; it lives in memory for THIS
-  // connection only (reconnects re-prompt)
-  if (data?.encrypted === true && data.identity.sshKeyFingerprint) {
+  // connection only (reconnects re-prompt). Skip when the key wizard already
+  // banked it (generated-with-passphrase keys).
+  if (
+    data?.encrypted === true &&
+    data.identity.sshKeyFingerprint &&
+    !deps.sessionPassphrases.has(data.identity.sshKeyFingerprint)
+  ) {
     const pass = await vscode.window.showInputBox({
       prompt: `Passphrase for key ${data.identity.sshKeyFingerprint}`,
       password: true,
@@ -461,7 +466,7 @@ export async function modifyIdentityField(
   if (!cur) return;
 
   if (field === 'key') {
-    const pick = await pickPrivateKey(opts.allowClearKey !== false);
+    const pick = await pickPrivateKey(opts.allowClearKey !== false, deps);
     if (pick === undefined) return; // cancelled / skip
     if (pick === null) await run(deps, ['identity', 'set', id, '--no-key']);
     else await run(deps, ['identity', 'set', id, '--key', pick]);

@@ -114,7 +114,7 @@
       },
       {
         "command": "gitColabor.addIdentity",
-        "title": "Add Identity…",
+        "title": "Add Identity / Key",
         "category": "Git Colabor",
         "icon": "$(add)"
       },
