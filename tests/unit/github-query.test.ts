@@ -5,18 +5,18 @@ describe('parseGitHubQuery', () => {
   it('parses profile URLs (scheme, www, trailing slash)', () => {
     expect(parseGitHubQuery('https://github.com/hnrobert')).toEqual({ kind: 'login', login: 'hnrobert' });
     expect(parseGitHubQuery('github.com/hnrobert/')).toEqual({ kind: 'login', login: 'hnrobert' });
-    expect(parseGitHubQuery('www.github.com/octocat')).toEqual({ kind: 'login', login: 'octocat' });
+    expect(parseGitHubQuery('www.github.com/hnrobert')).toEqual({ kind: 'login', login: 'hnrobert' });
   });
 
   it('parses @handle and bare login', () => {
-    expect(parseGitHubQuery('@octocat')).toEqual({ kind: 'login', login: 'octocat' });
+    expect(parseGitHubQuery('@hnrobert')).toEqual({ kind: 'login', login: 'hnrobert' });
     expect(parseGitHubQuery('octo-cat')).toEqual({ kind: 'login', login: 'octo-cat' });
   });
 
   it('parses a noreply address back to the login', () => {
-    expect(parseGitHubQuery('583231+octocat@users.noreply.github.com')).toEqual({
+    expect(parseGitHubQuery('583231+hnrobert@users.noreply.github.com')).toEqual({
       kind: 'login',
-      login: 'octocat',
+      login: 'hnrobert',
     });
     // old login-only noreply format
     expect(parseGitHubQuery('alice@users.noreply.github.com')).toEqual({ kind: 'login', login: 'alice' });

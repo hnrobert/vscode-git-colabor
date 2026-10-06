@@ -220,7 +220,7 @@ export async function addIdentity(deps: CommandDeps): Promise<void> {
 async function pickFromGitHub(): Promise<{ name: string; email: string } | undefined> {
   const raw = await vscode.window.showInputBox({
     prompt: 'GitHub profile URL, @username, username, or email',
-    placeHolder: 'github.com/octocat / @octocat / octocat / me@example.com',
+    placeHolder: 'github.com/hnrobert / @hnrobert / hnrobert / me@example.com',
   });
   if (!raw) return undefined;
   const parsed = parseGitHubQuery(raw);
@@ -251,7 +251,7 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
     }
     // the user's visible profile email (may differ from the searched one)
     if (c.publicEmail && c.publicEmail.toLowerCase() !== c.noreplyEmail.toLowerCase()
-        && c.publicEmail.toLowerCase() !== c.attributedEmail?.toLowerCase()) {
+      && c.publicEmail.toLowerCase() !== c.attributedEmail?.toLowerCase()) {
       items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: `public email${stats}`, name, email: c.publicEmail });
     }
     // extra emails mined from the user's public commits (profile email is
