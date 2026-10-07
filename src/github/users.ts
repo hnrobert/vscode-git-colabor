@@ -110,10 +110,42 @@ async function commitEmailsOfLogin(login: string): Promise<string[]> {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
 }
 
-/** Attach commit-mined emails as extra options to a candidate. */
-async function withCommitEmails(c: IdentityCandidate): Promise<IdentityCandidate> {
+/**
+ * Is `email` the PUBLIC profile email of `login`? `in:email` indexes exactly
+ * those, so a hit for this login is authoritative — the /users endpoint
+ * cannot answer this unauthenticated (always null).
+ */
+async function isPublicProfileEmail(login: string, email: string): Promise<boolean> {
+  const search = await ghFetch<{ items: { login: string }[] }>(
+    `/search/users?q=${encodeURIComponent(`${email} in:email`)}&per_page=5`,
+  );
+  return !!search?.items.some((i) => i.login.toLowerCase() === login.toLowerCase());
+}
+
+/**
+ * Attach commit-mined emails as extra options to a candidate. With
+ * `verifyTop`, the most frequent mined email is checked against `in:email` —
+ * when it IS the login's public profile email it is promoted to `publicEmail`
+ * (rendered as "public email" instead of "seen in public commits").
+ */
+async function withCommitEmails(
+  c: IdentityCandidate,
+  opts: { verifyTop?: boolean } = {},
+): Promise<IdentityCandidate> {
   try {
-    const emails = await commitEmailsOfLogin(c.user.login);
+    const emails = (await commitEmailsOfLogin(c.user.login)).filter(
+      (e) => e.toLowerCase() !== c.publicEmail?.toLowerCase(),
+    );
+    if (opts.verifyTop && !c.publicEmail && emails.length > 0) {
+      const top = emails[0];
+      try {
+        if (await isPublicProfileEmail(c.user.login, top)) {
+          return { ...c, publicEmail: top, commitEmails: emails.slice(1, 4) };
+        }
+      } catch {
+        // verification is best-effort — fall through to plain mining
+      }
+    }
     return { ...c, commitEmails: emails.slice(0, 3) };
   } catch {
     return c; // mining is best-effort — the noreply option always exists
@@ -123,13 +155,18 @@ async function withCommitEmails(c: IdentityCandidate): Promise<IdentityCandidate
 /** Exact user, else login-prefix search results (details enriched for the top 5). */
 async function byLogin(login: string): Promise<IdentityCandidate[]> {
   const exact = await getUser(login);
-  if (exact) return [await withCommitEmails(asCandidate(exact))];
+  if (exact) return [await withCommitEmails(asCandidate(exact), { verifyTop: true })];
   const search = await ghFetch<{ items: { login: string }[] }>(
     `/search/users?q=${encodeURIComponent(login)}&per_page=5`,
   );
   if (!search || search.items.length === 0) return [];
   const users = await Promise.all(search.items.map((i) => getUser(i.login)));
-  return Promise.all(users.filter((u): u is GitHubUser => !!u).map((u) => withCommitEmails(asCandidate(u))));
+  // public-email verification only for the top 2 — bounds the search-API usage
+  return Promise.all(
+    users
+      .filter((u): u is GitHubUser => !!u)
+      .map((u, i) => withCommitEmails(asCandidate(u), { verifyTop: i < 2 })),
+  );
 }
 
 /** Aggregate commit-search items into per-login stats (pure — unit-tested). */
@@ -207,9 +244,12 @@ async function byEmail(email: string): Promise<IdentityCandidate[]> {
   }
 
   // `/users` never exposes the public email unauthenticated — mine every
-  // candidate's commit emails so their other (e.g. public) addresses surface
-  // as options too, exactly like the byLogin flow already does
-  return Promise.all([...candidates.values()].map(withCommitEmails));
+  // candidate's commit emails so their other addresses surface as options
+  // too; the top 2 also get their most frequent email verified against
+  // `in:email` so a real public profile email shows as "public email"
+  return Promise.all(
+    [...candidates.values()].map((c, i) => withCommitEmails(c, { verifyTop: i < 2 })),
+  );
 }
 
 export async function searchCandidates(query: ParsedQuery): Promise<IdentityCandidate[]> {
