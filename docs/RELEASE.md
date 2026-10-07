@@ -7,8 +7,7 @@ Step-by-step procedure for releasing the VS Code extension and the `git-colabor`
 ```mermaid
 flowchart TD
     A[Pre-release checks<br/>both repos, local] --> A1[Full test suite green]
-    A1 --> A2[CHANGELOG.md updated]
-    A2 --> A3[Submodule pushed FIRST<br/>CI timing]
+    A1 --> A3[Submodule pushed FIRST<br/>CI timing]
     A3 --> B[CLI Release<br/>git-colabor repo]
     B --> B1[Actions → Publish → version → npm]
     B1 --> C[Extension Release<br/>vscode-git-colabor repo]
@@ -34,21 +33,7 @@ pnpm -C git-colabor test && pnpm -C git-colabor test:e2e
 
 All must pass. Fix any failures before proceeding.
 
-### 1.2 Update CHANGELOG.md
-
-Add a new version entry under `[Unreleased]` → rename to the target version, or start a new `[Unreleased]` section if one already has content:
-
-```markdown
-## [0.2.0] - 2026-10-15
-
-### Added
-- ...
-
-### Fixed
-- ...
-```
-
-### 1.3 Push the submodule FIRST
+### 1.2 Push the submodule FIRST
 
 This is the most common CI failure. The parent repo's CI checks out the submodule at the commit its pointer references — if that commit isn't on the remote yet, CI dies with `not our ref`.
 
@@ -63,7 +48,7 @@ cd ..
 Then push the parent:
 
 ```bash
-git add git-colabor CHANGELOG.md   # submodule pointer + changelog
+git add git-colabor                # submodule pointer
 git commit -m "chore: bump git-colabor for v0.2.0"
 git push origin main               # ← triggers CI
 ```

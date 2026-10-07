@@ -99,7 +99,7 @@ Threat model, protocol details, and explicit non-guarantees: [docs/SECURITY.md](
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, key/passphrase handling, non-guarantees |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build, test, packaging, publishing |
 | [git-colabor/README.md](git-colabor/README.md) | Standalone CLI (`git colabor …`) command reference |
-| [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) · [plan.md](plan.md) | Workflow · history · roadmap |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [plan.md](plan.md) | Workflow · roadmap |
 
 ## Development
 

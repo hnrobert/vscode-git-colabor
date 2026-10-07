@@ -122,7 +122,7 @@ The extension then runs entirely workspace-side — verify from the host: `~/.co
 pnpm package        # vsce package --no-dependencies → git-colabor-0.x.y.vsix
 ```
 
-`.vscodeignore` keeps the vsix lean (sources, submodule, tooling excluded); only `dist/extension.cjs`, `resources/*.cjs`, `package.json`, `README`, `LICENSE`, and the changelog ship. Expect a single-digit-MB vsix.
+`.vscodeignore` keeps the vsix lean (sources, submodule, tooling excluded); only `dist/extension.cjs`, `resources/*.cjs`, `package.json`, `README`, and `LICENSE` ship. Expect a single-digit-MB vsix.
 
 ## Continuous integration
 
@@ -149,7 +149,7 @@ The run gates on typecheck/lint/test (root + submodule), bumps `package.json`, c
 
 The run gates on typecheck/lint/unit/e2e, bumps and tags in the submodule repository, then runs `npm publish --provenance` authenticated by GitHub's OIDC token.
 
-Update [../CHANGELOG.md](../CHANGELOG.md) before releasing. The two repositories version **independently** — each tags `v<version>` in its own repo; the extension bundles whatever submodule commit is checked out at release time.
+The two repositories version **independently** — each tags `v<version>` in its own repo; the extension bundles whatever submodule commit is checked out at release time.
 
 ## Submodule workflow
 
