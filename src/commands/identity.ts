@@ -241,10 +241,14 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
   for (const c of candidates) {
     const label = `${c.user.name ?? c.user.login} (${c.user.login})`;
     const name = c.user.name ?? c.user.login;
+    // stats count commits made with the SEARCHED email (author-email:<it>) —
+    // evidence for that address only. Other options (noreply / public /
+    // mined) carry no counts: attaching the private email's numbers to them
+    // would be misleading, and login searches show none either.
     const stats = c.stats
       ? ` · ${c.stats.commits} public commits · ${c.stats.repos} repos${c.stats.lastSeen ? ` · last ${c.stats.lastSeen.slice(0, 7)}` : ''}`
       : '';
-    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: `private (noreply)${stats}`, name, email: c.noreplyEmail });
+    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: 'private (noreply)', name, email: c.noreplyEmail });
     // the searched email bound only via commit attribution → PRIVATE address
     if (c.attributedEmail) {
       items.push({ label: `$(eye-closed) ${label}`, description: c.attributedEmail, detail: `private email · bound via commits${stats}`, name, email: c.attributedEmail });
@@ -252,7 +256,7 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
     // the user's visible profile email (may differ from the searched one)
     if (c.publicEmail && c.publicEmail.toLowerCase() !== c.noreplyEmail.toLowerCase()
       && c.publicEmail.toLowerCase() !== c.attributedEmail?.toLowerCase()) {
-      items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: `public email${stats}`, name, email: c.publicEmail });
+      items.push({ label: `$(mail) ${label}`, description: c.publicEmail, detail: 'public email', name, email: c.publicEmail });
     }
     // extra emails mined from the user's public commits (profile email is
     // often null — e.g. hnrobert@qq.com shows up here for the hnrobert login)
@@ -260,7 +264,7 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
       if (email.toLowerCase() === c.noreplyEmail.toLowerCase()) continue;
       if (email.toLowerCase() === c.attributedEmail?.toLowerCase()) continue;
       if (email.toLowerCase() === c.publicEmail?.toLowerCase()) continue;
-      items.push({ label: `$(git-commit) ${label}`, description: email, detail: `seen in public commits${stats}`, name, email });
+      items.push({ label: `$(git-commit) ${label}`, description: email, detail: 'seen in public commits', name, email });
     }
   }
   if (items.length === 0) {
