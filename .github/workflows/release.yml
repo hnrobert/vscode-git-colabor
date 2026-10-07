@@ -157,14 +157,10 @@ jobs:
             pnpm exec vsce publish --no-dependencies -p "$VSCE_PAT"
           fi
 
+      # No --pre-release here: the flag is ignored for a prepackaged .vsix
+      # (pre-release-ness is baked in by `vsce package --pre-release`).
       - name: Publish to OpenVSX
         env:
           TAG: ${{ steps.version.outputs.tag }}
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: |
-          if [ "$PRERELEASE" = "true" ]; then
-            pnpm dlx ovsx publish "git-colabor-${TAG}.vsix" --pre-release -p "$OVSX_PAT"
-          else
-            pnpm dlx ovsx publish "git-colabor-${TAG}.vsix" -p "$OVSX_PAT"
-          fi
+        run: pnpm dlx ovsx publish "git-colabor-${TAG}.vsix" -p "$OVSX_PAT"
