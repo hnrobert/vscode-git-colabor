@@ -248,11 +248,12 @@ async function pickFromGitHub(): Promise<{ name: string; email: string } | undef
     const stats = c.stats
       ? ` · ${c.stats.commits} public commits · ${c.stats.repos} repos${c.stats.lastSeen ? ` · last ${c.stats.lastSeen.slice(0, 7)}` : ''}`
       : '';
-    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: 'private (noreply)', name, email: c.noreplyEmail });
-    // the searched email bound only via commit attribution → PRIVATE address
+    // the searched email bound only via commit attribution → PRIVATE address.
+    // FIRST in the list — the user typed it, so it is what they came for.
     if (c.attributedEmail) {
       items.push({ label: `$(eye-closed) ${label}`, description: c.attributedEmail, detail: `private email · bound via commits${stats}`, name, email: c.attributedEmail });
     }
+    items.push({ label: `$(lock) ${label}`, description: c.noreplyEmail, detail: 'private (noreply)', name, email: c.noreplyEmail });
     // the user's visible profile email (may differ from the searched one)
     if (c.publicEmail && c.publicEmail.toLowerCase() !== c.noreplyEmail.toLowerCase()
       && c.publicEmail.toLowerCase() !== c.attributedEmail?.toLowerCase()) {
