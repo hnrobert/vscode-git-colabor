@@ -10,7 +10,13 @@ export type GitHubUser = {
   id: number;
   /** display name (login fallback applied by callers) */
   name?: string;
-  /** public profile email, null when hidden */
+  /**
+   * Public profile email. NOTE: the unauthenticated `/users/{login}` endpoint
+   * returns `email: null` for everyone (verified: users found via `in:email`
+   * still get null) — this is only populated when the address is already
+   * known, i.e. an `in:email` search hit carried it in. The recoverable
+   * source for other addresses is commit mining (commitEmailsOfLogin).
+   */
   publicEmail?: string;
 };
 
@@ -200,7 +206,10 @@ async function byEmail(email: string): Promise<IdentityCandidate[]> {
     }
   }
 
-  return [...candidates.values()];
+  // `/users` never exposes the public email unauthenticated — mine every
+  // candidate's commit emails so their other (e.g. public) addresses surface
+  // as options too, exactly like the byLogin flow already does
+  return Promise.all([...candidates.values()].map(withCommitEmails));
 }
 
 export async function searchCandidates(query: ParsedQuery): Promise<IdentityCandidate[]> {
