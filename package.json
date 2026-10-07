@@ -4,7 +4,7 @@
   "publisher": "HNRobert",
   "version": "0.1.3",
   "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with better co-authors managing experience.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "icon": "git-colabor/assets/images/git-co-author-enhanced.png",
   "type": "module",
   "categories": [

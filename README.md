@@ -112,4 +112,4 @@ F5 launches an Extension Development Host. Full guide: [docs/DEVELOPMENT.md](doc
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)
