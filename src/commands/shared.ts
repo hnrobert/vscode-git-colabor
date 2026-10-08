@@ -5,12 +5,15 @@ import { scanPrivateKeys } from '../ssh/scanPrivateKeys.js';
 import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
+import type { SessionIdentityController } from '../session/SessionIdentity.js';
 import type { IdentityTreeProvider } from '../tree/IdentityTreeProvider.js';
 import type { IdentityJson, JsonResult } from '../types.js';
 
 export type CommandDeps = {
   cli: CliClient;
   git: GitApi;
+  /** per-window identity controller (env-injected, never writes repo config) */
+  session: SessionIdentityController;
   log: vscode.LogOutputChannel;
   provider?: IdentityTreeProvider;
   /** session-scoped key passphrases (fingerprint → passphrase); in-memory only */

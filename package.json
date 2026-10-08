@@ -109,6 +109,11 @@
         "icon": "$(pass-filled)"
       },
       {
+        "command": "gitColabor._useIdentityEverywhere",
+        "title": "Use for All Windows (write repo config)",
+        "category": "Git Colabor"
+      },
+      {
         "command": "gitColabor.addIdentity",
         "title": "Add Identity / Key",
         "category": "Git Colabor",
@@ -312,6 +317,11 @@
           "command": "gitColabor._stopSigningCommits",
           "when": "viewItem =~ /-s/",
           "group": "3_key@5"
+        },
+        {
+          "command": "gitColabor._useIdentityEverywhere",
+          "when": "viewItem =~ /^(identity|active-identity)/",
+          "group": "0_apply@1"
         },
         {
           "command": "gitColabor._changeIdentityName",

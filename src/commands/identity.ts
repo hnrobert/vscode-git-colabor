@@ -13,23 +13,78 @@ import {
 } from './shared.js';
 import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
 
+/**
+ * DEFAULT use flow: apply the identity to THIS WINDOW only — config is
+ * injected via the environment (git ≥ 2.31 GIT_CONFIG_*), the repo on disk
+ * is never touched, other windows keep their own identity. The repo-wide
+ * variant lives in useIdentityEverywhere (explicit right-click).
+ */
 export async function useIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
   const rowId = rowIdentityId(item);
-  if (rowId) {
-    await applyUse(deps, rowId, cwd);
-    return;
-  }
-  const identity = await pickIdentity(deps, 'Select identity to use in this repo');
+  const identity = rowId
+    ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
+    : await pickIdentity(deps, 'Select identity to use in this session (this window only)');
   if (!identity) return;
-  await applyUse(deps, identity.id, cwd);
+  await applySessionIdentity(deps, identity.id);
 }
 
 export async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
+  await applySessionIdentity(deps, id);
+}
+
+async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void> {
+  const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
+  const identity = data?.identities.find((i) => i.id === id);
+  if (!identity) {
+    vscode.window.showWarningMessage('Git Colabor: identity not found.');
+    return;
+  }
+  // encrypted key not in the agent and nothing banked → collect the
+  // passphrase for the session store (same condition as the repo-wide flow;
+  // verified via `identity agent --verify`). A cancelled prompt simply
+  // aborts the switch — nothing was written, so nothing to disable.
+  if (
+    identity.hasKey &&
+    identity.keyEncrypted &&
+    identity.sshKeyFingerprint &&
+    !identity.inAgent &&
+    !deps.sessionPassphrases.has(identity.sshKeyFingerprint)
+  ) {
+    const pass = await vscode.window.showInputBox({
+      prompt: `Passphrase for key ${identity.sshKeyFingerprint}`,
+      password: true,
+      placeHolder: 'session only',
+    });
+    if (pass === undefined) return;
+    deps.sessionPassphrases.set(identity.sshKeyFingerprint, pass);
+    const v = await deps.cli.run(['identity', 'agent', id, '--verify']);
+    const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
+    if (!verified) {
+      deps.sessionPassphrases.delete(identity.sshKeyFingerprint);
+      vscode.window.showWarningMessage('Git Colabor: wrong passphrase — identity not applied.');
+      return;
+    }
+  }
+  await deps.session.apply(identity);
+  vscode.window.showInformationMessage(
+    `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use for All Windows" to write repo config.`,
+  );
+}
+
+/**
+ * Explicit repo-wide apply (right-click "Use for All Windows"): writes
+ * repo-local git config + state for every open repository — visible to
+ * every window and terminal connected to this workspace.
+ */
+export async function useIdentityEverywhere(deps: CommandDeps, item?: unknown): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
-  await applyUse(deps, id, cwd);
+  const rowId = rowIdentityId(item);
+  const identity = rowId
+    ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
+    : await pickIdentity(deps, 'Select identity to apply to every window (writes repo config)');
+  if (!identity) return;
+  await applyUse(deps, identity.id, cwd);
 }
 
 type UseResult = Extract<JsonResult, { ok: true }> | Extract<JsonResult, { ok: false }>;
@@ -413,6 +468,8 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
   if (identity.sshKeyFingerprint) {
     deps.sessionPassphrases.delete(identity.sshKeyFingerprint);
   }
+  // a window-scoped identity also dies with the logout
+  if (deps.session.get()?.id === identity.id) deps.session.clear();
   vscode.window.showInformationMessage(`Logged out "${identity.name}".`);
 }
 

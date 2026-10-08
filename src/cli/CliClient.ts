@@ -33,6 +33,11 @@ export class CliClient {
       ...process.env,
       ...(opts.env ?? {}),
       GIT_COLABOR_SOURCE: 'ext',
+      // neutralize the session-identity config injection (see
+      // SessionIdentityController): the CLI must read/write REAL repo
+      // config, not this window's session overlay. COUNT=0 makes git ignore
+      // every GIT_CONFIG_KEY_n regardless of leftovers.
+      GIT_CONFIG_COUNT: '0',
     };
     if (this.deps.askpass?.socketPath) env.GIT_COLABOR_ASKPASS_SOCK = this.deps.askpass.socketPath;
     if (this.deps.askpass?.token) env.GIT_COLABOR_ASKPASS_TOKEN = this.deps.askpass.token;

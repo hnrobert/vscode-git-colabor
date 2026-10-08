@@ -11,6 +11,7 @@ import {
   toggleAgentKey,
   useIdentity,
   useIdentityById,
+  useIdentityEverywhere,
 } from './identity.js';
 import { showHiddenIdentities, soloCoAuthors, toggleCoAuthor } from './coauthor.js';
 import { doctor, revertRepo, showAudit } from './misc.js';
@@ -34,6 +35,8 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
 
   reg('gitColabor.doctor', () => doctor(deps));
   reg('gitColabor.useIdentity', (item) => useIdentity(deps, item).then(refresh));
+  // explicit repo-wide apply (writes repo config — every window/terminal sees it)
+  reg('gitColabor._useIdentityEverywhere', (item) => useIdentityEverywhere(deps, item).then(refresh));
   reg('gitColabor.addIdentity', () => addIdentity(deps).then(refresh));
   reg('gitColabor.removeIdentity', (item) => removeIdentity(deps, item).then(refresh));
   reg('gitColabor.logoutIdentity', (item) => logoutIdentity(deps, item).then(refresh));

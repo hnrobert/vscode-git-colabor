@@ -21,6 +21,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   readonly onDidChangeTreeData = this._onDidChange.event;
 
   private status: StatusJson | undefined;
+  /** per-window identity overlay (see SessionIdentityController); when set it
+   *  is displayed as THE active identity without any repo-state backing */
+  private sessionOverride: { id: string; name: string; email: string; sshCommand?: string } | undefined;
   /** authors found in the repo's commit history (`coauthor suggest`) */
   private historyCandidates: Candidate[] = [];
   /** repo root already auto-imported for (identity import is idempotent, run once per repo) */
@@ -34,6 +37,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
 
+  setSessionOverride(s: { id: string; name: string; email: string; sshCommand?: string } | undefined): void {
+    this.sessionOverride = s;
+  }
+
   /** Re-fetch `identity status` + repo committers (in parallel) and paint once. */
   async reload(): Promise<StatusJson | undefined> {
     const root = this.git.selectedRepoRoot();
@@ -44,6 +51,26 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         : Promise.resolve(undefined),
     ]);
     this.status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
+    // session-identity overlay: the env-injected per-window identity plays
+    // the active role on screen even though repo state says otherwise
+    if (this.sessionOverride && this.status) {
+      const s = this.sessionOverride;
+      const rows = this.status.identities.map((i) => ({ ...i, active: i.id === s.id }));
+      const row = rows.find((i) => i.id === s.id);
+      const pseudo = {
+        id: s.id,
+        name: s.name,
+        email: s.email,
+        hasKey: !!s.sshCommand,
+        isDefault: false,
+        active: true,
+      };
+      this.status = {
+        ...this.status,
+        identities: row ? rows : [...rows, pseudo],
+        activeIdentity: row ? { ...row, active: true } : pseudo,
+      };
+    }
     // always set (never leave stale data from a previous repo)
     this.historyCandidates = suggRes?.ok
       ? ((suggRes.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
@@ -188,7 +215,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
           ? 'found in machine memory'
           : 'found in repo';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
-        description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}`,
+        description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,

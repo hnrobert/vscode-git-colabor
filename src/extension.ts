@@ -12,6 +12,7 @@ import { StatusBar } from './statusbar/StatusBar.js';
 import { ScmSync, pickRepository } from './scm/Sync.js';
 import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
+import { SessionIdentityController } from './session/SessionIdentity.js';
 
 let askpass: AskpassServer | undefined;
 let stateWatchers: FSWatcher[] = [];
@@ -50,6 +51,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const provider = new IdentityTreeProvider(cli, git);
   context.subscriptions.push(vscode.window.createTreeView('gitColabor.identitiesView', { treeDataProvider: provider }));
+
+  // per-window identity: env-injected git config, repo untouched (the
+  // default Use flow); dies with this extension host — no cleanup needed
+  const sessionCtl = new SessionIdentityController(
+    context.asAbsolutePath('resources/askpass.cjs'),
+    logger,
+  );
+  sessionCtl.onChange = () => {
+    provider.setSessionOverride(sessionCtl.get());
+    void provider.reload();
+  };
+  context.subscriptions.push({ dispose: () => sessionCtl.clear() });
 
   const statusbar = new StatusBar();
   context.subscriptions.push(statusbar);
@@ -120,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, 2000);
   context.subscriptions.push({ dispose() { clearInterval(reloadPoll); } });
 
-  registerCommands(context, { cli, git, log: logger, provider, sessionPassphrases });
+  registerCommands(context, { cli, git, session: sessionCtl, log: logger, provider, sessionPassphrases });
 
   // refresh = re-seed state watchers (one per open repo) + reload the tree.
   // The watch-set key includes the postCommitSolo flag so toggling that
@@ -210,7 +223,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     setupStateWatchers();
     provider.reload().catch((e) => logger.warn(`reload: ${e instanceof Error ? e.message : String(e)}`));
   };
+  let reconcileSkippedForSession = false;
   const runReconcile = (): void => {
+    // a session identity owns this window — reconcile writing repo config
+    // would fight the env overlay, so it stands down until the session ends
+    if (sessionCtl.active()) {
+      if (!reconcileSkippedForSession) {
+        logger.info('reconcile: session identity active — standing down (repo config untouched)');
+        reconcileSkippedForSession = true;
+      }
+      return;
+    }
+    reconcileSkippedForSession = false;
     reconcile(cli, git, logger).catch((e) =>
       logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
     );
