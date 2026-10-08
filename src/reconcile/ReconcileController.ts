@@ -60,7 +60,9 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
   }
 
   if (activeId) {
-    const args = ['identity', 'use', activeId, '--source', 'ext', '--stale-minutes', String(conflictWarningStaleMinutes())];
+    const args = ['identity', 'use', activeId, '--source', 'ext'];
+    const stale = conflictWarningStaleMinutes();
+    if (stale !== undefined) args.push('--stale-minutes', String(stale));
     if (name && email) {
       args.push('--as-name', name, '--as-email', email);
       logger.info(`reconcile[${root}]: setting wins → ${name} <${email}> (identity ${activeId})`);

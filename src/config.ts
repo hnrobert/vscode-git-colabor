@@ -39,12 +39,13 @@ export function defaultIdentity(): string | undefined {
 export function autoApplyOnRepoOpen(): boolean {
   return getBool('autoApplyOnRepoOpen', true);
 }
-export function conflictWarningStaleMinutes(): number {
-  return getNumber('conflictWarningStaleMinutes', 5);
+/** The staleness threshold when explicitly set; undefined = never stale. */
+export function conflictWarningStaleMinutes(): number | undefined {
+  return vscode.workspace.getConfiguration('gitColabor').get<number>('conflictWarningStaleMinutes');
 }
-/** GitHub user search in Add Identity — off by default (hits api.github.com). */
+/** GitHub user search in Add Identity — on by default (hits api.github.com). */
 export function githubFetch(): boolean {
-  return getBool('githubFetch', false);
+  return getBool('githubFetch', true);
 }
 export function postCommitSolo(): boolean {
   return getBool('postCommitSolo', false);

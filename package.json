@@ -68,12 +68,11 @@
         },
         "gitColabor.conflictWarningStaleMinutes": {
           "type": "number",
-          "default": 5,
-          "description": "Advisory heldBy staleness threshold (minutes)."
+          "description": "Advisory heldBy staleness threshold (minutes). Unset = a session lock never goes stale."
         },
         "gitColabor.githubFetch": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Offer the GitHub user search in Add Identity (profile URL / @handle / email; hits api.github.com unauthenticated)."
         },
         "gitColabor.postCommitSolo": {

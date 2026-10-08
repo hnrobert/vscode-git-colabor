@@ -78,8 +78,8 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | `gitColabor.cliPath` | `""` | Override the bundled CLI path (`resources/cli.cjs`) |
 | `gitColabor.coAuthorIdentities` | `[]` | Remembered co-authors (`"Name <email>"` entries in your VS Code user settings; right-click an identity → *Remember on VS Code User Settings*); these entries (plus all identities except the active one, and the repo's commit history) feed the Co-authors list |
 | `gitColabor.autoApplyOnRepoOpen` | `true` | Auto-apply the default/active identity and `gitColabor.user.*` when a repo opens; off = only explicit *Use Identity* writes config |
-| `gitColabor.conflictWarningStaleMinutes` | `5` | Advisory `heldBy` staleness threshold (minutes) before another session's lock is considered stale |
-| `gitColabor.githubFetch` | `false` | Offer the GitHub user search (*Add Identity → From GitHub…*); hits `api.github.com` unauthenticated (60 req/h) |
+| `gitColabor.conflictWarningStaleMinutes` | *unset* | Advisory `heldBy` staleness threshold (minutes); **unset = a session lock never goes stale** |
+| `gitColabor.githubFetch` | `true` | Offer the GitHub user search (*Add Identity → From GitHub…*); hits `api.github.com` unauthenticated (60 req/h) |
 | `gitColabor.postCommitSolo` | `false` | Clear the selected co-authors after each commit (dual watch on `COMMIT_EDITMSG` + the reflog — aborted editor saves and checkouts never trigger it) |
 | `gitColabor.logLevel` | `info` | Output channel log level: `trace` / `debug` / `info` / `warning` / `error` / `off` |
 

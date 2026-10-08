@@ -58,11 +58,12 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
   const conflicts: string[] = [];
   const failedRepos: string[] = [];
 
-  const useIn = (root: string) =>
-    deps.cli.run(
-      ['identity', 'use', id, '--source', 'ext', '--stale-minutes', String(conflictWarningStaleMinutes())],
-      { cwd: root },
-    );
+  const useIn = (root: string) => {
+    const args = ['identity', 'use', id, '--source', 'ext'];
+    const stale = conflictWarningStaleMinutes();
+    if (stale !== undefined) args.push('--stale-minutes', String(stale));
+    return deps.cli.run(args, { cwd: root });
+  };
 
   for (const root of roots) {
     const r = await useIn(root);
