@@ -2,5 +2,11 @@
   // MD013/line-length — disabled: markdown prose in this repo is written as
   // one line per paragraph (or per list item) and relies on editor soft-wrap.
   // Do not hard-wrap; long lines are intentional.
-  "MD013": false
+  "MD013": false,
+  // MD033/inline-html — allowed only for the README branding block: a
+  // centered <p><img></p> logo above the H1 (Markdown has no centering).
+  "MD033": { "allowed_elements": ["p", "img"] },
+  // MD041/first-line-heading — the READMEs open with the centered logo block
+  // before the H1.
+  "MD041": false
 }
