@@ -4,15 +4,19 @@ How to build, test, package, and release Git Colabor. For how the pieces fit tog
 
 ## Table of contents
 
-- [Repository layout](#repository-layout)
-- [Prerequisites](#prerequisites)
-- [Setup](#setup)
-- [Build pipeline](#build-pipeline)
-- [Tests](#tests)
-- [Debugging in VS Code](#debugging-in-vs-code)
-- [Packaging the extension](#packaging-the-extension)
-- [Publishing](#publishing)
-- [Submodule workflow](#submodule-workflow)
+- [Development Guide](#development-guide)
+  - [Table of contents](#table-of-contents)
+  - [Repository layout](#repository-layout)
+  - [Prerequisites](#prerequisites)
+  - [Setup](#setup)
+  - [Build pipeline](#build-pipeline)
+  - [Tests](#tests)
+  - [Debugging in VS Code](#debugging-in-vs-code)
+    - [Remote (Remote-SSH) testing](#remote-remote-ssh-testing)
+  - [Packaging the extension](#packaging-the-extension)
+  - [Continuous integration](#continuous-integration)
+  - [Publishing](#publishing)
+  - [Submodule workflow](#submodule-workflow)
 
 ## Repository layout
 
@@ -80,7 +84,6 @@ runs three stages in order:
 | CLI unit | `git-colabor/tests/unit` | `pnpm -C git-colabor test` | co-author store, identity apply/revert, paths, redaction |
 | CLI e2e | `git-colabor/tests/e2e` | `pnpm -C git-colabor test:e2e` | real `git` repos in temp dirs; audit-never-contains-secrets assertion |
 | Extension unit | `tests/unit` | `pnpm test` | AskpassServer protocol, CliClient spawn/parse |
-| Extension integration | *(M6, planned)* | `@vscode/test-electron` | activation, identity round-trip |
 
 Quality gates before every commit / PR:
 
@@ -144,7 +147,7 @@ The run gates on typecheck/lint/test (root + submodule), bumps `package.json`, c
 
 **CLI** (`git-colabor` repo → npm, via OIDC trusted publishing — no token secret):
 
-1. One-time Phase 1: publish the first version locally (`cd git-colabor && pnpm build && npm publish --access public`), then on npmjs.com → package → Settings → **Trusted publishers**, bind repository `hnrobert/git-colabor` with workflow `publish.yml`.
+1. One-time setup (already done): the first version was published locally (`cd git-colabor && pnpm build && npm publish --access public`), then on npmjs.com → package → Settings → **Trusted publishers**, repository `hnrobert/git-colabor` was bound with workflow `publish.yml`.
 2. Actions → **Publish** → *Run workflow* → enter a version. Prerelease versions (e.g. `0.2.0-beta.1`) publish under the `beta` dist-tag.
 
 The run gates on typecheck/lint/unit/e2e, bumps and tags in the submodule repository, then runs `npm publish --provenance` authenticated by GitHub's OIDC token.

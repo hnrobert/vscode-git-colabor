@@ -124,7 +124,7 @@ sequenceDiagram
 | `vscode.git` subscription | repo open/close, selection change | 400 ms debounce → reconcile + refresh |
 | `provider.onDidReload` | every reload | status bar update + ScmSync reseed |
 
-ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value and re-appends the current selection — but computes a key from the sorted selected emails and skips the write when unchanged, so a user typing in the box is never clobbered mid-keystroke. In the other direction, the co-author tree rows read the box (`scm/trailers.ts` parses/appends/removes single trailers) and a 1.5 s poll refreshes the `+`/`-` markers as the user types; toggling a row edits the box directly and best-effort syncs `coauthor use`/`solo` so the commit template follows (skipped when the box holds trailers outside the catalogue).
+ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value and re-appends the current selection — but computes a key from the sorted selected emails and skips the write when unchanged, so a user typing in the box is never clobbered mid-keystroke. In the other direction, the co-author tree rows read the box (`scm/trailers.ts` parses/appends/removes single trailers) and a 1.5 s poll refreshes the `+`/`-` markers as the user types; toggling a row edits the box directly and syncs exactly the toggled author with `coauthor add`/`rm` so the commit template follows (manually typed trailers are never touched).
 
 ## 8. Data model (what lives where)
 

@@ -6,15 +6,20 @@ import { requireRepo, run, type CommandDeps } from './shared.js';
 export async function soloCoAuthors(deps: CommandDeps): Promise<void> {
   const cwd = requireRepo(deps);
   if (!cwd) return;
-  await run(deps, ['coauthor', 'solo'], { cwd });
+  // no bulk "solo" command anymore — clear every currently active co-author
+  const selected = deps.provider?.current?.selected ?? [];
+  for (const s of selected) {
+    await run(deps, ['coauthor', 'rm', s.email], { cwd });
+  }
+  if (selected.length > 0) deps.log.info(`solo: removed ${selected.length} co-author(s)`);
 }
 
 /**
  * Toggle one co-author in the SCM commit-message input: append its trailer
  * (formatted into the trailer block at the end) when absent, remove one
- * occurrence when present. Keeps the CLI selection / commit template in
- * sync behind the scenes — but only when every trailer in the box maps to
- * the catalogue, so manually typed trailers are never clobbered.
+ * occurrence when present. The toggled author is also synced with the CLI
+ * selection (`coauthor add` one-shot / `coauthor rm`) so the commit template
+ * follows the box; manually typed trailers are never touched.
  */
 export async function toggleCoAuthor(deps: CommandDeps, name: string, email: string): Promise<void> {
   const repo = pickRepository(deps.git);
@@ -27,22 +32,8 @@ export async function toggleCoAuthor(deps: CommandDeps, name: string, email: str
   repo.inputBox.value = present ? removeTrailerOnce(value, email) : appendTrailer(value, { name, email });
   deps.log.info(`${present ? 'removed' : 'appended'} co-author trailer for ${name} <${email}>`);
 
-  // best-effort CLI sync so `colabor.selected` + commit template follow the box
   const cwd = deps.git.selectedRepoRoot();
-  if (!cwd) {
-    deps.provider?.refresh();
-    return;
-  }
-  const after = parseCoAuthors(repo.inputBox.value);
-  const catalogue = [...(deps.provider?.current?.selected ?? []), ...(deps.provider?.current?.available ?? [])];
-  const byEmail = new Map(catalogue.map((a) => [a.email.toLowerCase(), a.key]));
-  const keys = after.map((a) => byEmail.get(a.email.toLowerCase()));
-  if (keys.every((k): k is string => typeof k === 'string')) {
-    if (keys.length === 0) await run(deps, ['coauthor', 'solo'], { cwd });
-    else await run(deps, ['coauthor', 'use', ...new Set(keys)], { cwd });
-  } else {
-    deps.log.info('box has trailers outside the catalogue; leaving CLI selection unchanged');
-  }
+  if (cwd) await run(deps, ['coauthor', present ? 'rm' : 'add', email], { cwd });
   deps.provider?.refresh();
 }
 

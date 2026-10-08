@@ -19,9 +19,9 @@ Git Colabor treats identity as explicit, per-repo, **reversible and auditable** 
 
 ## Features
 
-- **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand`, loads the key into `ssh-agent`, and snapshots prior config for one-command revert. Applies to **every repo open in the window**.
+- **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand` and snapshots prior config for one-command revert. Applies to **every repo open in the window**; keys enter `ssh-agent` only through the explicit right-click action.
 - **Opt-in commit signing** — right-click any keyed identity → *Sign Commits with This Key* (green icon = has a key, verified badge = signing active); never on by default.
-- **History import** — every committer in the repo's history becomes an identity automatically; hide (user / machine / workspace) the ones you don't want.
+- **History import** — every committer in the repo's history becomes an identity automatically; hide the ones you don't want on this machine.
 - **Co-authors** — every identity is a potential co-author; trailers seeded into the commit template **and** kept in sync with the SCM commit input box.
 - **Safe key handling** — keys are referenced in place (never copied or modified); passphrases live in session memory only (never on disk) and reach `ssh-add` over a UNIX-socket askpass bridge — never on `argv`, never in `ps`, never in logs. Loading a key into ssh-agent is an explicit right-click action. A broken key reference degrades to a key-less apply.
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
@@ -76,9 +76,9 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | `gitColabor.user.name` / `gitColabor.user.email` | `""` | **Always win** over any identity's name/email in repos you open (re-applied by the reconcile loop) |
 | `gitColabor.defaultIdentity` | `""` | Identity id auto-activated when a repo has none active |
 | `gitColabor.cliPath` | `""` | Override the bundled CLI path (`resources/cli.cjs`) |
-| `gitColabor.coAuthorIdentities` | `[]` | Remembered co-authors (`"Name <email>"` entries) — right-click an identity in the Identities group to save/remove it per user / machine / workspace layer; all layers (plus all identities except the active one, and the repo's commit history) feed the Co-authors list |
+| `gitColabor.coAuthorIdentities` | `[]` | Remembered co-authors (`"Name <email>"` entries in your VS Code user settings; right-click an identity → *Remember on VS Code User Settings*); these entries (plus all identities except the active one, and the repo's commit history) feed the Co-authors list |
 
-Declared but **not yet enforced** in 0.1.0: `autoApplyOnRepoOpen` (always on for now), `conflictWarningStaleMinutes` (CLI default 5 min), `githubFetch`, `postCommitSolo`, `logLevel`.
+Accepted but currently ignored: `autoApplyOnRepoOpen` (always on), `conflictWarningStaleMinutes` (CLI default 5 min), `githubFetch`, `postCommitSolo`, `logLevel`.
 
 ## Security
 
@@ -89,8 +89,6 @@ Declared but **not yet enforced** in 0.1.0: `autoApplyOnRepoOpen` (always on for
 Threat model, protocol details, and explicit non-guarantees: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## FAQ
-
-**Does it work with git-mob?** Yes — same `.git-coauthors` format and trailer semantics; Git Colabor never touches `git-mob.co-author`.
 
 **Remote-SSH / Codespaces / dev containers?** Yes — all git/SSH logic runs in the CLI workspace-side; the extension just drives it.
 

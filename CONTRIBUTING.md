@@ -41,7 +41,7 @@ Branch names are **all lowercase**, words joined by underscores `_`.
 | --- | --- | --- |
 | Bug fix | `fix/<bug_name>` | `fix/askpass_socket_race` |
 | New feature | `feature/<feature_name>` | `feature/tree_drag_reorder` |
-| Milestone release | version tag | `v0.2`, `0.2.0` |
+| Release | version tag | `v0.2`, `0.2.0` |
 
 The default branch is always `main` (never `master`). Do **not** push directly to `main` — open a Pull Request (see below).
 

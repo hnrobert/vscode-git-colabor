@@ -66,7 +66,7 @@ What the token+socket protects against: *other OS users* connecting to the socke
 
 ## 6. Explicit non-guarantees
 
-Honest boundaries of the 0.1.0 model:
+Honest boundaries:
 
 1. **Same-user malware.** Anything running as your OS user can read `0600` files (keys, identities.json, session file) and query the askpass socket. No local tool can defend against this; don't treat the data dir as a vault.
 2. **No encrypt-at-rest for imported keys** yet (§2).
