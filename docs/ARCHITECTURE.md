@@ -1,6 +1,6 @@
 # Architecture
 
-How Git Colabor is put together. Requirements live in [REQUIREMENTS.md](REQUIREMENTS.md); this document explains the design that satisfies them.
+How Git Colabor is put together — module map, data flow, and the protocols between the extension and the CLI.
 
 ## 1. System overview
 

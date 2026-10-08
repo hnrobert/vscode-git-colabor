@@ -17,8 +17,6 @@ Git gives you exactly one global identity per clone — `user.name`, `user.email
 
 Git Colabor treats identity as explicit, per-repo, **reversible and auditable** state: pick an identity in the SCM view, commit, push, and `revert` the repo to its exact prior config when you leave. Select a co-author once and every commit message carries the trailer until you go solo.
 
-Full requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
-
 ## Features
 
 - **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand`, loads the key into `ssh-agent`, and snapshots prior config for one-command revert. Applies to **every repo open in the window**.
@@ -33,13 +31,19 @@ Full requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
 ## Install
 
-> Marketplace / OpenVSX publishing is in progress (M6). Until then:
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor) or [OpenVSX](https://open-vsx.org/extension/HNRobert/vscode-git-colabor):
+
+```bash
+code --install-extension HNRobert.vscode-git-colabor
+```
+
+Or build the latest from source:
 
 ```bash
 git clone --recurse-submodules git@github.com:hnrobert/vscode-git-colabor.git
 cd vscode-git-colabor
 pnpm install && pnpm -C git-colabor install && pnpm build
-pnpm package          # → git-colabor-0.1.0.vsix
+pnpm package          # → git-colabor-<version>.vsix
 ```
 
 Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
@@ -74,7 +78,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | `gitColabor.cliPath` | `""` | Override the bundled CLI path (`resources/cli.cjs`) |
 | `gitColabor.coAuthorIdentities` | `[]` | Remembered co-authors (`"Name <email>"` entries) — right-click an identity in the Identities group to save/remove it per user / machine / workspace layer; all layers (plus all identities except the active one, and the repo's commit history) feed the Co-authors list |
 
-Declared but **not yet enforced** in 0.1.0 (tracked in [plan.md](plan.md)): `autoApplyOnRepoOpen` (always on for now), `conflictWarningStaleMinutes` (CLI default 5 min), `githubFetch`, `postCommitSolo`, `logLevel`.
+Declared but **not yet enforced** in 0.1.0: `autoApplyOnRepoOpen` (always on for now), `conflictWarningStaleMinutes` (CLI default 5 min), `githubFetch`, `postCommitSolo`, `logLevel`.
 
 ## Security
 
@@ -98,12 +102,11 @@ Threat model, protocol details, and explicit non-guarantees: [docs/SECURITY.md](
 
 | Doc | Contents |
 | --- | --- |
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Problem, use cases, FR/NFR list, milestone traceability |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow, JSON bridge & askpass protocol |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, key/passphrase handling, non-guarantees |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build, test, packaging, publishing |
 | [git-colabor/README.md](git-colabor/README.md) | Standalone CLI (`git colabor …`) command reference |
-| [CONTRIBUTING.md](CONTRIBUTING.md) · [plan.md](plan.md) | Workflow · roadmap |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Workflow |
 
 ## Development
 

@@ -122,7 +122,6 @@ User-facing docs live in [docs/](docs/) — when you change behavior, update the
 
 | Doc | Covers |
 | --- | --- |
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Problem, use cases, FR/NFR list |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow, protocols |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, key & passphrase handling |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build, test, packaging, release |
