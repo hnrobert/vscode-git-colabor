@@ -30,9 +30,6 @@
     "workspace",
     "ui"
   ],
-  "extensionDependencies": [
-    "vscode.git"
-  ],
   "activationEvents": [
     "onStartupFinished",
     "workspaceContains:**/.git"
