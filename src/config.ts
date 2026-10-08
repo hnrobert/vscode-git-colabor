@@ -42,6 +42,13 @@ export function autoApplyOnRepoOpen(): boolean {
 export function conflictWarningStaleMinutes(): number {
   return getNumber('conflictWarningStaleMinutes', 5);
 }
+/** GitHub user search in Add Identity — off by default (hits api.github.com). */
+export function githubFetch(): boolean {
+  return getBool('githubFetch', false);
+}
+export function postCommitSolo(): boolean {
+  return getBool('postCommitSolo', false);
+}
 
 // --- remembered identities (gitColabor.coAuthorIdentities, "Name <email>" entries) ---
 // Settings layers: user (global, cross-machine), workspace (per repo), and

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, watch, statSync, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { initLog } from './log.js';
-import { cliPath } from './config.js';
+import { cliPath, postCommitSolo } from './config.js';
 import { CliClient } from './cli/CliClient.js';
 import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
 import { GitApi } from './git-ext/GitApi.js';
@@ -122,14 +122,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerCommands(context, { cli, git, log: logger, provider, sessionPassphrases });
 
-  // refresh = re-seed state watchers (one per open repo) + reload the tree
-  let watchedRepos = new Set<string>();
+  // refresh = re-seed state watchers (one per open repo) + reload the tree.
+  // The watch-set key includes the postCommitSolo flag so toggling that
+  // setting re-creates the watchers.
+  let watchedKey = '';
   const setupStateWatchers = (): void => {
     const roots = new Set(git.repoRoots);
-    if (roots.size === watchedRepos.size && [...roots].every((r) => watchedRepos.has(r))) return;
+    const key = `${[...roots].sort().join('|')}#${postCommitSolo() ? 'solo' : ''}`;
+    if (key === watchedKey) return;
     stateWatchers.forEach((w) => w.close());
     stateWatchers = [];
-    watchedRepos = roots;
+    watchedKey = key;
     for (const root of roots) {
       const stateFile = join(root, '.git', 'colabor', 'state.json');
       let t: NodeJS.Timeout | undefined;
@@ -147,6 +150,60 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch {
         // state file may not exist yet in this repo
       }
+      if (postCommitSolo()) addCommitWatch(root);
+    }
+  };
+
+  /**
+   * postCommitSolo: clear the selected co-authors after a real commit. Dual
+   * signal — COMMIT_EDITMSG changes when the message editor opens AND saves
+   * (an aborted commit also touches it), while the reflog (`.git/logs/HEAD`)
+   * appends only when HEAD actually moves. Solo fires only when BOTH moved;
+   * an aborted editor save or a checkout alone never triggers it.
+   */
+  const addCommitWatch = (root: string): void => {
+    const editmsg = join(root, '.git', 'COMMIT_EDITMSG');
+    const reflog = join(root, '.git', 'logs', 'HEAD');
+    const mtime = (p: string): number => {
+      try {
+        return statSync(p).mtimeMs;
+      } catch {
+        return 0;
+      }
+    };
+    let baseEdit = mtime(editmsg);
+    let baseRef = mtime(reflog);
+    let t: NodeJS.Timeout | undefined;
+    const check = (): void => {
+      const e = mtime(editmsg);
+      const r = mtime(reflog);
+      const committed = e !== baseEdit && r !== baseRef;
+      baseEdit = e;
+      baseRef = r;
+      if (!committed) return;
+      void (async () => {
+        const selected = provider.current?.selected ?? [];
+        for (const s of selected) {
+          const rm = await cli.run(['coauthor', 'rm', s.email], { cwd: root });
+          if (!rm.ok) logger.warn(`postCommitSolo: rm ${s.email} failed in ${root}`);
+        }
+        if (selected.length > 0) {
+          logger.info(`postCommitSolo: cleared ${selected.length} co-author(s) after commit in ${root}`);
+          provider.reload().catch(() => {});
+        }
+      })();
+    };
+    const debounced = (): void => {
+      if (t) clearTimeout(t);
+      t = setTimeout(check, 800);
+    };
+    try {
+      stateWatchers.push(
+        watch(editmsg).on('change', debounced).on('error', () => {}),
+        watch(reflog).on('change', debounced).on('error', () => {}),
+      );
+    } catch {
+      // repo without commits yet — nothing to watch
     }
   };
   const refresh = (): void => {
@@ -226,6 +283,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push({ dispose() { stateWatchers.forEach((w) => w.close()); } });
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('gitColabor.postCommitSolo')) refresh();
       if (e.affectsConfiguration('gitColabor.user') || e.affectsConfiguration('gitColabor.defaultIdentity')) {
         runReconcile();
         refresh();

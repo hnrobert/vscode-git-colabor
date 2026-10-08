@@ -74,7 +74,7 @@
         "gitColabor.githubFetch": {
           "type": "boolean",
           "default": false,
-          "description": "Enable GitHub username→noreply fetch when adding co-authors."
+          "description": "Offer the GitHub user search in Add Identity (profile URL / @handle / email; hits api.github.com unauthenticated)."
         },
         "gitColabor.postCommitSolo": {
           "type": "boolean",

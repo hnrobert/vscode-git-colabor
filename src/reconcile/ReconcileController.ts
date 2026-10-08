@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
-import { defaultIdentity, effectiveUserEmail, effectiveUserName } from '../config.js';
+import { autoApplyOnRepoOpen, conflictWarningStaleMinutes, defaultIdentity, effectiveUserEmail, effectiveUserName } from '../config.js';
 import type { HeldByJson, StatusJson } from '../types.js';
 
 /**
@@ -15,6 +15,10 @@ import type { HeldByJson, StatusJson } from '../types.js';
  * Surfaces any heldBy conflict as a warning.
  */
 export async function reconcile(cli: CliClient, git: GitApi, logger: vscode.LogOutputChannel): Promise<void> {
+  if (!autoApplyOnRepoOpen()) {
+    logger.info('reconcile: autoApplyOnRepoOpen is off — skipping (explicit Use still works)');
+    return;
+  }
   const roots = git.repoRoots;
   if (roots.length === 0) {
     logger.info('reconcile: no git repository');
@@ -56,7 +60,7 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
   }
 
   if (activeId) {
-    const args = ['identity', 'use', activeId, '--source', 'ext'];
+    const args = ['identity', 'use', activeId, '--source', 'ext', '--stale-minutes', String(conflictWarningStaleMinutes())];
     if (name && email) {
       args.push('--as-name', name, '--as-email', email);
       logger.info(`reconcile[${root}]: setting wins → ${name} <${email}> (identity ${activeId})`);

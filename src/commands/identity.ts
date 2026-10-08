@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { setCoAuthorMemory } from '../config.js';
+import { conflictWarningStaleMinutes, githubFetch, setCoAuthorMemory } from '../config.js';
 import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from '../github/users.js';
 import type { IdentityJson, JsonResult } from '../types.js';
 import {
@@ -58,7 +58,11 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
   const conflicts: string[] = [];
   const failedRepos: string[] = [];
 
-  const useIn = (root: string) => deps.cli.run(['identity', 'use', id, '--source', 'ext'], { cwd: root });
+  const useIn = (root: string) =>
+    deps.cli.run(
+      ['identity', 'use', id, '--source', 'ext', '--stale-minutes', String(conflictWarningStaleMinutes())],
+      { cwd: root },
+    );
 
   for (const root of roots) {
     const r = await useIn(root);
@@ -187,7 +191,10 @@ export async function addIdentity(deps: CommandDeps): Promise<void> {
 
   const source = await vscode.window.showQuickPick(
     [
-      { label: '$(github) From GitHub…', description: 'search by profile URL, @username, or email', github: true },
+      // GitHub search is opt-in (gitColabor.githubFetch) — it hits api.github.com
+      ...(githubFetch()
+        ? [{ label: '$(github) From GitHub…', description: 'search by profile URL, @username, or email', github: true }]
+        : []),
       { label: '$(person-add) Custom identity…', description: 'name + email typed by hand', github: false },
     ],
     { placeHolder: 'Add identity — choose a source' },
