@@ -1,7 +1,7 @@
 # Git Colabor (the Extension)
 
 <p align="center">
-  <img src="git-colabor/assets/images/git-co-author-enhanced.png" width="140" alt="Git Colabor logo" />
+  <img src="assets/images/git-co-author-enhanced.png" width="140" alt="Git Colabor logo" />
 </p>
 
 A VS Code extension + CLI that switches the Git **committer + pusher identity** and **SSH key** per repository, and manages **co-authors** with a better experience — built for shared machines, multiple accounts, Remote-SSH, Codespaces, and dev containers.
