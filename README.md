@@ -1,10 +1,17 @@
-# Git Colabor (the Extension)
+# Git Colabor
 
-<p align="center">
-  <img src="assets/images/git-co-author-enhanced.png" width="140" alt="Git Colabor logo" />
-</p>
+[![Visual Studio Marketplace](https://flat.badgen.net/vs-marketplace/i/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
+[![Version](https://flat.badgen.net/vs-marketplace/v/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
+[![GitHub](https://flat.badgen.net/github/release/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor)
+[![Apache License](https://flat.badgen.net/badge/license/Apache-2.0/blue)](LICENSE)
+[![Open Issues](https://flat.badgen.net/github/open-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues)
+[![Closed Issues](https://flat.badgen.net/github/closed-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues?q=is%3Aissue+is%3Aclosed)
 
-A VS Code extension + CLI that switches the Git **committer + pusher identity** and **SSH key** per repository, and manages **co-authors** with a better experience — built for shared machines, multiple accounts, Remote-SSH, Codespaces, and dev containers.
+<p align="center"><img src="assets/images/git-co-author-enhanced.png" alt="Git Colabor logo" width="128" /></p>
+
+> A VS Code extension + CLI that switches the Git **committer + pusher identity** and **SSH key** per repository, and manages **co-authors** with a better experience — built for shared machines, multiple accounts, Remote-SSH, Codespaces, and dev containers.
+
+![overall-demo](docs/images/overall-demo.png)
 
 ## Why
 
@@ -20,9 +27,17 @@ Git Colabor treats identity as explicit, per-repo, **reversible and auditable** 
 ## Features
 
 - **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand` and snapshots prior config for one-command revert. Applies to **every repo open in the window**; keys enter `ssh-agent` only through the explicit right-click action.
+  - ![identity-context-menu-demo](docs/images/identity-context-menu-demo.png)
+- **Window-scoped identity by default** — a normal click applies the identity to THIS window only (git env injection, repo untouched); right-click → *Use for All Windows* writes repo config for everyone.
 - **Opt-in commit signing** — right-click any keyed identity → *Sign Commits with This Key* (green icon = has a key, verified badge = signing active); never on by default.
 - **History import** — every committer in the repo's history becomes an identity automatically; hide the ones you don't want on this machine.
-- **Co-authors** — every identity is a potential co-author; trailers seeded into the commit template **and** kept in sync with the SCM commit input box.
+- **Co-authors** — every identity is a potential co-author; trailers seeded into the commit template **and** kept in sync with the SCM commit input box — click `+`/`-` on a row and the commit message follows.
+  - ![coauthor-toggle-demo](docs/images/coauthor-toggle-demo.png)
+- **Add Identity / Key wizard** — the view-title `+` opens one integrated menu: add an identity, generate a fresh key, or paste an existing private key — without leaving the editor.
+  - **From GitHub**: paste a profile URL, `@handle`, login, or email — even a *private* one. Git Colabor resolves the account through commit attribution and offers every usable address: the searched private email (with public-commit evidence), the verified public profile email, and the `noreply` form.
+    - ![add-github-flow-demo](docs/images/add-github-flow-demo.png)
+  - **Generate a key**: pick type (ed25519 / rsa / ecdsa), directory, file name, comment (defaults to `user@host`), and an optional passphrase — fed through `SSH_ASKPASS`, never on `argv`, never on disk.
+  - **Paste a key**: drop an existing private key into an editor pane, choose where it lives; the file is written `0600` and referenced in place.
 - **Safe key handling** — keys are referenced in place (never copied or modified); passphrases live in session memory only (never on disk) and reach `ssh-add` over a UNIX-socket askpass bridge — never on `argv`, never in `ps`, never in logs. Loading a key into ssh-agent is an explicit right-click action. A broken key reference degrades to a key-less apply.
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
 - **Audit trail** — every identity change logged locally (fingerprint only) with repo / host / user / source.
