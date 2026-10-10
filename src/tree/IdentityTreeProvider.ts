@@ -23,7 +23,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   private status: StatusJson | undefined;
   /** per-window identity overlay (see SessionIdentityController); when set it
    *  is displayed as THE active identity without any repo-state backing */
-  private sessionOverride: { id: string; name: string; email: string; sshCommand?: string } | undefined;
+  private sessionOverride: { id: string; name: string; email: string; sshCommand?: string; signingKey?: string } | undefined;
   /** authors found in the repo's commit history (`coauthor suggest`) */
   private historyCandidates: Candidate[] = [];
   /** repo root already auto-imported for (identity import is idempotent, run once per repo) */
@@ -37,7 +37,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
 
-  setSessionOverride(s: { id: string; name: string; email: string; sshCommand?: string } | undefined): void {
+  setSessionOverride(s: { id: string; name: string; email: string; sshCommand?: string; signingKey?: string } | undefined): void {
     this.sessionOverride = s;
   }
 
@@ -69,6 +69,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         ...this.status,
         identities: row ? rows : [...rows, pseudo],
         activeIdentity: row ? { ...row, active: true } : pseudo,
+        // window-scoped signing rides on the session overlay — the tree's
+        // verified badge / -s bit read status.signing like the repo variant
+        ...(s.signingKey ? { signing: { enabled: true, key: s.signingKey } } : {}),
       };
     }
     // always set (never leave stale data from a previous repo)

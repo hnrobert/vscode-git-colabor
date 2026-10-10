@@ -13,6 +13,8 @@ export type IdentityJson = {
   sshKeyFingerprint?: string;
   host?: string;
   hasKey: boolean;
+  /** referenced key source path (present whenever hasKey) */
+  sshKeyPath?: string;
   keyEncrypted?: boolean;
   /** key fingerprint currently held by ssh-agent (live check per status call) */
   inAgent?: boolean;
