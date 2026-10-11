@@ -184,7 +184,12 @@
       },
       {
         "command": "gitColabor._signCommitsWithKey",
-        "title": "Sign Commits with This Key",
+        "title": "Sign Commits with SSH Key",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._signCommitsWithGpgKey",
+        "title": "Sign Commits with GPG Key…",
         "category": "Git Colabor"
       },
       {
@@ -310,13 +315,18 @@
         },
         {
           "command": "gitColabor._signCommitsWithKey",
-          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-s)/",
+          "when": "viewItem =~ /^(identity|active-identity|signing)(?=.*-k)(?!.*-ss)/",
           "group": "3_key@4"
         },
         {
-          "command": "gitColabor._stopSigningCommits",
-          "when": "viewItem =~ /-s/",
+          "command": "gitColabor._signCommitsWithGpgKey",
+          "when": "viewItem =~ /^(identity|active-identity)|^signing.*-i/",
           "group": "3_key@5"
+        },
+        {
+          "command": "gitColabor._stopSigningCommits",
+          "when": "viewItem =~ /^signing-on|-s[sg]/",
+          "group": "3_key@6"
         },
         {
           "command": "gitColabor._useIdentityEverywhere",
@@ -374,6 +384,10 @@
         },
         {
           "command": "gitColabor._signCommitsWithKey",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._signCommitsWithGpgKey",
           "when": "false"
         },
         {

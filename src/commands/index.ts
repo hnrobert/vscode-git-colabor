@@ -15,7 +15,7 @@ import {
 } from './identity.js';
 import { showHiddenIdentities, soloCoAuthors, toggleCoAuthor } from './coauthor.js';
 import { doctor, revertRepo, showAudit } from './misc.js';
-import { toggleCommitSigning } from './signing.js';
+import { startCommitSigning, stopCommitSigning } from './signing.js';
 
 export type { CommandDeps } from './shared.js';
 
@@ -74,9 +74,10 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor._addIdentityKey', (item) => modifyIdentityField(deps, item, 'key', { allowClearKey: false }).then(refresh));
   reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key').then(refresh));
 
-  // Opt-in SSH commit signing (toggle; applies to every session repo).
-  reg('gitColabor._signCommitsWithKey', (item) => toggleCommitSigning(deps, item, true));
-  reg('gitColabor._stopSigningCommits', (item) => toggleCommitSigning(deps, item, false));
+  // Opt-in commit signing (SSH or GPG) at the identity's layer: this window, or repo config.
+  reg('gitColabor._signCommitsWithKey', (item) => startCommitSigning(deps, item, 'ssh'));
+  reg('gitColabor._signCommitsWithGpgKey', (item) => startCommitSigning(deps, item, 'gpg'));
+  reg('gitColabor._stopSigningCommits', () => stopCommitSigning(deps));
 
   // Manual ssh-agent key management (the only path that loads keys into the agent).
   reg('gitColabor._loadKeyIntoAgent', (item) => toggleAgentKey(deps, item, 'load').then(refresh));

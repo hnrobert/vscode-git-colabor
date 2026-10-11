@@ -23,7 +23,35 @@ export type IdentityJson = {
   /** store-level scope; the "vscode memory" is a settings-layer flag, not a scope value */
   scope?: 'machine' | 'project';
   remoteKeys?: Record<string, string>;
+  /** bound OpenPGP signing key (fingerprint); wins over the SSH key for signing */
+  gpgKey?: string;
   isDefault: boolean;
+};
+
+/** One `identity gpg-keys` row: a secret key usable for commit signing. */
+export type GpgKeyJson = { fingerprint: string; keyId: string; uids: string[]; emails: string[] };
+
+/**
+ * The EFFECTIVE commit signing state — what `git commit` will actually do.
+ * The CLI resolves the file scopes (local / global / system); the extension
+ * overlays this window's env-injected layer as scope `window`.
+ */
+export type SigningJson = {
+  enabled: boolean;
+  /** null: OpenPGP picks a key by committer email */
+  key: string | null;
+  /** gpg.format: openpgp (git's default) / ssh / x509 */
+  format: string;
+  /** where commit.gpgsign comes from: window / local / global / system / …; null = unset everywhere */
+  scope: string | null;
+  /** config file of that scope */
+  origin: string | null;
+  /** colabor turned it on (repo `identity sign`, or this window) */
+  managed: boolean;
+  /** OpenPGP: emails on the signing key (mismatch detection) */
+  keyEmails?: string[];
+  /** window overlay only: what the repo / global config alone would do */
+  below?: SigningJson;
 };
 
 export type DiagnosticJson = { check: string; status: 'ok' | 'warn' | 'fail'; detail?: string };
@@ -47,7 +75,7 @@ export type StatusJson = {
   managed: boolean;
   managedBy: string | null;
   heldBy: HeldByJson | null;
-  signing: { enabled: boolean; key: string | null };
+  signing: SigningJson;
   activeIdentity: IdentityJson | null;
   identities: StatusIdentityJson[];
   selected: CoAuthorBriefJson[];
