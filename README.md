@@ -1,8 +1,8 @@
 # Git Colabor
 
-[![Visual Studio Marketplace](https://flat.badgen.net/vs-marketplace/i/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
 [![Version](https://flat.badgen.net/vs-marketplace/v/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
-[![GitHub](https://flat.badgen.net/github/release/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor)
+[![Visual Studio Marketplace](https://flat.badgen.net/vs-marketplace/i/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
+[![OpenVSX Downloads](https://img.shields.io/open-vsx/dt/HNRobert/vscode-git-colabor?style=flat-square&label=OpenVSX%20Downloads)](https://open-vsx.org/extension/HNRobert/vscode-git-colabor)
 [![Apache License](https://flat.badgen.net/badge/license/Apache-2.0/blue)](LICENSE)
 [![Open Issues](https://flat.badgen.net/github/open-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues)
 [![Closed Issues](https://flat.badgen.net/github/closed-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues?q=is%3Aissue+is%3Aclosed)
