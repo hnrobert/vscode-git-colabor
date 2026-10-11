@@ -5,6 +5,14 @@ import { parseCoAuthors } from '../scm/trailers.js';
 import { coAuthorMemoryScopeMap } from '../config.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
+import {
+  describeSigning,
+  overlayWindowSigning,
+  sameKey,
+  signingMatch,
+  signingTooltip,
+  type WindowSigning,
+} from '../session/signing.js';
 import type { StatusIdentityJson, StatusJson } from '../types.js';
 
 type Candidate = { name: string; email: string };
@@ -23,7 +31,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   private status: StatusJson | undefined;
   /** per-window identity overlay (see SessionIdentityController); when set it
    *  is displayed as THE active identity without any repo-state backing */
-  private sessionOverride: { id: string; name: string; email: string; sshCommand?: string; signingKey?: string } | undefined;
+  private sessionOverride: { id: string; name: string; email: string; sshCommand?: string } | undefined;
+  /** per-window signing layer, overlaid on the CLI's effective (file-scope) signing */
+  private windowSigning: WindowSigning;
   /** authors found in the repo's commit history (`coauthor suggest`) */
   private historyCandidates: Candidate[] = [];
   /** repo root already auto-imported for (identity import is idempotent, run once per repo) */
@@ -37,8 +47,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
 
-  setSessionOverride(s: { id: string; name: string; email: string; sshCommand?: string; signingKey?: string } | undefined): void {
+  setSessionOverride(s: { id: string; name: string; email: string; sshCommand?: string } | undefined, signing: WindowSigning): void {
     this.sessionOverride = s;
+    this.windowSigning = signing;
   }
 
   /** Re-fetch `identity status` + repo committers (in parallel) and paint once. */
@@ -69,11 +80,11 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         ...this.status,
         identities: row ? rows : [...rows, pseudo],
         activeIdentity: row ? { ...row, active: true } : pseudo,
-        // window-scoped signing rides on the session overlay — the tree's
-        // verified badge / -s bit read status.signing like the repo variant
-        ...(s.signingKey ? { signing: { enabled: true, key: s.signingKey } } : {}),
       };
     }
+    // window-scoped signing outranks every config file (env injection), so
+    // it replaces the effective state; the file state stays as `below`
+    if (this.status) this.status = { ...this.status, signing: overlayWindowSigning(this.status.signing, this.windowSigning) };
     // always set (never leave stale data from a previous repo)
     this.historyCandidates = suggRes?.ok
       ? ((suggRes.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
@@ -143,6 +154,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     }
 
     if (s.inRepo) {
+      items.push(this.signingItem());
       items.push(
         new ColaborItem('Co-authors', 'coauthor-group', {
           collapsible: vscode.TreeItemCollapsibleState.Expanded,
@@ -152,6 +164,36 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       );
     }
     return items;
+  }
+
+  /**
+   * The EFFECTIVE commit signing and the layer it comes from (this window /
+   * repo config / global / system) — signing is decided by layered git
+   * config, so the row names the layer instead of implying colabor owns it.
+   * Warns when the key is not the active identity's. Its payload is the
+   * active identity, so the identity-row signing commands work here too.
+   */
+  private signingItem(): ColaborItem {
+    const s = this.status!;
+    const sg = s.signing;
+    const active = s.activeIdentity ? (s.identities.find((i) => i.id === s.activeIdentity!.id) ?? s.activeIdentity) : undefined;
+    const match = signingMatch(sg, active, s.identities);
+    const item = new ColaborItem('Signing', 'signing', {
+      description: describeSigning(sg),
+      tooltip: signingTooltip(sg, match, active?.email),
+      icon: !sg.enabled ? 'circle-slash' : match === 'mismatch' ? 'warning' : 'verified',
+      iconColor: match === 'mismatch' ? 'list.warningForeground' : undefined,
+      payload: active ? { id: active.id, name: active.name, email: active.email } : undefined,
+    });
+    // -on = signing (Stop), -i = an identity is active (Sign with GPG Key…),
+    // -k = it has an SSH key, -ss = already signing with that SSH key
+    item.contextValue =
+      'signing' +
+      (sg.enabled ? '-on' : '') +
+      (active ? '-i' : '') +
+      (active?.hasKey ? '-k' : '') +
+      (sg.enabled && sg.format === 'ssh' && sameKey(sg.key, active?.sshKeyPath) ? '-ss' : '');
+    return item;
   }
 
   /**
@@ -205,10 +247,11 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const memoryMap = coAuthorMemoryScopeMap(s.identities.map((i) => i.email));
     const visible = this.filterByPriority(s.identities);
     return visible.map((i) => {
-      // signing.key may be the .pub sibling (agent-based signing) — compare key-path-insensitive
-      const signingKeyPath = s.signing?.key?.replace(/\.pub$/, '');
-      const signingWithThisKey =
-        !!s.signing?.enabled && !!signingKeyPath && signingKeyPath === (i as { sshKeyPath?: string }).sshKeyPath;
+      // the effective signing key is this identity's own SSH / GPG key
+      // (sameKey ignores the .pub sibling used for agent-based signing)
+      const signsSsh = s.signing.enabled && s.signing.format === 'ssh' && sameKey(s.signing.key, i.sshKeyPath);
+      const signsGpg = s.signing.enabled && s.signing.format === 'openpgp' && sameKey(s.signing.key, i.gpgKey);
+      const signingWithThisKey = signsSsh || signsGpg;
       const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
       // source label reflects where this identity was found
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
@@ -229,7 +272,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // surfaces the highest-priority effective layer, so user/workspace
       // merge into one "vscode memory" label), -rm = machine scope,
       // -g = imported from repo history, -k = usable key, -a = key loaded in
-      // ssh-agent, -s = repo signs with THIS key
+      // ssh-agent, -ss / -sg = commits sign with THIS identity's SSH / GPG key
       const rememberedInVSCode = saved.user;
       const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
@@ -239,7 +282,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +
         (i.inAgent ? '-a' : '') +
-        (signingWithThisKey ? '-s' : '');
+        (signsSsh ? '-ss' : '') +
+        (signsGpg ? '-sg' : '');
       if (!i.active) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };
       }

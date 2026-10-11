@@ -45,6 +45,8 @@ Resolution order when loading a key (each step falls through on failure):
 
 Pure-CLI context (no extension session): the tool does not store or forward passphrases at all. Either the key is already in ssh-agent, or every push prompts on the tty — `identity use` prints an `agent-reminder` pointing at `ssh-add <key>`.
 
+GPG commit signing never touches a passphrase either: the tool only records *which* key to sign with (`user.signingKey` = the key's fingerprint) and lists secret keys via `gpg --list-secret-keys --with-colons` (public metadata only). Unlocking stays with git → `gpg.program` → gpg-agent / pinentry.
+
 ## 4. The askpass bridge protocol
 
 How `ssh-add` obtains an extension-stored passphrase ([ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-askpass-bridge-passphrase-channel) for the sequence diagram):

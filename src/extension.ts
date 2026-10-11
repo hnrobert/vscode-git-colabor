@@ -59,7 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
   );
   sessionCtl.onChange = () => {
-    provider.setSessionOverride(sessionCtl.get());
+    provider.setSessionOverride(sessionCtl.get(), sessionCtl.signing());
     void provider.reload();
   };
   context.subscriptions.push({ dispose: () => sessionCtl.clear() });

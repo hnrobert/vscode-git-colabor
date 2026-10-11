@@ -1,6 +1,7 @@
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { colaborDir } from '../askpass/AskpassServer.js';
+import { identitySigningKey, type SigningKey, type WindowSigning } from './signing.js';
 
 /**
  * Per-WINDOW identity: applied by injecting git config through the
@@ -18,8 +19,18 @@ export type SessionIdentity = {
   email: string;
   /** full askpass-prefixed `ssh -i …` command when the identity has a usable key */
   sshCommand?: string;
-  /** key path backing the window-scoped signing toggle (`.pub` when agent-held) */
-  signingKey?: string;
+  /** the identity's own signing key — GPG if bound, else SSH (`.pub` when agent-held) */
+  signingKey?: SigningKey;
+};
+
+type ApplyInput = {
+  id: string;
+  name: string;
+  email: string;
+  hasKey?: boolean;
+  sshKeyPath?: string;
+  inAgent?: boolean;
+  gpgKey?: string;
 };
 
 /** Inject config pairs (empty = strip everything). */
@@ -41,7 +52,8 @@ function injectConfig(pairs: Array<[string, string]>): void {
 
 export class SessionIdentityController {
   private current?: SessionIdentity;
-  private signingOn = false;
+  /** this window's signing: with the identity's key / Stop / untouched (config files decide) */
+  private signingMode: 'identity' | 'off' | undefined;
   /** notified on every apply/clear so the tree can overlay + reload */
   onChange?: () => void;
 
@@ -59,49 +71,53 @@ export class SessionIdentityController {
     return this.current !== undefined;
   }
 
-  /** Is window-scoped commit signing on? */
-  signing(): boolean {
-    return this.signingOn && !!this.current?.signingKey;
+  /** This window's signing layer (undefined = untouched — repo / global config decides). */
+  signing(): WindowSigning {
+    if (this.signingMode === 'off') return 'off';
+    return this.signingMode === 'identity' ? this.current?.signingKey : undefined;
   }
 
   /**
    * Apply an identity to THIS window only. No repo writes, no heldBy.
-   * Switching to a DIFFERENT identity drops the signing toggle (it belongs
-   * to the previous identity's key).
+   * Window signing follows the identity (like the CLI's re-bind on `use`):
+   * while on, it moves to the new identity's key, or turns OFF when that
+   * identity has none — never silently falling back to a repo/global key.
    */
-  async apply(identity: { id: string; name: string; email: string; hasKey?: boolean; sshKeyPath?: string }): Promise<void> {
-    if (this.current && this.current.id !== identity.id) this.signingOn = false;
+  async apply(identity: ApplyInput): Promise<void> {
     let sshCommand: string | undefined;
     if (identity.hasKey && identity.sshKeyPath) {
       const wrapper = await this.ensureAskpassWrapper();
       sshCommand = `SSH_ASKPASS="${wrapper}" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -i ${identity.sshKeyPath} -o IdentitiesOnly=yes`;
     }
-    this.current = { id: identity.id, name: identity.name, email: identity.email, sshCommand };
+    const signingKey = identitySigningKey(identity);
+    this.current = { id: identity.id, name: identity.name, email: identity.email, sshCommand, signingKey };
+    if (this.signingMode === 'identity' && !signingKey) this.signingMode = 'off';
     await this.rebuild();
     this.log.info(`session identity set: ${identity.name} <${identity.email}> (this window only)`);
     this.onChange?.();
   }
 
   /**
-   * Window-scoped commit signing with an identity's key — injected through
-   * the same env mechanism as the identity, so commits made in THIS window
-   * sign and nothing is ever written to repo config. `keyPath` should be
-   * the `.pub` sibling when the key is agent-held (see signingKeyPath).
+   * Window-scoped commit signing, injected next to the identity so nothing
+   * is ever written to a config file. On signs with the current identity's
+   * key; off (Stop) injects `commit.gpgsign=false` — env config outranks
+   * every config file, so neither repo nor global config can keep signing.
+   * Off needs no session identity.
    */
-  async setSigning(keyPath: string | undefined): Promise<void> {
-    if (!this.current) return;
-    this.current.signingKey = keyPath;
-    this.signingOn = !!keyPath;
+  async setSigning(on: boolean): Promise<void> {
+    const key = this.current?.signingKey;
+    if (on && !key) return; // callers apply a keyed identity first
+    this.signingMode = on ? 'identity' : 'off';
     await this.rebuild();
-    this.log.info(`session signing ${keyPath ? `ON (${keyPath})` : 'OFF'} (this window only)`);
+    this.log.info(`session signing ${on && key ? `ON (${key.format} ${key.key})` : 'OFF'} (this window only)`);
     this.onChange?.();
   }
 
   clear(): void {
-    if (!this.current) return;
-    this.log.info(`session identity cleared (${this.current.name})`);
+    if (!this.current && !this.signingMode) return;
+    this.log.info(`session identity cleared (${this.current?.name ?? 'signing only'})`);
     this.current = undefined;
-    this.signingOn = false;
+    this.signingMode = undefined;
     injectConfig([]);
     this.onChange?.();
   }
@@ -109,22 +125,18 @@ export class SessionIdentityController {
   /** Rebuild the full env injection from the current identity + signing state. */
   private async rebuild(): Promise<void> {
     const s = this.current;
-    if (!s) {
-      injectConfig([]);
-      return;
+    const pairs: Array<[string, string]> = [];
+    if (s) {
+      pairs.push(['user.name', s.name], ['user.email', s.email]);
+      if (s.sshCommand) pairs.push(['core.sshCommand', s.sshCommand]);
     }
-    const pairs: Array<[string, string]> = [
-      ['user.name', s.name],
-      ['user.email', s.email],
-    ];
-    if (s.sshCommand) pairs.push(['core.sshCommand', s.sshCommand]);
-    if (this.signingOn && s.signingKey) {
-      pairs.push(
-        ['commit.gpgsign', 'true'],
-        ['gpg.format', 'ssh'],
-        ['user.signingKey', s.signingKey],
-        ['gpg.ssh.program', await this.ensureSignWrapper()],
-      );
+    const sign = this.signing();
+    if (sign === 'off') {
+      pairs.push(['commit.gpgsign', 'false']);
+    } else if (sign) {
+      pairs.push(['commit.gpgsign', 'true'], ['gpg.format', sign.format], ['user.signingKey', sign.key]);
+      // OpenPGP keeps the user's own gpg.program and gpg-agent pinentry
+      if (sign.format === 'ssh') pairs.push(['gpg.ssh.program', await this.ensureSignWrapper()]);
     }
     injectConfig(pairs);
   }

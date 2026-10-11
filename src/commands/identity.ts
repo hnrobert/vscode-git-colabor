@@ -12,6 +12,7 @@ import {
   type CommandDeps,
 } from './shared.js';
 import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
+import { warnSigningMismatch } from './signing.js';
 
 /**
  * DEFAULT use flow: apply the identity to THIS WINDOW only — config is
@@ -69,6 +70,8 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
   vscode.window.showInformationMessage(
     `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use for All Windows" to write repo config.`,
   );
+  // e.g. a personal GPG key from ~/.gitconfig would now sign this identity's commits
+  warnSigningMismatch(deps).catch((e) => deps.log.warn(`signing check: ${e instanceof Error ? e.message : String(e)}`));
 }
 
 /**
