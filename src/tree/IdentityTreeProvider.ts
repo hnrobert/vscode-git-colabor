@@ -214,7 +214,14 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const seen = new Set<string>();
     const out: StatusIdentityJson[] = [];
     for (const id of sorted) {
+      // same EMAIL = same person for git identity purposes: a keyed row and
+      // a keyless row sharing an email (imported vs manually added, or before
+      // and after "Add SSH Key") collapse into one. name+key keeps distinct
+      // key-sharers (e.g. demo identities referencing one key) separate.
+      const emailKey = `email:${id.email.toLowerCase()}`;
       if (id.active) {
+        seen.add(emailKey);
+        if (id.sshKeyPath) seen.add(`${id.name}|${id.sshKeyPath}|${id.host ?? ''}`);
         out.push(id);
         continue;
       }
@@ -222,9 +229,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // (suggest runs synchronously with status, so this is always accurate)
       const isProject = (id.scope ?? (id.imported ? 'project' : 'machine')) === 'project';
       if (isProject && inRepo && !repoEmails.has(id.email.toLowerCase())) continue;
-      const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : `${id.email}`;
-      if (seen.has(key)) continue;
+      const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : emailKey;
+      if (seen.has(key) || seen.has(emailKey)) continue;
       seen.add(key);
+      seen.add(emailKey);
       out.push(id);
     }
     return out.sort((a, b) => {
