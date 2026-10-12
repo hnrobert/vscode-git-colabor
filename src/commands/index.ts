@@ -45,6 +45,9 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor.revertRepo', () => revertRepo(deps).then(refresh));
   reg('gitColabor.showAudit', () => showAudit(deps));
   reg('gitColabor.reload', async () => {
+    // re-run the history import too — new out-of-band committers
+    // (manual git config + commit) otherwise need a window restart
+    deps.provider?.forgetImported();
     await refresh();
     vscode.window.showInformationMessage('Git Colabor: reloaded.');
   });

@@ -114,6 +114,16 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     this._onDidChange.fire(undefined);
   }
 
+  /**
+   * The explicit Reload command resets the once-per-repo history-import
+   * guard, so committers that appeared after the last import (e.g. an
+   * out-of-band `git config --local` switch + commit) show up without a
+   * window restart. Import itself is idempotent.
+   */
+  forgetImported(): void {
+    this.importedRoot = undefined;
+  }
+
   getTreeItem(element: ColaborItem): ColaborItem {
     return element;
   }
