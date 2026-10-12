@@ -220,6 +220,14 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const rank = (s?: string) => (s === 'machine' ? 0 : 1);
     const repoEmails = new Set(this.historyCandidates.map((c) => c.email.toLowerCase()));
     const inRepo = !!this.status?.inRepo;
+    // VS Code settings memory is cross-repo by definition: an identity
+    // remembered there ("found in vscode memory") shows in EVERY repo, even
+    // when its store scope is project and the person never committed here
+    const remembered = new Set(
+      [...coAuthorMemoryScopeMap(identities.map((i) => i.email)).entries()]
+        .filter(([, m]) => m.user)
+        .map(([email]) => email),
+    );
     const sorted = [...identities].sort((a, b) => rank(a.scope) - rank(b.scope));
     const seen = new Set<string>();
     const out: StatusIdentityJson[] = [];
@@ -235,10 +243,11 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         out.push(id);
         continue;
       }
-      // project-scope: strictly filtered to the current repo's committers
-      // (suggest runs synchronously with status, so this is always accurate)
+      // project-scope: strictly filtered to the current repo's committers —
+      // EXCEPT vscode-memory identities, which are cross-repo (see above)
       const isProject = (id.scope ?? (id.imported ? 'project' : 'machine')) === 'project';
-      if (isProject && inRepo && !repoEmails.has(id.email.toLowerCase())) continue;
+      const email = id.email.toLowerCase();
+      if (isProject && inRepo && !repoEmails.has(email) && !remembered.has(email)) continue;
       const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : emailKey;
       if (seen.has(key) || seen.has(emailKey)) continue;
       seen.add(key);
