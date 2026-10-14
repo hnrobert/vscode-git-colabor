@@ -13,6 +13,7 @@ import { ScmSync, pickRepository } from './scm/Sync.js';
 import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 import { SessionIdentityController } from './session/SessionIdentity.js';
+import type { StatusJson } from './types.js';
 
 let askpass: AskpassServer | undefined;
 let stateWatchers: FSWatcher[] = [];
@@ -30,6 +31,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   askpass = new AskpassServer({
     sessionId,
     secretLookup: async (fp) => sessionPassphrases.get(fp),
+    // push-time prompt: the session map missed, git needs the passphrase NOW.
+    // Ask once; the answer banks into the session store. A cancelled prompt
+    // returns nothing — ssh falls through and git's own error (GitHub's
+    // included) surfaces unchanged.
+    promptFor: async (fp) => {
+      const pass = await vscode.window.showInputBox({
+        prompt: `SSH key passphrase needed (push in progress) — key ${fp}`,
+        password: true,
+        placeHolder: 'session only · esc to let git handle it',
+        ignoreFocusOut: true,
+      });
+      if (pass && pass.length > 0) {
+        sessionPassphrases.set(fp, pass);
+        logger.info(`push-time passphrase banked for ${fp} (session only)`);
+        return pass;
+      }
+      return undefined;
+    },
     log: logger,
   });
   let askpassInfo: { socketPath: string; token: string } | undefined;
@@ -381,6 +400,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // above is exactly what this catches)
   context.subscriptions.push(provider.onDidReload.event((s) => { void maybePromptActiveKey(s ?? undefined); }));
   void maybePromptActiveKey();
+
+  /**
+   * Git-config picked identity with an encrypted key: when no colabor
+   * identity is active but the repo's git-config identity matches a stored
+   * identity whose key is encrypted (not in the agent) and signing is
+   * effectively on, ask once for the passphrase. Enter → verify and SELECT
+   * that identity for this window (push/signing get the key); cancel/empty →
+   * window signing off (env `commit.gpgsign=false`), so nothing half-works.
+   */
+  const promptedConfigKeys = new Set<string>();
+  const maybePromptConfigIdentityKey = async (s?: StatusJson): Promise<void> => {
+    const status = s ?? provider.current;
+    if (!status || sessionCtl.active()) return;
+    const active = status.activeIdentity as (StatusJson['activeIdentity'] & { fromGitConfig?: boolean }) | null;
+    if (!active?.fromGitConfig || !active.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
+    if (!status.signing?.enabled) return; // nothing would sign — nothing to ask
+    const fp = active.sshKeyFingerprint;
+    if (promptedConfigKeys.has(fp) || sessionPassphrases.has(fp)) return;
+    promptedConfigKeys.add(fp);
+    const pass = await vscode.window.showInputBox({
+      prompt: `${active.name} (from git config) signs with an encrypted key — passphrase?`,
+      password: true,
+      placeHolder: 'enter to select this identity for the window · esc to turn signing off',
+    });
+    if (pass === undefined || pass === '') {
+      await sessionCtl.setSigning(false); // off means off, window-wide
+      vscode.window.showInformationMessage('Git Colabor: signing off for this window (passphrase not entered).');
+      void provider.reload();
+      return;
+    }
+    sessionPassphrases.set(fp, pass);
+    const v = await cli.run(['identity', 'agent', active.id, '--verify']);
+    const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
+    if (!verified) {
+      sessionPassphrases.delete(fp);
+      vscode.window.showWarningMessage('Git Colabor: wrong passphrase — git-config identity left as-is, signing untouched.');
+      return;
+    }
+    await sessionCtl.apply(active);
+    vscode.window.showInformationMessage(`Git Colabor: "${active.name}" selected for this window.`);
+    void provider.reload();
+  };
+  context.subscriptions.push(provider.onDidReload.event((s) => { void maybePromptConfigIdentityKey(s ?? undefined); }));
+  void maybePromptConfigIdentityKey();
 
   logger.info('git colabor activated');
 }

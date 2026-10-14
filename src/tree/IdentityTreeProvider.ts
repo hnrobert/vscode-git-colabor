@@ -82,6 +82,26 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         activeIdentity: row ? { ...row, active: true } : pseudo,
       };
     }
+    // git-config picked identity: when neither the window nor the repo has
+    // an identity, surface what `git commit` would actually use (an
+    // out-of-band `git config` switch) as the active row, marked distinctly
+    if (!this.sessionOverride && this.status && !this.status.activeIdentity && this.status.configIdentity && this.status.inRepo) {
+      const c = this.status.configIdentity;
+      const matched = this.status.identities.find((i) => i.email.toLowerCase() === c.email.toLowerCase());
+      if (matched) {
+        const activeRow: StatusIdentityJson = { ...matched, active: true, fromGitConfig: true };
+        this.status = {
+          ...this.status,
+          identities: this.status.identities.map((i) => (i.id === matched.id ? activeRow : { ...i, active: false })),
+          activeIdentity: activeRow,
+        };
+      } else {
+        const pseudo: StatusIdentityJson = {
+          id: '', name: c.name, email: c.email, hasKey: false, isDefault: false, active: true, fromGitConfig: true,
+        };
+        this.status = { ...this.status, identities: [...this.status.identities, pseudo], activeIdentity: pseudo };
+      }
+    }
     // window-scoped signing outranks every config file (env injection), so
     // it replaces the effective state; the file state stays as `below`
     if (this.status) this.status = { ...this.status, signing: overlayWindowSigning(this.status.signing, this.windowSigning) };
@@ -282,14 +302,16 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
       // source label reflects where this identity was found
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
-      const sourceLabel = saved.user
-        ? 'found in vscode memory'
-        : i.scope === 'machine' || (!i.scope && !i.imported)
-          ? 'found in machine memory'
-          : 'found in repo';
+      const sourceLabel = i.fromGitConfig
+        ? 'git config'
+        : saved.user
+          ? 'found in vscode memory'
+          : i.scope === 'machine' || (!i.scope && !i.imported)
+            ? 'found in machine memory'
+            : 'found in repo';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
         description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${i.fromGitConfig ? '\n(set outside Git Colabor via git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },

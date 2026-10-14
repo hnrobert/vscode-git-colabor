@@ -9,6 +9,13 @@ export type AskpassDeps = {
   sessionId: string;
   /** Look up a session-scoped passphrase for an SSH key fingerprint (in-memory). */
   secretLookup: (fingerprint: string) => Promise<string | undefined>;
+  /**
+   * Push-time fallback: called when the session map misses — ask the USER
+   * (input box). May bank the answer into the session store. Returning
+   * undefined closes silently and git's own flow surfaces whatever error
+   * it produces, unchanged.
+   */
+  promptFor?: (fingerprint: string) => Promise<string | undefined>;
   log?: CliLogger;
 };
 
@@ -20,6 +27,19 @@ export type AskpassDeps = {
  */
 export class AskpassServer {
   private readonly token = randomBytes(32).toString('hex');
+  /** one prompt per fingerprint at a time — ssh retries would spam otherwise */
+  private readonly promptInFlight = new Map<string, Promise<string | undefined>>();
+
+  private promptSingleFlight(fingerprint: string): Promise<string | undefined> {
+    if (!this.deps.promptFor) return Promise.resolve(undefined);
+    const existing = this.promptInFlight.get(fingerprint);
+    if (existing) return existing;
+    const p = this.deps.promptFor(fingerprint).finally(() => {
+      this.promptInFlight.delete(fingerprint);
+    });
+    this.promptInFlight.set(fingerprint, p);
+    return p;
+  }
   private server?: Server;
   private socketPath?: string;
 
@@ -63,7 +83,10 @@ export class AskpassServer {
           socket.end(); // forbidden → empty response → helper falls through
           return;
         }
-        const pass = await this.deps.secretLookup(req.fingerprint);
+        const pass = (await this.deps.secretLookup(req.fingerprint))
+          // push-time: ask the user instead of failing — a cancelled prompt
+          // returns nothing and git's default flow / error pass through
+          ?? (await this.promptSingleFlight(req.fingerprint));
         if (!pass) {
           socket.end(); // not found → fall through
           return;

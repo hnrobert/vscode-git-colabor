@@ -66,7 +66,12 @@ export type HeldByJson = {
   source: 'ext' | 'cli';
 };
 
-export type StatusIdentityJson = IdentityJson & { active?: boolean; sshKeyPath?: string };
+export type StatusIdentityJson = IdentityJson & {
+  active?: boolean;
+  sshKeyPath?: string;
+  /** the active row was synthesized from git config (no colabor identity) */
+  fromGitConfig?: boolean;
+};
 
 /** Shape of `git colabor identity status --json` data. */
 export type StatusJson = {
@@ -77,6 +82,8 @@ export type StatusJson = {
   heldBy: HeldByJson | null;
   signing: SigningJson;
   activeIdentity: IdentityJson | null;
+  /** effective git-config identity when colabor manages none (out-of-band switch) */
+  configIdentity?: { name: string; email: string } | null;
   identities: StatusIdentityJson[];
   selected: CoAuthorBriefJson[];
   available: CoAuthorBriefJson[];
