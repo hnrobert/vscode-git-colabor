@@ -12,6 +12,7 @@ import {
   type CommandDeps,
 } from './shared.js';
 import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
+import { identityConfigScopes, clearIdentityConfig } from '../ssh/gitConfig.js';
 import { warnSigningMismatch } from './signing.js';
 
 /**
@@ -452,6 +453,42 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
     ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
     : await pickIdentity(deps, 'Select identity to logout (clear key)');
   if (!identity) return;
+
+  // the git-config layer: when the identity being logged out ALSO lives in
+  // raw git config (the "git config" tree row), ask what to do with it.
+  // repo-only → clear silently; global → confirm; both → pick scope; none →
+  // the plain colabor logout below.
+  const repoRoot = deps.git.selectedRepoRoot();
+  const hits = await identityConfigScopes(identity, repoRoot);
+  if (hits.length > 0) {
+    const scopes = hits.map((h) => h.scope);
+    const hasRepo = scopes.includes('repo');
+    const hasGlobal = scopes.includes('global');
+    let choice: 'repo' | 'global' | 'both' | undefined;
+    if (hasRepo && hasGlobal) {
+      const pick = await vscode.window.showWarningMessage(
+        `"${identity.name}" is set in BOTH the repo's local git config and the global git config. Clear which?`,
+        { modal: true },
+        'Repo only',
+        'Global only',
+        'Both',
+      );
+      choice = pick === 'Repo only' ? 'repo' : pick === 'Global only' ? 'global' : pick === 'Both' ? 'both' : undefined;
+    } else if (hasGlobal) {
+      const ok = await vscode.window.showWarningMessage(
+        `"${identity.name}" is set in the GLOBAL git config (~/.gitconfig). Clear it?`,
+        { modal: true },
+        'Clear global config',
+      );
+      choice = ok === 'Clear global config' ? 'global' : undefined;
+    } else {
+      choice = 'repo'; // repo scope: clear without asking
+    }
+    if (choice === undefined) return; // cancelled — abort the whole logout
+    if (choice === 'repo' || choice === 'both') await clearIdentityConfig('repo', identity, repoRoot);
+    if (choice === 'global' || choice === 'both') await clearIdentityConfig('global', identity, repoRoot);
+  }
+
   // logout every session repo — without an explicit cwd the CLI inherits the
   // extension host's process cwd, which is NOT a repo under Remote-SSH, so
   // the repo state would never be cleared and the tree kept showing the
