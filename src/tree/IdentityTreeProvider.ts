@@ -38,6 +38,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   private historyCandidates: Candidate[] = [];
   /** repo root already auto-imported for (identity import is idempotent, run once per repo) */
   private importedRoot: string | undefined;
+  /** startup gate: hold the FIRST paint until the repo set is known (see reload) */
+  private firstPaintDone = false;
+  private startupTimer: NodeJS.Timeout | undefined;
   /** fired after each reload with the latest status (for status bar / SCM sync) */
   readonly onDidReload = new vscode.EventEmitter<StatusJson | undefined>();
   /** most recent status (for the status bar) */
@@ -54,6 +57,33 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
 
   /** Re-fetch `identity status` + repo committers (in parallel) and paint once. */
   async reload(): Promise<StatusJson | undefined> {
+    // Startup flash guard: the vscode.git API populates `repositories` a
+    // moment after activation, so an immediate first reload resolves no repo
+    // (`inRepo=false`) and paints the UNFILTERED machine-wide identity list —
+    // every key ever seen — for one frame before the repo view replaces it.
+    // Hold the first paint until a repository is known; a grace period (long
+    // while the git API itself is still activating) guarantees repo-less
+    // workspaces still get their "Open a git repository" hint.
+    if (!this.firstPaintDone && !this.git.hasRepositories) {
+      if (this.startupTimer === undefined) {
+        const apiKnown = this.git.api !== undefined;
+        this.startupTimer = setTimeout(
+          () => {
+            this.startupTimer = undefined;
+            this.firstPaintDone = true;
+            void this.reload();
+          },
+          apiKnown ? 2500 : 10_000,
+        );
+      }
+      return undefined;
+    }
+    if (this.startupTimer) {
+      clearTimeout(this.startupTimer);
+      this.startupTimer = undefined;
+    }
+    this.firstPaintDone = true;
+
     const root = this.git.selectedRepoRoot();
     const [statusRes, suggRes] = await Promise.all([
       this.cli.run(['identity', 'status'], { cwd: root }),
