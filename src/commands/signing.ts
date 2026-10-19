@@ -1,6 +1,11 @@
 import * as vscode from 'vscode';
+import { existsSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { rowIdentityId, run, type CommandDeps } from './shared.js';
 import { describeSigning, identitySigningKey, signingMatch } from '../session/signing.js';
+import { globalConfigKeyPaths } from '../ssh/gitConfig.js';
+import { scanPrivateKeys } from '../ssh/scanPrivateKeys.js';
 import type { GpgKeyJson, IdentityJson } from '../types.js';
 
 /**
@@ -50,11 +55,16 @@ export async function stopCommitSigning(deps: CommandDeps): Promise<void> {
 }
 
 /**
- * Sign with an identity's SSH key, or (`gpg`) a GPG key picked now. The
- * choice is bound to the identity — GPG key set, or cleared for SSH — so a
- * later identity switch re-binds signing to the right key.
+ * Turn signing on for an identity. Three explicit choices:
+ *  - `auth`   — the identity's own SSH AUTH key (push key); clears any
+ *              dedicated sign-key binding first so signing really follows it
+ *  - `another`— an SSH key picked now, bound as the identity's dedicated
+ *              sign key (separate from the auth key)
+ *  - `gpg`   — a GPG key picked now, bound as the sign key
+ * The binding is a PREFERENCE in the store — it re-applies on every later
+ * use/session of this identity.
  */
-export async function startCommitSigning(deps: CommandDeps, item: unknown, kind: 'ssh' | 'gpg'): Promise<void> {
+export async function startCommitSigning(deps: CommandDeps, item: unknown, kind: 'auth' | 'another' | 'gpg'): Promise<void> {
   const id = rowIdentityId(item);
   if (!id) {
     deps.log.warn('signing command invoked without an identity payload');
@@ -63,36 +73,111 @@ export async function startCommitSigning(deps: CommandDeps, item: unknown, kind:
   const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
   let identity = data?.identities.find((i) => i.id === id);
   if (!identity) return;
-  if (kind === 'ssh' && (!identity.hasKey || !identity.sshKeyPath)) {
-    vscode.window.showWarningMessage(`Git Colabor: "${identity.name}" has no SSH key to sign with.`);
-    return;
-  }
-  const gpgKey = kind === 'gpg' ? await pickGpgKey(deps, identity) : undefined;
-  if (kind === 'gpg' && !gpgKey) return;
-  if (gpgKey !== identity.gpgKey) {
-    const args = gpgKey ? ['identity', 'set', id, '--gpg-key', gpgKey] : ['identity', 'set', id, '--no-gpg-key'];
-    if ((await run(deps, args, { cwd: deps.git.selectedRepoRoot() })) === undefined) return;
-    identity = { ...identity, gpgKey };
+  const cwd = deps.git.selectedRepoRoot();
+
+  if (kind === 'auth') {
+    if (!identity.hasKey || !identity.sshKeyPath) {
+      vscode.window.showWarningMessage(`Git Colabor: "${identity.name}" has no SSH auth key to sign with.`);
+      return;
+    }
+    if (identity.signKey) {
+      // back to the auth key: drop the dedicated sign-key preference
+      if ((await run(deps, ['identity', 'set', id, '--no-sign-key'], { cwd })) === undefined) return;
+      identity = { ...identity, signKey: null };
+    }
+  } else if (kind === 'another') {
+    const path = await pickSshKey(deps, identity);
+    if (!path) return;
+    if ((await run(deps, ['identity', 'set', id, '--sign-key', path], { cwd })) === undefined) return;
+    const next = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
+    identity = next?.identities.find((i) => i.id === id) ?? { ...identity, signKey: { format: 'ssh', path, fingerprint: '' } };
+  } else {
+    const gpgKey = await pickGpgKey(deps, identity);
+    if (!gpgKey) return;
+    if (gpgKey !== identity.gpgKey) {
+      if ((await run(deps, ['identity', 'set', id, '--gpg-key', gpgKey], { cwd })) === undefined) return;
+      identity = { ...identity, signKey: { format: 'openpgp', key: gpgKey } };
+    }
   }
   await signWithIdentityKey(deps, identity);
 }
 
-/** Turn signing on with the identity's own key at the identity's layer. */
+/**
+ * Pick an SSH key to sign with. Candidates: keys other identities in the
+ * store already reference, private keys in ~/.ssh, and keys referenced by
+ * the GLOBAL git config (`core.sshCommand -i`, path-shaped `user.signingKey`)
+ * — those appear even when this repo's local config shadows them, so the
+ * key you push with globally is one pick away.
+ */
+async function pickSshKey(deps: CommandDeps, identity: IdentityJson): Promise<string | undefined> {
+  const [data, scanned, globalPaths] = await Promise.all([
+    run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']),
+    scanPrivateKeys(join(homedir(), '.ssh')),
+    globalConfigKeyPaths(),
+  ]);
+  type Row = { label: string; description: string; detail: string; path: string; rank: number };
+  const rows = new Map<string, Row>();
+  for (const i of data?.identities ?? []) {
+    for (const [path, owner] of [
+      [i.sshKeyPath, i.id === identity.id ? `${i.name} (auth key)` : i.name],
+      [i.signKey?.format === 'ssh' ? i.signKey.path : undefined, i.id === identity.id ? `${i.name} (sign key)` : i.name],
+    ] as Array<[string | undefined, string]>) {
+      if (!path || !existsSync(path)) continue;
+      if (!rows.has(path)) {
+        rows.set(path, { label: `$(key) ${basename(path)}`, description: dirname(path), detail: `referenced by ${owner}`, path, rank: 0 });
+      }
+    }
+  }
+  for (const k of scanned) {
+    if (!rows.has(k.path)) {
+      rows.set(k.path, { label: `$(key) ${k.name}`, description: dirname(k.path), detail: k.kind, path: k.path, rank: 1 });
+    }
+  }
+  for (const path of globalPaths) {
+    if (!existsSync(path)) continue;
+    if (!rows.has(path)) {
+      rows.set(path, {
+        label: `$(globe) ${basename(path)}`,
+        description: dirname(path),
+        detail: 'from global git config (not active in this repo)',
+        path,
+        rank: 2,
+      });
+    } else {
+      rows.get(path)!.detail += ' · global git config';
+    }
+  }
+  if (rows.size === 0) {
+    vscode.window.showWarningMessage('Git Colabor: no SSH private key found (scan of ~/.ssh, the store, and global git config).');
+    return undefined;
+  }
+  const sorted = [...rows.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
+  const sel = await vscode.window.showQuickPick(sorted, { placeHolder: `SSH key to sign "${identity.name}"'s commits with` });
+  return sel?.path;
+}
+
+/** Turn signing on with the identity's effective key at the identity's layer. */
 async function signWithIdentityKey(deps: CommandDeps, identity: IdentityJson): Promise<void> {
-  if (!identity.gpgKey && !(await ensurePassphrase(deps, identity))) return;
-  const keyKind = identity.gpgKey ? 'GPG' : 'SSH';
+  const signing = identitySigningKey(identity);
+  if (!signing) {
+    vscode.window.showWarningMessage(`Git Colabor: "${identity.name}" has no usable key to sign with.`);
+    return;
+  }
+  if (signing.format === 'ssh' && !(await ensurePassphrase(deps, identity))) return;
+  const keyKind = signing.format === 'openpgp' ? 'GPG' : 'SSH';
+  const whose = identity.signKey && identity.signKey.format === 'ssh' && signing.format === 'ssh'
+    ? `${identity.name}'s sign key`
+    : `"${identity.name}"'s ${keyKind} key`;
   if (repoLayerIdentity(deps) === identity.id) {
     if (!(await inEveryRepo(deps, ['identity', 'sign', identity.id]))) return;
-    vscode.window.showInformationMessage(
-      `Git Colabor: commits sign with "${identity.name}"'s ${keyKind} key (repo config — every window).`,
-    );
+    vscode.window.showInformationMessage(`Git Colabor: commits sign with ${whose} (repo config — every window).`);
   } else {
     // signing implies the window identity (the injection lives on it);
     // re-applying also refreshes its key binding
     await deps.session.apply(identity);
     await deps.session.setSigning(true);
     vscode.window.showInformationMessage(
-      `Git Colabor: commits in THIS WINDOW sign with "${identity.name}"'s ${keyKind} key — repo config untouched.`,
+      `Git Colabor: commits in THIS WINDOW sign with ${whose} — repo config untouched.`,
     );
   }
   await deps.provider?.reload();
@@ -101,10 +186,13 @@ async function signWithIdentityKey(deps: CommandDeps, identity: IdentityJson): P
 /**
  * Encrypted SSH key not in the agent and nothing banked → collect the
  * passphrase now; commit-time signing reads it through the askpass bridge.
+ * Uses the SIGN key's facts when one is bound, else the auth key's.
  */
 async function ensurePassphrase(deps: CommandDeps, identity: IdentityJson): Promise<boolean> {
-  const fp = identity.sshKeyFingerprint;
-  if (!identity.keyEncrypted || !fp || identity.inAgent || deps.sessionPassphrases.has(fp)) return true;
+  const signKey = identity.signKey?.format === 'ssh' ? identity.signKey : undefined;
+  const fp = signKey?.fingerprint || identity.sshKeyFingerprint;
+  const encrypted = signKey ? !!signKey.encrypted : !!identity.keyEncrypted;
+  if (!encrypted || !fp || identity.inAgent || deps.sessionPassphrases.has(fp)) return true;
   const pass = await vscode.window.showInputBox({
     prompt: `Passphrase for key ${fp}`,
     password: true,

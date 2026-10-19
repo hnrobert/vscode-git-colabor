@@ -44,6 +44,7 @@
     "settimeout",
     "shortlog",
     "signkey",
+    "signonly",
     "stty",
     "stylelintcache",
     "sugg",

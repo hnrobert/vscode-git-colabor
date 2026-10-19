@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
-import type { SigningJson } from '../types.js';
+import type { SignKeyJson, SigningJson } from '../types.js';
 
 /** A concrete key to sign commits with. */
 export type SigningKey = { format: 'openpgp' | 'ssh'; key: string };
@@ -13,19 +13,27 @@ export type WindowSigning = SigningKey | 'off' | undefined;
 
 export type SigningMatch = 'match' | 'mismatch' | 'unknown';
 
-type KeyOwner = { id: string; email: string; sshKeyPath?: string; gpgKey?: string };
+type KeyOwner = { id: string; email: string; sshKeyPath?: string; gpgKey?: string; signKey?: SignKeyJson | null };
 
 const FORMAT_LABEL: Record<string, string> = { openpgp: 'GPG', ssh: 'SSH', x509: 'X.509' };
 
 /**
- * What an identity signs with: its bound GPG key wins, else its SSH key —
- * mirrors the CLI's re-bind rule. Agent-held SSH keys sign via the `.pub`
- * half (`ssh-keygen -Y sign` consults the agent only for a public key path).
+ * What an identity signs with: its dedicated sign key wins (GPG or SSH from
+ * the bindings table), else its GPG key, else its SSH auth key — mirrors the
+ * CLI's signingConfigFor. Agent-held SSH keys sign via the `.pub` half
+ * (`ssh-keygen -Y sign` consults the agent only for a public key path).
  */
 export function identitySigningKey(
-  i: { hasKey?: boolean; sshKeyPath?: string; inAgent?: boolean; gpgKey?: string },
+  i: { hasKey?: boolean; sshKeyPath?: string; sshKeyFingerprint?: string; inAgent?: boolean; gpgKey?: string; signKey?: SignKeyJson | null },
   exists: (path: string) => boolean = existsSync,
 ): SigningKey | undefined {
+  const sk = i.signKey;
+  if (sk?.format === 'openpgp' && sk.key) return { format: 'openpgp', key: sk.key };
+  if (sk?.format === 'ssh' && sk.path) {
+    const pub = `${sk.path}.pub`;
+    const agentHoldsIt = i.inAgent && (!sk.fingerprint || !i.sshKeyFingerprint || sk.fingerprint === i.sshKeyFingerprint);
+    return { format: 'ssh', key: agentHoldsIt && exists(pub) ? pub : sk.path };
+  }
   if (i.gpgKey) return { format: 'openpgp', key: i.gpgKey };
   if (!i.hasKey || !i.sshKeyPath) return undefined;
   const pub = `${i.sshKeyPath}.pub`;
@@ -65,7 +73,10 @@ export function sameKey(a: string | null | undefined, b: string | null | undefin
  */
 export function signingMatch(s: SigningJson, active: KeyOwner | undefined, identities: KeyOwner[]): SigningMatch {
   if (!s.enabled || !s.key || !active) return 'unknown';
-  const owns = (i: KeyOwner) => sameKey(s.key, s.format === 'ssh' ? i.sshKeyPath : i.gpgKey);
+  const owns = (i: KeyOwner) =>
+    s.format === 'ssh'
+      ? sameKey(s.key, i.sshKeyPath) || (!!i.signKey && i.signKey.format === 'ssh' && sameKey(s.key, i.signKey.path))
+      : sameKey(s.key, i.gpgKey) || (!!i.signKey && i.signKey.format === 'openpgp' && sameKey(s.key, i.signKey.key));
   if (owns(active)) return 'match';
   if (s.format === 'openpgp' && s.keyEmails?.length) {
     return s.keyEmails.includes(active.email.toLowerCase()) ? 'match' : 'mismatch';

@@ -216,13 +216,15 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       payload: active ? { id: active.id, name: active.name, email: active.email } : undefined,
     });
     // -on = signing (Stop), -i = an identity is active (Sign with GPG Key…),
-    // -k = it has an SSH key, -ss = already signing with that SSH key
+    // -k = it has an SSH key, -ss/-sk = already signing with its auth/bound key
+    const activeSignKey = active?.signKey;
     item.contextValue =
       'signing' +
       (sg.enabled ? '-on' : '') +
       (active ? '-i' : '') +
       (active?.hasKey ? '-k' : '') +
-      (sg.enabled && sg.format === 'ssh' && sameKey(sg.key, active?.sshKeyPath) ? '-ss' : '');
+      (sg.enabled && sg.format === 'ssh' && sameKey(sg.key, active?.sshKeyPath) ? '-ss' : '') +
+      (sg.enabled && sg.format === 'ssh' && activeSignKey?.format === 'ssh' && sameKey(sg.key, activeSignKey.path) ? '-sk' : '');
     return item;
   }
 
@@ -297,11 +299,12 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // the effective signing key is this identity's own SSH / GPG key
       // (sameKey ignores the .pub sibling used for agent-based signing).
       // signKey comes from the keyBindings table via the CLI's ls/status JSON.
-      const sk = (i as { signKey?: { format: string; key?: string; path?: string; fingerprint?: string } | null }).signKey;
-      const signsSsh = s.signing.enabled && s.signing.format === 'ssh'
-        && (sameKey(s.signing.key, i.sshKeyPath) || (!!sk?.path && sameKey(s.signing.key, sk.path)));
+      const sk = i.signKey;
+      const signsAuthKey = s.signing.enabled && s.signing.format === 'ssh' && sameKey(s.signing.key, i.sshKeyPath);
+      const signsBoundKey = s.signing.enabled && s.signing.format === 'ssh' && sk?.format === 'ssh' && sameKey(s.signing.key, sk.path);
+      const signsSsh = signsAuthKey || signsBoundKey;
       const signsGpg = s.signing.enabled && s.signing.format === 'openpgp'
-        && (sameKey(s.signing.key, (i as { gpgKey?: string }).gpgKey) || (!!sk && sk.format === 'openpgp' && sameKey(s.signing.key, sk.key)));
+        && (sameKey(s.signing.key, (i as { gpgKey?: string }).gpgKey) || (sk?.format === 'openpgp' && sameKey(s.signing.key, sk.key)));
       const signingWithThisKey = signsSsh || signsGpg;
       const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
       // source label reflects where this identity was found
@@ -325,7 +328,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // surfaces the highest-priority effective layer, so user/workspace
       // merge into one "vscode memory" label), -rm = machine scope,
       // -g = imported from repo history, -k = usable key, -a = key loaded in
-      // ssh-agent, -ss / -sg = commits sign with THIS identity's SSH / GPG key
+      // ssh-agent, -ss = commits sign with this identity's AUTH key, -sk =
+      // with its BOUND sign key (keyBindings), -sg = with its GPG key
       const rememberedInVSCode = saved.user;
       const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
@@ -335,7 +339,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +
         (i.inAgent ? '-a' : '') +
-        (signsSsh ? '-ss' : '') +
+        (signsAuthKey ? '-ss' : '') +
+        (signsBoundKey ? '-sk' : '') +
         (signsGpg ? '-sg' : '');
       if (!i.active) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };

@@ -25,8 +25,15 @@ export type IdentityJson = {
   remoteKeys?: Record<string, string>;
   /** bound OpenPGP signing key (fingerprint); wins over the SSH key for signing */
   gpgKey?: string;
+  /** dedicated signing key from the bindings table (wins over the push key) */
+  signKey?: SignKeyJson | null;
   isDefault: boolean;
 };
+
+/** The identity's dedicated sign-key preference (keyBindings table, machine scope). */
+export type SignKeyJson =
+  | { format: 'ssh'; path: string; fingerprint: string; encrypted?: boolean }
+  | { format: 'openpgp'; key: string };
 
 /** One `identity gpg-keys` row: a secret key usable for commit signing. */
 export type GpgKeyJson = { fingerprint: string; keyId: string; uids: string[]; emails: string[] };

@@ -51,15 +51,41 @@ export async function identityConfigScopes(
   return hits;
 }
 
-/** Clear user.name/user.email in the given scope (only when they match). */
+/** Clear the identity's git-config keys in the given scope (content-matched). */
 export async function clearIdentityConfig(
   scope: 'repo' | 'global',
-  identity: { name: string; email: string },
+  identity: { name: string; email: string; sshKeyPath?: string; signKeyPath?: string },
   repoRoot: string | undefined,
 ): Promise<void> {
   const s = scope === 'repo' ? '--local' : '--global';
-  const [n, e] = await Promise.all([scoped(s, 'user.name', repoRoot), scoped(s, 'user.email', repoRoot)]);
   const cwd = scope === 'repo' ? repoRoot : undefined;
+  const [n, e, ssh, signKey] = await Promise.all([
+    scoped(s, 'user.name', repoRoot),
+    scoped(s, 'user.email', repoRoot),
+    scoped(s, 'core.sshCommand', repoRoot),
+    scoped(s, 'user.signingKey', repoRoot),
+  ]);
   if (eq(n, identity.name)) await capture(['config', s, '--unset', 'user.name'], cwd);
   if (eq(e, identity.email)) await capture(['config', s, '--unset', 'user.email'], cwd);
+  // keys the identity left in this scope ride along with the logout
+  const keyPaths = [identity.sshKeyPath, identity.signKeyPath].filter(Boolean).map((p) => p!.replace(/\.pub$/, ''));
+  const usesKey = (v: string | undefined) => !!v && keyPaths.some((p) => v.includes(p));
+  if (usesKey(ssh)) await capture(['config', s, '--unset', 'core.sshCommand'], cwd);
+  if (usesKey(signKey)) {
+    await capture(['config', s, '--unset', 'user.signingKey'], cwd);
+    await capture(['config', s, '--unset', 'gpg.format'], cwd);
+    await capture(['config', s, '--unset', 'gpg.ssh.program'], cwd);
+    await capture(['config', s, '--unset', 'commit.gpgsign'], cwd);
+  }
+}
+
+/** Key paths referenced by the GLOBAL git config: `core.sshCommand -i <path>` and a path-shaped `user.signingKey`. */
+export async function globalConfigKeyPaths(): Promise<string[]> {
+  const [sshCommand, signingKey] = await Promise.all([scoped('--global', 'core.sshCommand'), scoped('--global', 'user.signingKey')]);
+  const paths: string[] = [];
+  const m = sshCommand?.match(/(?:^|\s)-i\s+(\S+)/);
+  if (m) paths.push(m[1]);
+  // a signing key that looks like a file path is an SSH key; fingerprints contain no '/'
+  if (signingKey && signingKey.includes('/')) paths.push(signingKey.replace(/\.pub$/, ''));
+  return paths;
 }

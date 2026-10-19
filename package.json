@@ -192,8 +192,13 @@
       },
       {
         "command": "gitColabor._signCommitsWithKey",
-        "title": "Sign Commits with SSH Key",
+        "title": "Sign Commits with This Identity's Auth Key",
         "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._signCommitsWithAnotherKey",
+        "title": "Sign Commits with Another SSH Key…",
+        "icon": "$(key)"
       },
       {
         "command": "gitColabor._signCommitsWithGpgKey",
@@ -323,18 +328,24 @@
         },
         {
           "command": "gitColabor._signCommitsWithKey",
-          "when": "viewItem =~ /^(identity|active-identity|signing)(?=.*-k)(?!.*-ss)/",
-          "group": "3_key@4"
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity|signing)(?=.*-k)(?!.*-ss)/",
+          "group": "3_key@4",
+          "title": null
+        },
+        {
+          "command": "gitColabor._signCommitsWithAnotherKey",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity|signing)(?!.*-sk)(?!.*-sg)/",
+          "group": "3_key@5"
         },
         {
           "command": "gitColabor._signCommitsWithGpgKey",
           "when": "viewItem =~ /^(identity|active-identity)|^signing.*-i/",
-          "group": "3_key@5"
+          "group": "3_key@6"
         },
         {
           "command": "gitColabor._stopSigningCommits",
-          "when": "viewItem =~ /^signing-on|-s[sg]/",
-          "group": "3_key@6"
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^signing-on|-s[sgk]/",
+          "group": "3_key@7"
         },
         {
           "command": "gitColabor._useIdentityEverywhere",
@@ -416,6 +427,10 @@
         },
         {
           "command": "gitColabor._forgetFromUser",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._signCommitsWithAnotherKey",
           "when": "false"
         }
       ]

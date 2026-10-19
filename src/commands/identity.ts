@@ -88,7 +88,7 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
       }
     }
   }
-  await deps.session.apply(degraded ? { ...identity, hasKey: false, sshKeyPath: undefined } : identity);
+  await deps.session.apply(degraded ? { ...identity, hasKey: false, sshKeyPath: undefined, signKey: undefined } : identity);
   vscode.window.showInformationMessage(
     degraded
       ? `Git Colabor: "${identity.name}" applied WITHOUT its key (passphrase not entered — click the row to retry).`
@@ -508,8 +508,12 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
       choice = 'repo'; // repo scope: clear without asking
     }
     if (choice === undefined) return; // cancelled — abort the whole logout
-    if (choice === 'repo' || choice === 'both') await clearIdentityConfig('repo', identity, repoRoot);
-    if (choice === 'global' || choice === 'both') await clearIdentityConfig('global', identity, repoRoot);
+    const withKeys = {
+      ...identity,
+      signKeyPath: identity.signKey?.format === 'ssh' ? identity.signKey.path : undefined,
+    };
+    if (choice === 'repo' || choice === 'both') await clearIdentityConfig('repo', withKeys, repoRoot);
+    if (choice === 'global' || choice === 'both') await clearIdentityConfig('global', withKeys, repoRoot);
   }
 
   // logout every session repo — without an explicit cwd the CLI inherits the
