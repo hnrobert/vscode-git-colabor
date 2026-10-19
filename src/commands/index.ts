@@ -14,7 +14,7 @@ import {
   useIdentityEverywhere,
 } from './identity.js';
 import { showHiddenIdentities, soloCoAuthors, toggleCoAuthor } from './coauthor.js';
-import { doctor, revertRepo, showAudit } from './misc.js';
+import { doctor, showAudit } from './misc.js';
 import { startCommitSigning, stopCommitSigning } from './signing.js';
 
 export type { CommandDeps } from './shared.js';
@@ -42,7 +42,6 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor.logoutIdentity', (item) => logoutIdentity(deps, item).then(refresh));
   reg('gitColabor.soloCoAuthors', () => soloCoAuthors(deps).then(refresh));
   reg('gitColabor.showHiddenIdentities', () => showHiddenIdentities(deps).then(refresh));
-  reg('gitColabor.revertRepo', () => revertRepo(deps).then(refresh));
   reg('gitColabor.showAudit', () => showAudit(deps));
   reg('gitColabor.reload', async () => {
     // re-run the history import too — new out-of-band committers

@@ -47,6 +47,11 @@ export function conflictWarningStaleMinutes(): number | undefined {
 export function githubFetch(): boolean {
   return getBool('githubFetch', true);
 }
+/** What happens when a passphrase prompt is cancelled at use/session time: "cancel" (default, abort the whole application) | "degrade" (identity applies, key does not). */
+export function keyPromptCancel(): 'cancel' | 'degrade' {
+  const v = vscode.workspace.getConfiguration('gitColabor').get<string>('keyPromptCancel');
+  return v === 'degrade' ? 'degrade' : 'cancel';
+}
 export function postCommitSolo(): boolean {
   return getBool('postCommitSolo', false);
 }

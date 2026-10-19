@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { conflictWarningStaleMinutes, githubFetch, setCoAuthorMemory } from '../config.js';
+import { conflictWarningStaleMinutes, githubFetch, keyPromptCancel, setCoAuthorMemory } from '../config.js';
 import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from '../github/users.js';
 import type { IdentityJson, JsonResult } from '../types.js';
 import {
@@ -42,9 +42,11 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
     return;
   }
   // encrypted key not in the agent and nothing banked → collect the
-  // passphrase for the session store (same condition as the repo-wide flow;
-  // verified via `identity agent --verify`). A cancelled prompt simply
-  // aborts the switch — nothing was written, so nothing to disable.
+  // passphrase FIRST (prompt-before-inject). Cancel follows the
+  // gitColabor.keyPromptCancel setting: "cancel" (default) aborts the whole
+  // application; "degrade" applies the identity WITHOUT the push/sign key
+  // (the tree row shows an alert icon; clicking it retries).
+  let degraded = false;
   if (
     identity.hasKey &&
     identity.keyEncrypted &&
@@ -55,21 +57,42 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
     const pass = await vscode.window.showInputBox({
       prompt: `Passphrase for key ${identity.sshKeyFingerprint}`,
       password: true,
-      placeHolder: 'session only',
+      placeHolder: keyPromptCancel() === 'degrade' ? 'esc to apply WITHOUT the key' : 'session only',
     });
-    if (pass === undefined) return;
-    deps.sessionPassphrases.set(identity.sshKeyFingerprint, pass);
-    const v = await deps.cli.run(['identity', 'agent', id, '--verify']);
-    const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
-    if (!verified) {
-      deps.sessionPassphrases.delete(identity.sshKeyFingerprint);
-      vscode.window.showWarningMessage('Git Colabor: wrong passphrase — identity not applied.');
-      return;
+    if (pass === undefined || pass === '') {
+      if (keyPromptCancel() === 'cancel') return; // abort — nothing applied
+      degraded = true; // degrade — identity applies, key does not
+    } else {
+      deps.sessionPassphrases.set(identity.sshKeyFingerprint, pass);
+      const v = await deps.cli.run(['identity', 'agent', id, '--verify']);
+      const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
+      if (!verified) {
+        deps.sessionPassphrases.delete(identity.sshKeyFingerprint);
+        // wrong passphrase re-prompts once; a second failure follows the setting
+        const retry = await vscode.window.showInputBox({
+          prompt: `Wrong passphrase — retry for key ${identity.sshKeyFingerprint}`,
+          password: true,
+        });
+        if (retry === undefined || retry === '') {
+          if (keyPromptCancel() === 'cancel') return;
+          degraded = true;
+        } else {
+          deps.sessionPassphrases.set(identity.sshKeyFingerprint, retry);
+          const v2 = await deps.cli.run(['identity', 'agent', id, '--verify']);
+          if (!(v2.ok ? (v2.data as { verified?: boolean }).verified === true : false)) {
+            deps.sessionPassphrases.delete(identity.sshKeyFingerprint);
+            if (keyPromptCancel() === 'cancel') return;
+            degraded = true;
+          }
+        }
+      }
     }
   }
-  await deps.session.apply(identity);
+  await deps.session.apply(degraded ? { ...identity, hasKey: false, sshKeyPath: undefined } : identity);
   vscode.window.showInformationMessage(
-    `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use for All Windows" to write repo config.`,
+    degraded
+      ? `Git Colabor: "${identity.name}" applied WITHOUT its key (passphrase not entered — click the row to retry).`
+      : `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use for All Windows" to write repo config.`,
   );
   // e.g. a personal GPG key from ~/.gitconfig would now sign this identity's commits
   warnSigningMismatch(deps).catch((e) => deps.log.warn(`signing check: ${e instanceof Error ? e.message : String(e)}`));

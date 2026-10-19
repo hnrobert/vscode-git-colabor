@@ -98,6 +98,19 @@
           "default": [],
           "scope": "window",
           "markdownDescription": "Remembered identities as `\"Name <email>\"` entries (used as co-author candidates). Two layers only: user (cross-machine) and workspace (per repo) — the machine level is the identity store itself (~/.config/git-colabor/identities.json). Saved from the Identities group's right-click menu."
+        },
+        "gitColabor.keyPromptCancel": {
+          "type": "string",
+          "default": "cancel",
+          "enum": [
+            "cancel",
+            "degrade"
+          ],
+          "enumDescriptions": [
+            "Abort the whole identity application when a key passphrase prompt is cancelled.",
+            "Apply the identity WITHOUT the push/sign key (alert icon; click the row to retry)."
+          ],
+          "description": "Behavior when cancelling a key passphrase prompt at use/session time."
         }
       }
     },
@@ -134,11 +147,6 @@
       {
         "command": "gitColabor.soloCoAuthors",
         "title": "Solo (clear co-authors)",
-        "category": "Git Colabor"
-      },
-      {
-        "command": "gitColabor.revertRepo",
-        "title": "Revert Repo Identity",
         "category": "Git Colabor"
       },
       {

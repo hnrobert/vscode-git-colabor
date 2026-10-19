@@ -70,7 +70,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 1. **Add identities** — Command Palette → `Git Colabor: Add Identity…` (name, email, optional private key — picked from a scan of `~/.ssh` or typed).
 2. **Use one** — SCM view → *Git Colabor: Identity & Co-authors* → click an identity (or the status-bar item). The repo's `user.*` / `core.sshCommand` switch; an encrypted key prompts for its passphrase once per session (verify-only, no agent write). To cache the key in ssh-agent, right-click the identity → **Load Key into ssh-agent**.
 3. **Pair** — the *Co-authors* list shows `+` next to everyone not yet in the commit message; click to append their `Co-authored-by:` trailer (the `+` flips to `-`; click again to remove). The markers follow what you type in the message box.
-4. **Leave clean** — `Git Colabor: Revert Repo Identity` restores the pre-tool config; `Logout Identity` unloads the key from `ssh-agent` (your key files are never touched).
+4. **Leave clean** — `Logout Identity` clears the repo's git-config layer (with a scope confirmation) and unloads the key from `ssh-agent` (your key files are never touched).
 
 ## Commands
 
@@ -79,7 +79,6 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | `Use Identity…` | Pick an identity to apply to the current repo |
 | `Add Identity…` / `Remove Identity…` / `Logout Identity` | Manage identities (key files are referenced, never deleted); right-click rows to change name/email/key, load or remove the key in ssh-agent, toggle signing, save to memory, or hide imported ones |
 | `Select Co-authors…` / `Add Co-author…` / `Solo (clear co-authors)` | Co-author selection (the tree's +/- rows toggle the commit message directly) |
-| `Revert Repo Identity` | Restore pre-tool git config from backup |
 | `Show Audit Log` | Last 100 audit entries as JSONL |
 | `Doctor` | Self-check (binaries, map, agent, repo markers) |
 | `Reload` | Refresh the view (also automatic on terminal-CLI changes) |
@@ -110,7 +109,7 @@ Threat model, protocol details, and explicit non-guarantees: [docs/SECURITY.md](
 
 **Remote-SSH / Codespaces / dev containers?** Yes — all git/SSH logic runs in the CLI workspace-side; the extension just drives it.
 
-**What if I stop using it?** `Revert Repo Identity` (or `git colabor identity revert`) restores the exact prior config and removes every `colabor.*` marker. Nothing global is left behind except an optional `commit.template` it set only if you had none.
+**What if I stop using it?** `Logout Identity` clears the repo-local `user.*` / `core.sshCommand` / signing keys (content-matched, with a scope confirmation when global config is involved). Nothing global is left behind except an optional `commit.template` it set only if you had none.
 
 **Windows?** Supported (config under `%APPDATA%\git-colabor`, `icacls` key permissions). The askpass socket requires the UNIX-socket support in your Node/Windows build.
 

@@ -166,11 +166,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     stateWatchers = [];
     watchedKey = key;
     for (const root of roots) {
-      const stateFile = join(root, '.git', 'colabor', 'state.json');
+      // the repo's git CONFIG is now the single state carrier (standard keys
+      // only — no state.json, no markers), so drift-watching .git/config
+      // catches out-of-band CLI runs and manual `git config` switches
+      const configFile = join(root, '.git', 'config');
       let t: NodeJS.Timeout | undefined;
       try {
         stateWatchers.push(
-          watch(stateFile)
+          watch(configFile)
             .on('change', () => {
               if (t) clearTimeout(t);
               t = setTimeout(() => {
@@ -180,7 +183,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             .on('error', () => {}),
         );
       } catch {
-        // state file may not exist yet in this repo
+        // config may not exist yet in this repo
       }
       if (postCommitSolo()) addCommitWatch(root);
     }

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { requireRepo, run, type CommandDeps } from './shared.js';
+import { run, type CommandDeps } from './shared.js';
 import type { DiagnosticJson } from '../types.js';
 
 export async function doctor(deps: CommandDeps): Promise<void> {
@@ -14,18 +14,6 @@ export async function doctor(deps: CommandDeps): Promise<void> {
     'Show Output',
   );
   if (choice === 'Show Output') deps.log.show();
-}
-
-export async function revertRepo(deps: CommandDeps): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
-  const confirm = await vscode.window.showWarningMessage(
-    'Revert this repo to its pre-tool identity state?',
-    { modal: true },
-    'Revert',
-  );
-  if (confirm !== 'Revert') return;
-  await run(deps, ['identity', 'revert'], { cwd });
 }
 
 export async function showAudit(deps: CommandDeps): Promise<void> {
