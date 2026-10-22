@@ -336,7 +336,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       const signsGpg = s.signing.enabled && s.signing.format === 'openpgp'
         && (sameKey(s.signing.key, (i as { gpgKey?: string }).gpgKey) || (sk?.format === 'openpgp' && sameKey(s.signing.key, sk.key)));
       const signingWithThisKey = signsSsh || signsGpg;
-      const icon = i.active ? (signingWithThisKey ? 'verified' : 'check') : 'account';
+      // the active row is always a plain CHECK — green when commits sign with
+      // this identity's key; the filled "verified" badge lives on the Signing
+      // row only (one place, not two)
+      const icon = i.active ? 'check' : 'account';
       // source label reflects where this identity was found
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
       const sourceLabel = i.fromGitConfig
@@ -350,7 +353,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${i.fromGitConfig ? '\n(set outside Git Colabor via git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
-        iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
+        iconColor: (i.active ? signingWithThisKey : i.hasKey)
+          ? 'gitDecoration.addedResourceForeground'
+          : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -rv = remembered in
