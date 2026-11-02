@@ -112,26 +112,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         activeIdentity: row ? { ...row, active: true } : pseudo,
       };
     }
-    // git-config picked identity: when neither the window nor the repo has
-    // an identity, surface what `git commit` would actually use (an
-    // out-of-band `git config` switch) as the active row, marked distinctly
-    if (!this.sessionOverride && this.status && !this.status.activeIdentity && this.status.configIdentity && this.status.inRepo) {
-      const c = this.status.configIdentity;
-      const matched = this.status.identities.find((i) => i.email.toLowerCase() === c.email.toLowerCase());
-      if (matched) {
-        const activeRow: StatusIdentityJson = { ...matched, active: true, fromGitConfig: true };
-        this.status = {
-          ...this.status,
-          identities: this.status.identities.map((i) => (i.id === matched.id ? activeRow : { ...i, active: false })),
-          activeIdentity: activeRow,
-        };
-      } else {
-        const pseudo: StatusIdentityJson = {
-          id: '', name: c.name, email: c.email, hasKey: false, isDefault: false, active: true, fromGitConfig: true,
-        };
-        this.status = { ...this.status, identities: [...this.status.identities, pseudo], activeIdentity: pseudo };
-      }
-    }
+    // (config-derived identities need no overlay: the CLI resolves the active
+    // identity FROM git config and reports per-scope ones in configIdentities,
+    // which identityItems/filterByPriority render as labeled tier rows)
     // window-scoped signing outranks every config file (env injection), so
     // it replaces the effective state; the file state stays as `below`
     if (this.status) this.status = { ...this.status, signing: overlayWindowSigning(this.status.signing, this.windowSigning) };
@@ -259,17 +242,18 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   }
 
   /**
-   * Priority dedup: machine > project (the store's two real levels). A
-   * lower-priority identity is suppressed when a higher-priority one matches
-   * on name + key + remote (email when no key/remote). The active identity
-   * always shows. Project-scope identities only show when their email
-   * appears in the current repo's committer history (historyCandidates,
-   * re-scanned on every reload). To make one visible everywhere, right-click
-   * → "Remember on VS Code User Settings" — a settings-layer memory flag,
-   * not a store scope (travels with Settings Sync).
+   * Display priority (what git actually says outranks where the person is
+   * remembered): the CURRENT identity (session / highest config in effect) >
+   * repo-config identity > global-config identity > "found in vscode memory"
+   * > machine store > repo history. Same-email rows collapse into the
+   * highest tier (email = the person). Project-scope rows show only when
+   * their email is in this repo's committer history — except config-derived
+   * rows, which the config file itself vouches for.
    */
   private filterByPriority(identities: StatusIdentityJson[]): StatusIdentityJson[] {
-    const rank = (s?: string) => (s === 'machine' ? 0 : 1);
+    const cfg = this.status?.configIdentities;
+    const repoCfgId = cfg?.repo?.id;
+    const globalCfgId = cfg?.global?.id;
     const repoEmails = new Set(this.historyCandidates.map((c) => c.email.toLowerCase()));
     const inRepo = !!this.status?.inRepo;
     // VS Code settings memory is cross-repo by definition: an identity
@@ -280,7 +264,14 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         .filter(([, m]) => m.user)
         .map(([email]) => email),
     );
-    const sorted = [...identities].sort((a, b) => rank(a.scope) - rank(b.scope));
+    const tier = (id: StatusIdentityJson): number => {
+      if (id.active) return 0;
+      if (repoCfgId && id.id === repoCfgId) return 1;
+      if (globalCfgId && id.id === globalCfgId) return 2;
+      if (remembered.has(id.email.toLowerCase())) return 3;
+      return (id.scope ?? (id.imported ? 'project' : 'machine')) === 'machine' ? 4 : 5;
+    };
+    const sorted = [...identities].sort((a, b) => tier(a) - tier(b));
     const seen = new Set<string>();
     const out: StatusIdentityJson[] = [];
     for (const id of sorted) {
@@ -296,20 +287,18 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         continue;
       }
       // project-scope: strictly filtered to the current repo's committers —
-      // EXCEPT vscode-memory identities, which are cross-repo (see above)
+      // EXCEPT vscode-memory identities and config-derived rows (tier ≤ 2),
+      // which git config itself vouches for
       const isProject = (id.scope ?? (id.imported ? 'project' : 'machine')) === 'project';
       const email = id.email.toLowerCase();
-      if (isProject && inRepo && !repoEmails.has(email) && !remembered.has(email)) continue;
+      if (isProject && tier(id) > 2 && inRepo && !repoEmails.has(email) && !remembered.has(email)) continue;
       const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : emailKey;
       if (seen.has(key) || seen.has(emailKey)) continue;
       seen.add(key);
       seen.add(emailKey);
       out.push(id);
     }
-    return out.sort((a, b) => {
-      if (a.active !== b.active) return a.active ? -1 : 1;
-      return rank(a.scope) - rank(b.scope);
-    });
+    return out.sort((a, b) => tier(a) - tier(b));
   }
 
   /**
@@ -340,18 +329,25 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // this identity's key; the filled "verified" badge lives on the Signing
       // row only (one place, not two)
       const icon = i.active ? 'check' : 'account';
-      // source label reflects where this identity was found
+      // source label reflects where this identity was found — git config
+      // scopes outrank every memory: the config file itself vouches for the
+      // person, and the row's Unset actions target exactly that file
+      const cfg = s.configIdentities;
+      const isRepoCfg = !!cfg?.repo?.id && i.id === cfg.repo.id;
+      const isGlobalCfg = !!cfg?.global?.id && i.id === cfg.global.id;
       const saved = memoryMap.get(i.email.toLowerCase()) ?? { user: false, workspace: false };
-      const sourceLabel = i.fromGitConfig
-        ? 'git config'
-        : saved.user
-          ? 'found in vscode memory'
-          : i.scope === 'machine' || (!i.scope && !i.imported)
-            ? 'found in machine memory'
-            : 'found in repo';
+      const sourceLabel = isRepoCfg
+        ? 'found in repo config'
+        : isGlobalCfg
+          ? 'found in git global config'
+          : saved.user
+            ? 'found in vscode memory'
+            : i.scope === 'machine' || (!i.scope && !i.imported)
+              ? 'found in machine memory'
+              : 'found in repo history';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
         description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${i.fromGitConfig ? '\n(set outside Git Colabor via git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
         iconColor: (i.active ? signingWithThisKey : i.hasKey)
           ? 'gitDecoration.addedResourceForeground'
@@ -363,8 +359,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // surfaces the highest-priority effective layer, so user/workspace
       // merge into one "vscode memory" label), -rm = machine scope,
       // -g = imported from repo history, -k = usable key, -a = key loaded in
-      // ssh-agent, -ss = commits sign with this identity's AUTH key, -sk =
-      // with its BOUND sign key (keyBindings), -sg = with its GPG key
+      // ssh-agent, -cr/-cg = named by the repo-local / global git config
+      // (drives the Unset-in-config menu items), -ss = commits sign with
+      // this identity's AUTH key, -sk = with its BOUND sign key
+      // (keyBindings), -sg = with its GPG key
       const rememberedInVSCode = saved.user;
       const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
       item.contextValue =
@@ -374,6 +372,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +
         (i.inAgent ? '-a' : '') +
+        (isRepoCfg ? '-cr' : '') +
+        (isGlobalCfg ? '-cg' : '') +
         (signsAuthKey ? '-ss' : '') +
         (signsBoundKey ? '-sk' : '') +
         (signsGpg ? '-sg' : '');

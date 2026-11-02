@@ -54,7 +54,7 @@ export async function identityConfigScopes(
 /** Clear the identity's git-config keys in the given scope (content-matched). */
 export async function clearIdentityConfig(
   scope: 'repo' | 'global',
-  identity: { name: string; email: string; sshKeyPath?: string; signKeyPath?: string },
+  identity: { name: string; email: string; sshKeyPath?: string; signKeyPath?: string; signGpgKey?: string },
   repoRoot: string | undefined,
 ): Promise<void> {
   const s = scope === 'repo' ? '--local' : '--global';
@@ -65,11 +65,25 @@ export async function clearIdentityConfig(
     scoped(s, 'core.sshCommand', repoRoot),
     scoped(s, 'user.signingKey', repoRoot),
   ]);
-  if (eq(n, identity.name)) await capture(['config', s, '--unset', 'user.name'], cwd);
-  if (eq(e, identity.email)) await capture(['config', s, '--unset', 'user.email'], cwd);
+  // EMAIL is the person key: when the scope's email is this person's, BOTH
+  // fields come out together (a display-name difference between config and
+  // the store row must not leave a half-identity behind)
+  const emailIsThis = eq(e, identity.email);
+  if (emailIsThis || eq(n, identity.name)) await capture(['config', s, '--unset', 'user.name'], cwd);
+  if (emailIsThis) await capture(['config', s, '--unset', 'user.email'], cwd);
   // keys the identity left in this scope ride along with the logout
   const keyPaths = [identity.sshKeyPath, identity.signKeyPath].filter(Boolean).map((p) => p!.replace(/\.pub$/, ''));
-  const usesKey = (v: string | undefined) => !!v && keyPaths.some((p) => v.includes(p));
+  const usesKey = (v: string | undefined) => {
+    if (!v) return false;
+    if (keyPaths.some((p) => v.includes(p))) return true;
+    // OpenPGP: a key id matches the tail of the bound fingerprint
+    if (identity.signGpgKey && /^(0x)?[0-9a-f]{8,}!?$/i.test(v)) {
+      const a = v.replace(/^0x/i, '').replace(/!$/, '').toUpperCase();
+      const b = identity.signGpgKey.replace(/^0x/i, '').replace(/!$/, '').toUpperCase();
+      if (a.endsWith(b) || b.endsWith(a)) return true;
+    }
+    return false;
+  };
   if (usesKey(ssh)) await capture(['config', s, '--unset', 'core.sshCommand'], cwd);
   if (usesKey(signKey)) {
     await capture(['config', s, '--unset', 'user.signingKey'], cwd);

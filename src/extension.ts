@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, watch, statSync, type FSWatcher } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { initLog } from './log.js';
 import { cliPath, postCommitSolo } from './config.js';
@@ -13,7 +14,6 @@ import { ScmSync, pickRepository } from './scm/Sync.js';
 import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 import { SessionIdentityController } from './session/SessionIdentity.js';
-import type { StatusJson } from './types.js';
 
 let askpass: AskpassServer | undefined;
 let stateWatchers: FSWatcher[] = [];
@@ -165,27 +165,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     stateWatchers.forEach((w) => w.close());
     stateWatchers = [];
     watchedKey = key;
+    let t: NodeJS.Timeout | undefined;
+    const driftReload = (): void => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        provider.reload().catch(() => {});
+      }, 300);
+    };
     for (const root of roots) {
       // the repo's git CONFIG is now the single state carrier (standard keys
       // only — no state.json, no markers), so drift-watching .git/config
       // catches out-of-band CLI runs and manual `git config` switches
-      const configFile = join(root, '.git', 'config');
-      let t: NodeJS.Timeout | undefined;
       try {
-        stateWatchers.push(
-          watch(configFile)
-            .on('change', () => {
-              if (t) clearTimeout(t);
-              t = setTimeout(() => {
-                provider.reload().catch(() => {});
-              }, 300);
-            })
-            .on('error', () => {}),
-        );
+        stateWatchers.push(watch(join(root, '.git', 'config')).on('change', driftReload).on('error', () => {}));
       } catch {
         // config may not exist yet in this repo
       }
       if (postCommitSolo()) addCommitWatch(root);
+    }
+    // the global git config names an identity too ("found in git global
+    // config" row, global signing keys) — watch it the same way
+    try {
+      stateWatchers.push(watch(join(homedir(), '.gitconfig')).on('change', driftReload).on('error', () => {}));
+    } catch {
+      // no global config file yet
     }
   };
 
@@ -404,49 +407,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(provider.onDidReload.event((s) => { void maybePromptActiveKey(s ?? undefined); }));
   void maybePromptActiveKey();
 
-  /**
-   * Git-config picked identity with an encrypted key: when no colabor
-   * identity is active but the repo's git-config identity matches a stored
-   * identity whose key is encrypted (not in the agent) and signing is
-   * effectively on, ask once for the passphrase. Enter → verify and SELECT
-   * that identity for this window (push/signing get the key); cancel/empty →
-   * window signing off (env `commit.gpgsign=false`), so nothing half-works.
-   */
-  const promptedConfigKeys = new Set<string>();
-  const maybePromptConfigIdentityKey = async (s?: StatusJson): Promise<void> => {
-    const status = s ?? provider.current;
-    if (!status || sessionCtl.active()) return;
-    const active = status.activeIdentity as (StatusJson['activeIdentity'] & { fromGitConfig?: boolean }) | null;
-    if (!active?.fromGitConfig || !active.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
-    if (!status.signing?.enabled) return; // nothing would sign — nothing to ask
-    const fp = active.sshKeyFingerprint;
-    if (promptedConfigKeys.has(fp) || sessionPassphrases.has(fp)) return;
-    promptedConfigKeys.add(fp);
-    const pass = await vscode.window.showInputBox({
-      prompt: `${active.name} (from git config) signs with an encrypted key — passphrase?`,
-      password: true,
-      placeHolder: 'enter to select this identity for the window · esc to turn signing off',
-    });
-    if (pass === undefined || pass === '') {
-      await sessionCtl.setSigning(false); // off means off, window-wide
-      vscode.window.showInformationMessage('Git Colabor: signing off for this window (passphrase not entered).');
-      void provider.reload();
-      return;
-    }
-    sessionPassphrases.set(fp, pass);
-    const v = await cli.run(['identity', 'agent', active.id, '--verify']);
-    const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
-    if (!verified) {
-      sessionPassphrases.delete(fp);
-      vscode.window.showWarningMessage('Git Colabor: wrong passphrase — git-config identity left as-is, signing untouched.');
-      return;
-    }
-    await sessionCtl.apply(active);
-    vscode.window.showInformationMessage(`Git Colabor: "${active.name}" selected for this window.`);
-    void provider.reload();
-  };
-  context.subscriptions.push(provider.onDidReload.event((s) => { void maybePromptConfigIdentityKey(s ?? undefined); }));
-  void maybePromptConfigIdentityKey();
+  // (the old "git-config picked identity with an encrypted key" prompt died
+  // with the configIdentity overlay: config identities auto-enroll and the
+  // generic active-identity passphrase check — maybePromptActiveKey above —
+  // covers whatever config makes active, fromConfig or not)
 
   logger.info('git colabor activated');
 }

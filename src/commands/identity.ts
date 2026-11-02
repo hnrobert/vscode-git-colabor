@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { conflictWarningStaleMinutes, githubFetch, keyPromptCancel, setCoAuthorMemory } from '../config.js';
+import { conflictWarningStaleMinutes, githubFetch, keyPromptCancel, setCoAuthorMemory, useTarget } from '../config.js';
 import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from '../github/users.js';
 import type { IdentityJson, JsonResult } from '../types.js';
 import {
@@ -16,22 +16,128 @@ import { identityConfigScopes, clearIdentityConfig } from '../ssh/gitConfig.js';
 import { warnSigningMismatch } from './signing.js';
 
 /**
- * DEFAULT use flow: apply the identity to THIS WINDOW only — config is
+ * DEFAULT use flow. What the default Use writes follows gitColabor.useTarget:
+ * "session" (default) applies the identity to THIS WINDOW only — config is
  * injected via the environment (git ≥ 2.31 GIT_CONFIG_*), the repo on disk
- * is never touched, other windows keep their own identity. The repo-wide
- * variant lives in useIdentityEverywhere (explicit right-click).
+ * is never touched; "repo" / "global" write that git-config file instead.
+ * The per-level actions live in useWriteRepoConfig / useWriteGlobalConfig /
+ * unsetRepoConfig / unsetGlobalConfig (explicit right-click).
  */
 export async function useIdentity(deps: CommandDeps, item?: unknown): Promise<void> {
   const rowId = rowIdentityId(item);
   const identity = rowId
     ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
-    : await pickIdentity(deps, 'Select identity to use in this session (this window only)');
+    : await pickIdentity(deps, 'Select identity to use');
   if (!identity) return;
-  await applySessionIdentity(deps, identity.id);
+  await useIdentityById(deps, identity.id);
 }
 
 export async function useIdentityById(deps: CommandDeps, id: string): Promise<void> {
+  const target = useTarget();
+  if (target === 'repo') return useWriteRepoConfig(deps, id);
+  if (target === 'global') return useWriteGlobalConfig(deps, id);
   await applySessionIdentity(deps, id);
+}
+
+/** Resolve the row payload's identity, else quick-pick one (context-menu entries). */
+async function rowOrPickIdentity(
+  deps: CommandDeps,
+  item: unknown,
+  placeHolder: string,
+): Promise<IdentityJson | undefined> {
+  const rowId = rowIdentityId(item);
+  if (rowId) {
+    const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
+    return data?.identities.find((i) => i.id === rowId);
+  }
+  return pickIdentity(deps, placeHolder);
+}
+
+/**
+ * Right-click → "Use in this session": the window-scoped apply, regardless
+ * of gitColabor.useTarget (the menu item names its target explicitly).
+ */
+export async function useIdentitySession(deps: CommandDeps, item?: unknown): Promise<void> {
+  const identity = await rowOrPickIdentity(deps, item, 'Select identity to use in this session');
+  if (identity) await applySessionIdentity(deps, identity.id);
+}
+
+/**
+ * Right-click → "Use & write git repo config": writes repo-local git config
+ * for every open repository — visible to every window and terminal.
+ */
+export async function useWriteRepoConfig(deps: CommandDeps, item?: unknown | string): Promise<void> {
+  const cwd = requireRepo(deps);
+  if (!cwd) return;
+  const identity =
+    typeof item === 'string'
+      ? (
+          (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find(
+            (i) => i.id === item,
+          )
+        )
+      : await rowOrPickIdentity(deps, item, 'Select identity to write to repo config');
+  if (!identity) return;
+  await applyUse(deps, identity.id, { scope: 'local', cwd });
+}
+
+/**
+ * Right-click → "Use & write git global config": writes ~/.gitconfig — the
+ * identity becomes the machine-wide git default (repo-local config still
+ * overrides it per repo, as git itself resolves scopes).
+ */
+export async function useWriteGlobalConfig(deps: CommandDeps, item?: unknown | string): Promise<void> {
+  const identity =
+    typeof item === 'string'
+      ? (
+          (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find(
+            (i) => i.id === item,
+          )
+        )
+      : await rowOrPickIdentity(deps, item, 'Select identity to write to the global git config');
+  if (!identity) return;
+  await applyUse(deps, identity.id, { scope: 'global' });
+}
+
+/**
+ * Right-click → "Unset in git repo config": strip this identity's
+ * name/email/keys from the selected repo's local git config (content-
+ * matched — a different person's config survives) and arm the standing-down
+ * guard so auto-apply does not silently re-write it on the next repo event.
+ */
+export async function unsetRepoConfig(deps: CommandDeps, item?: unknown): Promise<void> {
+  const root = requireRepo(deps);
+  if (!root) return;
+  const identity = await rowOrPickIdentity(deps, item, 'Select identity to unset from repo config');
+  if (!identity) return;
+  const r = await run<{ cleared: { identityLayer: boolean } }>(deps, ['identity', 'unset-config', identity.id, '--scope', 'local'], {
+    cwd: root,
+  });
+  if (r === undefined) return;
+  vscode.window.showInformationMessage(
+    r.cleared.identityLayer
+      ? `Git Colabor: removed "${identity.name}" from the repo git config.`
+      : `Git Colabor: "${identity.name}" was not set in this repo's git config (nothing removed).`,
+  );
+  await deps.provider?.reload();
+}
+
+/** Right-click → "Unset in git global config": strip from ~/.gitconfig (content-matched). */
+export async function unsetGlobalConfig(deps: CommandDeps, item?: unknown): Promise<void> {
+  const identity = await rowOrPickIdentity(deps, item, 'Select identity to unset from the global git config');
+  if (!identity) return;
+  const r = await run<{ cleared: { identityLayer: boolean } }>(
+    deps,
+    ['identity', 'unset-config', identity.id, '--scope', 'global'],
+    { cwd: deps.git.selectedRepoRoot() },
+  );
+  if (r === undefined) return;
+  vscode.window.showInformationMessage(
+    r.cleared.identityLayer
+      ? `Git Colabor: removed "${identity.name}" from the global git config.`
+      : `Git Colabor: "${identity.name}" was not set in the global git config (nothing removed).`,
+  );
+  await deps.provider?.reload();
 }
 
 async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void> {
@@ -92,26 +198,10 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
   vscode.window.showInformationMessage(
     degraded
       ? `Git Colabor: "${identity.name}" applied WITHOUT its key (passphrase not entered — click the row to retry).`
-      : `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use for All Windows" to write repo config.`,
+      : `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use & write git repo config" for every window.`,
   );
   // e.g. a personal GPG key from ~/.gitconfig would now sign this identity's commits
   warnSigningMismatch(deps).catch((e) => deps.log.warn(`signing check: ${e instanceof Error ? e.message : String(e)}`));
-}
-
-/**
- * Explicit repo-wide apply (right-click "Use for All Windows"): writes
- * repo-local git config + state for every open repository — visible to
- * every window and terminal connected to this workspace.
- */
-export async function useIdentityEverywhere(deps: CommandDeps, item?: unknown): Promise<void> {
-  const cwd = requireRepo(deps);
-  if (!cwd) return;
-  const rowId = rowIdentityId(item);
-  const identity = rowId
-    ? (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === rowId)
-    : await pickIdentity(deps, 'Select identity to apply to every window (writes repo config)');
-  if (!identity) return;
-  await applyUse(deps, identity.id, cwd);
 }
 
 type UseResult = Extract<JsonResult, { ok: true }> | Extract<JsonResult, { ok: false }>;
@@ -134,14 +224,21 @@ function needsPassphrase(r: UseResult): string | undefined {
   return undefined;
 }
 
-async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<void> {
+/**
+ * Config-file apply. Repo scope: one session, one identity configuration —
+ * apply to EVERY open repository. Global scope: a single write to
+ * ~/.gitconfig (no repo involved).
+ */
+async function applyUse(deps: CommandDeps, id: string, opts: { scope: 'local' | 'global'; cwd?: string }): Promise<void> {
+  const global = opts.scope === 'global';
   // one session, one identity configuration: apply to EVERY open repository
-  const roots = deps.git.repoRoots.length > 0 ? deps.git.repoRoots : [cwd];
+  const roots = global ? [undefined] : deps.git.repoRoots.length > 0 ? deps.git.repoRoots : [opts.cwd!];
   const conflicts: string[] = [];
   const failedRepos: string[] = [];
 
-  const useIn = (root: string) => {
+  const useIn = (root: string | undefined) => {
     const args = ['identity', 'use', id, '--source', 'ext'];
+    if (global) args.push('--config-scope', 'global');
     const stale = conflictWarningStaleMinutes();
     if (stale !== undefined) args.push('--stale-minutes', String(stale));
     return deps.cli.run(args, { cwd: root });
@@ -156,7 +253,7 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
     // encrypted key not in the agent and nothing banked yet → prompt once per
     // key (this connection), bank it for push-time askpass, and verify it
     // WITHOUT loading into any agent (`identity agent --verify`). Cancel or
-    // wrong passphrase disables the identity in this repo.
+    // wrong passphrase leaves the config applied WITHOUT the key (degrade).
     const fp = needsPassphrase(r);
     if (fp && !deps.sessionPassphrases.has(fp)) {
       const pass = await vscode.window.showInputBox({
@@ -165,8 +262,7 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
         placeHolder: 'session only',
       });
       if (pass === undefined) {
-        await disableIdentityIn(deps, id, root);
-        failedRepos.push(root);
+        failedRepos.push(root ?? 'global');
         continue;
       }
       deps.sessionPassphrases.set(fp, pass);
@@ -174,31 +270,35 @@ async function applyUse(deps: CommandDeps, id: string, cwd: string): Promise<voi
       const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
       if (!verified) {
         deps.sessionPassphrases.delete(fp); // wrong passphrase — drop it
-        await disableIdentityIn(deps, id, root);
-        failedRepos.push(root);
+        failedRepos.push(root ?? 'global');
         continue;
       }
       deps.log.info(`passphrase verified for key ${fp} (session only)`);
     }
     const heldBy = (r.data as { conflict?: { heldBy?: { session: string } } | null })?.conflict?.heldBy;
-    if (heldBy) conflicts.push(`${root}: ${heldBy.session}`);
+    if (heldBy) conflicts.push(`${root ?? 'global'}: ${heldBy.session}`);
   }
 
   if (failedRepos.length > 0) {
     vscode.window.showWarningMessage(
-      `Git Colabor: passphrase failed — identity disabled. Click to retry.`,
+      `Git Colabor: passphrase not given — "${failedRepos.join(', ')}" applied WITHOUT the key. Use the identity again to retry.`,
     );
   }
   if (conflicts.length > 0) {
     vscode.window.showWarningMessage(`Git Colabor: overridden — held by ${conflicts.join(', ')}.`);
   }
-}
-
-/** Disable the identity and deactivate it in one repo (passphrase failure flow). */
-async function disableIdentityIn(deps: CommandDeps, id: string, root: string): Promise<void> {
-  const r = await deps.cli.run(['identity', 'disable', id], { cwd: root });
-  if (!r.ok) reportError(r);
-  else deps.log.warn(`identity ${id} disabled (repo ${root} left without an active identity)`);
+  const identityName = (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === id)?.name ?? id;
+  if (failedRepos.length === 0) {
+    vscode.window.showInformationMessage(
+      global
+        ? `Git Colabor: "${identityName}" written to the GLOBAL git config (machine-wide default).`
+        : `Git Colabor: "${identityName}" written to the repo git config — every window and terminal.`,
+    );
+    await deps.provider?.reload();
+    // a config write can leave commits signed with a key that is not the new
+    // identity's (e.g. repo-local signing keys under a global apply) — surface it
+    warnSigningMismatch(deps).catch((e) => deps.log.warn(`signing check: ${e instanceof Error ? e.message : String(e)}`));
+  }
 }
 
 /**
@@ -511,6 +611,7 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
     const withKeys = {
       ...identity,
       signKeyPath: identity.signKey?.format === 'ssh' ? identity.signKey.path : undefined,
+      signGpgKey: identity.signKey?.format === 'openpgp' ? identity.signKey.key : undefined,
     };
     if (choice === 'repo' || choice === 'both') await clearIdentityConfig('repo', withKeys, repoRoot);
     if (choice === 'global' || choice === 'both') await clearIdentityConfig('global', withKeys, repoRoot);

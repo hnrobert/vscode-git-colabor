@@ -76,9 +76,10 @@ export type HeldByJson = {
 export type StatusIdentityJson = IdentityJson & {
   active?: boolean;
   sshKeyPath?: string;
-  /** the active row was synthesized from git config (no colabor identity) */
-  fromGitConfig?: boolean;
 };
+
+/** Which identity a git-config SCOPE names (both user.name and user.email set there). */
+export type ConfigIdentityJson = { name: string; email: string; id: string };
 
 /** Shape of `git colabor identity status --json` data. */
 export type StatusJson = {
@@ -89,8 +90,10 @@ export type StatusJson = {
   heldBy: HeldByJson | null;
   signing: SigningJson;
   activeIdentity: IdentityJson | null;
-  /** effective git-config identity when colabor manages none (out-of-band switch) */
-  configIdentity?: { name: string; email: string } | null;
+  /** per-scope config identities: repo-local file / ~/.gitconfig (null = not set there) */
+  configIdentities?: { repo: ConfigIdentityJson | null; global: ConfigIdentityJson | null };
+  /** this repo's config was explicitly stripped — auto-apply stands down here */
+  standingDown?: boolean;
   identities: StatusIdentityJson[];
   selected: CoAuthorBriefJson[];
   available: CoAuthorBriefJson[];

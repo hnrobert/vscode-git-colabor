@@ -111,6 +111,21 @@
             "Apply the identity WITHOUT the push/sign key (alert icon; click the row to retry)."
           ],
           "description": "Behavior when cancelling a key passphrase prompt at use/session time."
+        },
+        "gitColabor.useTarget": {
+          "type": "string",
+          "enum": [
+            "session",
+            "repo",
+            "global"
+          ],
+          "default": "session",
+          "markdownDescription": "Which git-config layer the **default Use action** writes (clicking an identity row, `Use Identity…`):\n- `session` — this window only (env injection, repo untouched)\n- `repo` — the repository's local git config (every window/terminal)\n- `global` — `~/.gitconfig` (machine-wide default)\n\nThe right-click items (`Use & write git repo config` / `Use & write git global config` / `Unset …`) always name their target explicitly. Auto-apply on repo open (`gitColabor.autoApplyOnRepoOpen`) keeps writing repo-local config regardless of this setting.",
+          "enumDescriptions": [
+            "This window only — identity injected via git environment config; the repo is untouched.",
+            "Write the repository's local git config — every window and terminal sees it.",
+            "Write the global git config (~/.gitconfig) — the machine-wide default."
+          ]
         }
       }
     },
@@ -122,8 +137,28 @@
         "icon": "$(pass-filled)"
       },
       {
-        "command": "gitColabor._useIdentityEverywhere",
-        "title": "Use for All Windows (write repo config)",
+        "command": "gitColabor._useIdentitySession",
+        "title": "Use in this session",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._useWriteRepoConfig",
+        "title": "Use & write git repo config",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._useWriteGlobalConfig",
+        "title": "Use & write git global config",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._unsetRepoConfig",
+        "title": "Unset in git repo config",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._unsetGlobalConfig",
+        "title": "Unset in git global config",
         "category": "Git Colabor"
       },
       {
@@ -348,11 +383,6 @@
           "group": "3_key@7"
         },
         {
-          "command": "gitColabor._useIdentityEverywhere",
-          "when": "viewItem =~ /^(identity|active-identity)/",
-          "group": "0_apply@1"
-        },
-        {
           "command": "gitColabor._changeIdentityName",
           "when": "viewItem =~ /^(identity|active-identity)/",
           "group": "1_modify@1"
@@ -386,6 +416,31 @@
           "command": "gitColabor._hideThisIdentity",
           "when": "viewItem =~ /^(identity|active-identity)/",
           "group": "9_hide"
+        },
+        {
+          "command": "gitColabor._useIdentitySession",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^identity/",
+          "group": "0_apply@1"
+        },
+        {
+          "command": "gitColabor._useWriteRepoConfig",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity)(?!.*-cr)/",
+          "group": "0_apply@2"
+        },
+        {
+          "command": "gitColabor._unsetRepoConfig",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /-cr/",
+          "group": "0_apply@3"
+        },
+        {
+          "command": "gitColabor._useWriteGlobalConfig",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity)(?!.*-cg)/",
+          "group": "0_apply@4"
+        },
+        {
+          "command": "gitColabor._unsetGlobalConfig",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /-cg/",
+          "group": "0_apply@5"
         }
       ],
       "commandPalette": [
@@ -431,6 +486,26 @@
         },
         {
           "command": "gitColabor._signCommitsWithAnotherKey",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._useIdentitySession",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._useWriteRepoConfig",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._useWriteGlobalConfig",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._unsetRepoConfig",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._unsetGlobalConfig",
           "when": "false"
         }
       ]

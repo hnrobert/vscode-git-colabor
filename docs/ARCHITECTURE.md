@@ -111,7 +111,7 @@ Whether `git commit` signs is the result of layered git config — this window's
 | Identity | Sign | Stop |
 | --- | --- | --- |
 | Window identity (default click), or none | env-inject `commit.gpgsign=true`, `gpg.format`, `user.signingKey` (+ `gpg.ssh.program` sign wrapper for SSH) | env-inject `commit.gpgsign=false` |
-| Repo-wide identity (*Use for All Windows*) | `identity sign <id>` writes the same keys locally | `identity sign --off` drops them and pins local `commit.gpgsign=false` when global/system would still sign |
+| Config-written identity (*Use & write git repo config*) | `identity sign <id>` writes the same keys locally | `identity sign --off` drops them and pins local `commit.gpgsign=false` when global/system would still sign |
 
 - **Off means off.** Unsetting alone falls back to lower scopes — e.g. a personal GPG key in `~/.gitconfig` would keep signing every identity's commits — so Stop always writes an explicit `false` at its layer. Logout, disable and switching to a key-less identity turn repo signing off the same way.
 - **Key choice:** an identity signs with its bound GPG key (`identity set --gpg-key`, picked from `identity gpg-keys`), else its SSH key (`.pub` half when agent-held). OpenPGP keeps the user's own `gpg.program` and gpg-agent pinentry — no askpass involved. While signing is on, an identity switch re-binds to the new identity's key, or turns signing off when it has none.

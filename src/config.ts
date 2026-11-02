@@ -52,6 +52,15 @@ export function keyPromptCancel(): 'cancel' | 'degrade' {
   const v = vscode.workspace.getConfiguration('gitColabor').get<string>('keyPromptCancel');
   return v === 'degrade' ? 'degrade' : 'cancel';
 }
+/**
+ * Which layer the DEFAULT Use action writes (row click / "Use Identity…"):
+ * "session" (default — this window only, env injection, repo untouched),
+ * "repo" (repo-local git config), or "global" (~/.gitconfig).
+ */
+export function useTarget(): 'session' | 'repo' | 'global' {
+  const v = vscode.workspace.getConfiguration('gitColabor').get<string>('useTarget');
+  return v === 'repo' || v === 'global' ? v : 'session';
+}
 export function postCommitSolo(): boolean {
   return getBool('postCommitSolo', false);
 }
