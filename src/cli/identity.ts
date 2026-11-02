@@ -10,6 +10,8 @@ import {
   hideIdentityEmail,
   listHiddenEmails,
   listIdentities,
+  markStandingDown,
+  isStandingDown,
   readMap,
   removeIdentity,
   setDefault,
@@ -18,6 +20,7 @@ import {
   unhideIdentityEmail,
 } from '../core/identity/map.js';
 import { historyCommitters } from '../core/git/committers.js';
+import { getConfig } from '../core/git/config.js';
 import { importKey } from '../core/identity/keys.js';
 import { applyIdentity, applyResolvedIdentity } from '../core/identity/apply.js';
 import { setCommitSigning, signingStatus } from '../core/identity/sign.js';
@@ -38,7 +41,7 @@ export type IdCtx = {
   token?: string;
 };
 
-const USE_SPEC = { valueFlags: ['--source', '--as-name', '--as-email'], boolFlags: [] };
+const USE_SPEC = { valueFlags: ['--source', '--as-name', '--as-email', '--config-scope'], boolFlags: [] };
 const ADD_SPEC = {
   valueFlags: ['--name', '--email', '--key', '--host', '--source'],
   boolFlags: ['--default'],
@@ -50,6 +53,7 @@ const SET_SPEC = {
   boolFlags: ['--no-key', '--no-gpg-key', '--no-sign-key'],
 };
 const SIGN_SPEC = { valueFlags: [], boolFlags: ['--off'] };
+const UNSET_SPEC = { valueFlags: ['--scope'], boolFlags: [] };
 const AGENT_SPEC = { valueFlags: [], boolFlags: ['--remove', '--verify'] };
 
 /** Row shape consumed by the extension — key facts derived from the bindings table. */
@@ -114,6 +118,8 @@ export async function dispatch(command: string | undefined, tokens: string[], ct
       return rm(parseCommandArgs(tokens));
     case 'logout':
       return logout(parseCommandArgs(tokens), ctx);
+    case 'unset-config':
+      return unsetConfigForIdentity(parseCommandArgs(tokens, UNSET_SPEC), ctx);
     case 'agent':
       return agentKey(parseCommandArgs(tokens, AGENT_SPEC), ctx);
     case 'hide':
@@ -209,6 +215,10 @@ async function agentKey(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
 async function use(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   const id = p.positionals[0];
   if (!id) throw Errors.usage('git colabor identity use <id>');
+  const scopeVal = p.values['--config-scope'];
+  if (scopeVal !== undefined && scopeVal !== 'local' && scopeVal !== 'global') {
+    throw Errors.usage(`--config-scope must be local|global, got "${scopeVal}"`);
+  }
   const { identity, result } = await applyIdentity(id, {
     source: asSource(p.values['--source']),
     cwd: ctx.cwd,
@@ -217,6 +227,7 @@ async function use(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
     askpassScriptPath: ctx.askpassScriptPath,
     socketPath: ctx.socketPath,
     token: ctx.token,
+    configScope: scopeVal === 'global' ? 'global' : 'local',
   });
   const warnings: Warning[] = [];
   if (result.keyMissing) {
@@ -235,8 +246,14 @@ async function use(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   return ok(
     {
       identity: identityToJson(identity, undefined, undefined, map.keyBindings?.[identity.id]),
-      applied: { userName: result.name, userEmail: result.email, sshCommand: result.sshCommand ?? null },
+      applied: {
+        userName: result.name,
+        userEmail: result.email,
+        sshCommand: result.sshCommand ?? null,
+        configScope: scopeVal === 'global' ? 'global' : 'local',
+      },
       keyApplied: result.keyApplied,
+      agent: result.agent ?? null,
     },
     warnings,
   );
@@ -399,6 +416,42 @@ async function logout(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   return ok({ identity: r.identity, cleared: r.cleared });
 }
 
+/**
+ * `identity unset-config <id> [--scope local|global]` — strip an identity's
+ * name/email/keys from one git-config file (content-matched; another
+ * person's config survives). Local scope also arms the standing-down guard
+ * so auto-apply does not silently re-write what was just removed; any
+ * explicit local `identity use` clears it again.
+ */
+async function unsetConfigForIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
+  const id = p.positionals[0];
+  if (!id) throw Errors.usage('git colabor identity unset-config <id> [--scope local|global]');
+  const scope = p.values['--scope'];
+  if (scope !== undefined && scope !== 'local' && scope !== 'global') {
+    throw Errors.usage(`--scope must be local|global, got "${scope}"`);
+  }
+  const identity = await getIdentity(id);
+  const binding = await getKeyBinding(id);
+  const { clearIdentityConfigLayer } = await import('../core/identity/configClear.js');
+  const cleared = await clearIdentityConfigLayer(
+    { name: identity.name, email: identity.email, pushKeyPath: binding.pushKey?.path, signKey: binding.signKey },
+    { cwd: ctx.cwd, scope: scope === 'global' ? 'global' : 'local' },
+  );
+  if (scope !== 'global' && (cleared.identityLayer || cleared.sshCommand || cleared.signing)) {
+    const tl = await (await import('../core/git/rev.js')).topLevel(ctx.cwd).catch(() => undefined);
+    if (tl) await markStandingDown(tl);
+  }
+  await appendAudit({
+    action: 'identity.logout',
+    source: process.env.GIT_COLABOR_SOURCE === 'ext' ? 'ext' : 'cli',
+    identity: id,
+    identityName: identity.name,
+    repo: await (await import('../core/git/rev.js')).topLevel(ctx.cwd).catch(() => undefined),
+    message: `unset-config ${scope ?? 'local'}: ${[cleared.identityLayer ? 'identity' : null, cleared.sshCommand ? 'ssh key' : null, cleared.signing ? 'sign key' : null].filter(Boolean).join(' + ') || 'nothing matched'}`,
+  });
+  return ok({ identity: { id, name: identity.name }, cleared: { ...cleared, scope: scope ?? 'local' } });
+}
+
 async function audit(p: CmdParsed): Promise<JsonResult> {
   const entries = await readAudit({
     repo: p.values['--repo'],
@@ -453,9 +506,31 @@ async function hiddenApply(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
 }
 
 async function status(ctx: IdCtx): Promise<JsonResult> {
+  const rs = await repoStatus(ctx.cwd);
+
+  // per-scope config identities (repo-local / global): BOTH user.name and
+  // user.email must be set at the scope to form an identity. EMAIL is the
+  // person key: an email match maps to that store row (name preference only
+  // picks AMONG email matches — no same-email forks, mirroring resolveActive);
+  // a hidden email with no row is reported without enrolling (hide wins).
+  const scopeIdentity = async (scope: 'local' | 'global'): Promise<{ name: string; email: string; id: string } | null> => {
+    const [n, e] = await Promise.all([getConfig('user.name', scope, ctx.cwd), getConfig('user.email', scope, ctx.cwd)]);
+    if (!n || !e) return null;
+    const norm = (s: string): string => s.trim().toLowerCase();
+    const byEmail = Object.values((await readMap()).identities).filter((i) => norm(i.email) === norm(e));
+    const match = byEmail.find((i) => norm(i.name) === norm(n)) ?? byEmail[0];
+    if (match) return { name: n, email: e, id: match.id };
+    if ((await listHiddenEmails()).includes(e.toLowerCase())) return { name: n, email: e, id: '' };
+    const added = await addIdentity({ name: n, email: e, scope: 'machine', fromConfig: true });
+    return { name: n, email: e, id: added.id };
+  };
+  const configIdentities = {
+    repo: rs.inRepo ? await scopeIdentity('local') : null,
+    global: await scopeIdentity('global'),
+  };
+
   const map = await readMap();
   const { identities, defaultIdentity } = await listIdentities();
-  const rs = await repoStatus(ctx.cwd);
   const prints = await agentFingerprints();
 
   // config-driven active identity: the effective (name, email) matches the
@@ -480,6 +555,12 @@ async function status(ctx: IdCtx): Promise<JsonResult> {
     activeIdentity: active ? identityToJson(active, defaultIdentity, prints, map.keyBindings?.[active.id]) : null,
     enrolled: resolved?.enrolled ?? false,
     identities: rows,
+    // which identity each git-config SCOPE names (repo-local / global) —
+    // drives the "found in repo config" / "found in git global config" rows
+    configIdentities,
+    // the user stripped this repo's config and auto-apply stands down here
+    // until an explicit local use (see map.ts standingDown)
+    standingDown: rs.repo ? await isStandingDown(rs.repo) : false,
     selected: rs.selected,
     available: rs.available,
   });

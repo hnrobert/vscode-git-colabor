@@ -59,9 +59,11 @@ export async function resolveActive(
 
   const { identities } = await listIdentities();
 
-  // 1+2: email then name
+  // 1+2: email then name. EMAIL is the person key: a config name that
+  // differs from the store row's display name maps to the same person —
+  // never forks a second same-email identity (the tree dedups by email).
   const byEmail = identities.filter((i) => norm(i.email) === norm(email));
-  let match: Identity | undefined = byEmail.find((i) => norm(i.name) === norm(name));
+  let match: Identity | undefined = byEmail.find((i) => norm(i.name) === norm(name)) ?? byEmail[0];
 
   let enrolled = false;
   if (!match) {

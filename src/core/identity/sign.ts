@@ -90,7 +90,9 @@ async function signingConfigFor(identity: Identity): Promise<SigningConfig | und
 }
 
 /**
- * Point the repo-local signing config at an identity's key (GPG or SSH).
+ * Point the signing config at an identity's key (GPG or SSH), repo-local by
+ * default (`--config-scope global` writes the global file instead — signing
+ * then follows that identity in every repo on the machine).
  * Writes nothing and returns undefined when the identity has no key to sign
  * with. SSH signing goes through the askpass sign wrapper when driven by the
  * extension; OpenPGP keeps the user's own `gpg.program` / gpg-agent pinentry.
@@ -99,34 +101,34 @@ export async function writeIdentitySigning(
   identity: Identity,
   cwd?: string,
   askpassScriptPath?: string,
+  scope: 'local' | 'global' = 'local',
 ): Promise<SigningConfig | undefined> {
   const cfg = await signingConfigFor(identity);
   if (!cfg) return undefined;
-  await setConfig('commit.gpgsign', 'true', 'local', cwd);
-  await setConfig('gpg.format', cfg.format, 'local', cwd);
-  await setConfig('user.signingKey', cfg.key, 'local', cwd);
+  await setConfig('commit.gpgsign', 'true', scope, cwd);
+  await setConfig('gpg.format', cfg.format, scope, cwd);
+  await setConfig('user.signingKey', cfg.key, scope, cwd);
   if (cfg.format === 'ssh' && askpassScriptPath) {
-    await setConfig('gpg.ssh.program', await ensureSignWrapper(askpassScriptPath), 'local', cwd);
+    await setConfig('gpg.ssh.program', await ensureSignWrapper(askpassScriptPath), scope, cwd);
   } else if (cfg.format === 'openpgp') {
-    await unsetConfig('gpg.ssh.program', 'local', cwd);
+    await unsetConfig('gpg.ssh.program', scope, cwd);
   }
   return cfg;
 }
 
 /**
- * Turn commit signing OFF for the repo — for real. Drops the local signing
- * keys unconditionally (no managed flag anymore: whoever turned signing on,
- * off means this repo does not sign) and pins `commit.gpgsign=false` locally
- * whenever a lower scope would still sign.
+ * Turn commit signing OFF at the given scope — for real. Drops that scope's
+ * signing keys unconditionally (no managed flag anymore: whoever turned
+ * signing on, off means it does not sign) and pins `commit.gpgsign=false`
+ * there whenever a lower scope would still sign.
  */
-export async function disableSigning(cwd?: string, _managed = true): Promise<void> {
-  void _managed;
-  await unsetConfig('gpg.format', 'local', cwd);
-  await unsetConfig('user.signingKey', 'local', cwd);
-  await unsetConfig('gpg.ssh.program', 'local', cwd);
-  await unsetConfig('commit.gpgsign', 'local', cwd);
+export async function disableSigning(cwd?: string, scope: 'local' | 'global' = 'local'): Promise<void> {
+  await unsetConfig('gpg.format', scope, cwd);
+  await unsetConfig('user.signingKey', scope, cwd);
+  await unsetConfig('gpg.ssh.program', scope, cwd);
+  await unsetConfig('commit.gpgsign', scope, cwd);
   if ((await getEffectiveConfig('commit.gpgsign', cwd, 'bool'))?.value === 'true') {
-    await setConfig('commit.gpgsign', 'false', 'local', cwd);
+    await setConfig('commit.gpgsign', 'false', scope, cwd);
   }
 }
 
@@ -149,7 +151,7 @@ export async function setCommitSigning(opts: {
 
   if (!opts.on) {
     // no managed flag anymore — off always means fully off
-    await disableSigning(opts.cwd, false);
+    await disableSigning(opts.cwd);
     await appendAudit({ action: 'identity.sign', source: opts.source, identity: opts.id, repo: await safeTopLevel(opts.cwd), result: 'ok', message: 'signing off' });
     return { signing: false };
   }

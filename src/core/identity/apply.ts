@@ -5,7 +5,7 @@ import { dataDir } from '../paths.js';
 import { topLevel } from '../git/rev.js';
 import { appendAudit } from '../logging/audit.js';
 import { keyInAgent } from './agent.js';
-import { getIdentity, getKeyBinding, setPushKey } from './map.js';
+import { clearStandingDown, getIdentity, getKeyBinding, setPushKey } from './map.js';
 import { keyUsable, fingerprintOfFile } from './keys.js';
 import { disableSigning, writeIdentitySigning } from './sign.js';
 import { discoverSessionBridge } from '../secrets/session-bridge.js';
@@ -19,6 +19,8 @@ export type ApplyOpts = {
   askpassScriptPath?: string;
   socketPath?: string;
   token?: string;
+  /** which git-config file the identity is written to (default: repo-local) */
+  configScope?: 'local' | 'global';
 };
 
 export type ApplyResult = {
@@ -58,18 +60,19 @@ export async function applyResolvedIdentity(args: {
   opts: ApplyOpts;
 }): Promise<ApplyResult> {
   const { name, email, sshCommand, identity, opts } = args;
+  const scope = opts.configScope === 'global' ? 'global' : 'local';
 
-  await setConfig('user.name', name, 'local', opts.cwd);
-  await setConfig('user.email', email, 'local', opts.cwd);
+  await setConfig('user.name', name, scope, opts.cwd);
+  await setConfig('user.email', email, scope, opts.cwd);
   if (sshCommand) {
-    await setConfig('core.sshCommand', sshCommand, 'local', opts.cwd);
+    await setConfig('core.sshCommand', sshCommand, scope, opts.cwd);
   } else if (identity) {
     // no key in effect — a leftover key from a previous identity is exactly
     // what triggers stray passphrase prompts; clear it
-    await unsetConfig('core.sshCommand', 'local', opts.cwd);
+    await unsetConfig('core.sshCommand', scope, opts.cwd);
     // signing follows the identity: no key to sign with → really off
-    const gpgsign = await getConfig('commit.gpgsign', 'local', opts.cwd);
-    if (gpgsign === 'true') await disableSigning(opts.cwd);
+    const gpgsign = await getConfig('commit.gpgsign', scope, opts.cwd);
+    if (gpgsign === 'true') await disableSigning(opts.cwd, scope);
   }
 
   // report-only: is the push key already in the agent?
@@ -77,6 +80,13 @@ export async function applyResolvedIdentity(args: {
   let agent: ApplyResult['agent'];
   if (binding?.pushKey) {
     agent = { inAgent: await keyInAgent(binding.pushKey.fingerprint) };
+  }
+
+  // an explicit LOCAL apply re-arms auto-apply for this repo (it may have
+  // been standing down since an "unset in git repo config")
+  if (scope === 'local') {
+    const tl = await safeTopLevel(opts.cwd);
+    if (tl) await clearStandingDown(tl);
   }
 
   await appendAudit({
@@ -160,12 +170,13 @@ export async function applyIdentity(
   result.keyMissing = keyMissing;
   result.keyDegraded = keyDegraded;
 
-  // signing re-bind: when the repo signs, point it at this identity's sign key
+  // signing re-bind: when the target scope signs, point it at this identity's sign key
   if (identity) {
-    const gpgsign = await getConfig('commit.gpgsign', 'local', opts.cwd);
+    const scope = opts.configScope === 'global' ? 'global' : 'local';
+    const gpgsign = await getConfig('commit.gpgsign', scope, opts.cwd);
     if (gpgsign === 'true') {
-      const okSign = await writeIdentitySigning(identity, opts.cwd, opts.askpassScriptPath);
-      if (!okSign) await disableSigning(opts.cwd);
+      const okSign = await writeIdentitySigning(identity, opts.cwd, opts.askpassScriptPath, scope);
+      if (!okSign) await disableSigning(opts.cwd, scope);
     }
   }
 

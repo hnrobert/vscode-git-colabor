@@ -1,5 +1,5 @@
 import { getConfig } from '../git/config.js';
-import { insideWorkTree } from '../git/rev.js';
+import { insideWorkTree, topLevel } from '../git/rev.js';
 import { getSelected } from '../coauthors/state.js';
 import { listIdentities } from '../identity/map.js';
 import { genKey } from '../authors/types.js';
@@ -50,7 +50,10 @@ export async function repoStatus(cwd?: string): Promise<RepoStatus> {
     .map((i) => ({ key: genKey(i.name, i.email), name: i.name, email: i.email }));
   return {
     inRepo: true,
-    repo: cwd as string,
+    // canonical repo root (topLevel resolves symlinks, e.g. /var →
+    // /private/var on macOS) — the standing-down store and every per-repo
+    // comparison key off this exact form
+    repo: await topLevel(cwd),
     managed: managed === 'true',
     managedBy: managedBy ?? null,
     activeIdentityId: state.activeIdentity ?? null,

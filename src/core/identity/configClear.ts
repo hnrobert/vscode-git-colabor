@@ -33,7 +33,8 @@ export type ClearedConfig = {
 
 /**
  * Content-based clear: unset the standard git keys that belong to the given
- * identity (repo-local scope). No markers, no backups — we compare what
+ * identity (repo-local scope by default, `scope: 'global'` for ~/.gitconfig).
+ * No markers, no backups — we compare what
  * config says against who is being cleared. Name/email clear on an exact
  * match ONLY (another person's committer config always survives); the KEY
  * configs clear when they reference one of the identity's keys — so a
@@ -44,9 +45,10 @@ export type ClearedConfig = {
  */
 export async function clearIdentityConfigLayer(
   identity: { name: string; email: string; pushKeyPath?: string; signKey?: SignKeyRef },
-  opts: { cwd?: string; forceKeys?: boolean } = {},
+  opts: { cwd?: string; scope?: 'local' | 'global'; forceKeys?: boolean } = {},
 ): Promise<ClearedConfig> {
   const forceKeys = opts.forceKeys === true;
+  const scope = opts.scope === 'global' ? 'global' : 'local';
   const sshPaths = [
     ...(identity.pushKeyPath ? [identity.pushKeyPath] : []),
     ...(identity.signKey?.format === 'ssh' ? [identity.signKey.path] : []),
@@ -54,26 +56,31 @@ export async function clearIdentityConfigLayer(
   const gpgFingerprint = identity.signKey?.format === 'openpgp' ? identity.signKey.key : undefined;
 
   const [n, e, ssh, signKey, sshProgram] = await Promise.all([
-    getConfig('user.name', 'local', opts.cwd),
-    getConfig('user.email', 'local', opts.cwd),
-    getConfig('core.sshCommand', 'local', opts.cwd),
-    getConfig('user.signingKey', 'local', opts.cwd),
-    getConfig('gpg.ssh.program', 'local', opts.cwd),
+    getConfig('user.name', scope, opts.cwd),
+    getConfig('user.email', scope, opts.cwd),
+    getConfig('core.sshCommand', scope, opts.cwd),
+    getConfig('user.signingKey', scope, opts.cwd),
+    getConfig('gpg.ssh.program', scope, opts.cwd),
   ]);
   const eq = (a: string | undefined, b: string): boolean => !!a && a.trim() === b.trim();
 
   const result: ClearedConfig = { identityLayer: false, sshCommand: false, signing: false };
 
-  if (eq(n, identity.name)) {
-    await unsetConfig('user.name', 'local', opts.cwd);
+  // EMAIL is the person key: when the scope's email is this person's, BOTH
+  // fields come out together (a display-name difference between config and
+  // the store row must not leave a half-identity behind). A name-only match
+  // clears the name alone.
+  const emailIsThis = eq(e, identity.email);
+  if (emailIsThis || eq(n, identity.name)) {
+    await unsetConfig('user.name', scope, opts.cwd);
     result.identityLayer = true;
   }
-  if (eq(e, identity.email)) {
-    await unsetConfig('user.email', 'local', opts.cwd);
+  if (emailIsThis) {
+    await unsetConfig('user.email', scope, opts.cwd);
     result.identityLayer = true;
   }
   if (ssh && (forceKeys || sshPaths.some((p) => sshCommandUses(ssh, p)))) {
-    await unsetConfig('core.sshCommand', 'local', opts.cwd);
+    await unsetConfig('core.sshCommand', scope, opts.cwd);
     result.sshCommand = true;
   }
   // signing keys ride along with a matching user.signingKey (or a forced
@@ -81,13 +88,13 @@ export async function clearIdentityConfigLayer(
   // set, and colabor's own sign wrapper is always ours to remove
   const wrapperIsOurs = !!sshProgram && sshProgram.includes('git-colabor');
   if (signKey && (forceKeys || signingKeyOwned(signKey, { sshPaths, gpgFingerprint }))) {
-    await unsetConfig('user.signingKey', 'local', opts.cwd);
+    await unsetConfig('user.signingKey', scope, opts.cwd);
     result.signing = true;
   }
   if (result.signing || wrapperIsOurs || forceKeys) {
-    await unsetConfig('gpg.format', 'local', opts.cwd);
-    await unsetConfig('gpg.ssh.program', 'local', opts.cwd);
-    await unsetConfig('commit.gpgsign', 'local', opts.cwd);
+    await unsetConfig('gpg.format', scope, opts.cwd);
+    await unsetConfig('gpg.ssh.program', scope, opts.cwd);
+    await unsetConfig('commit.gpgsign', scope, opts.cwd);
   }
   return result;
 }

@@ -1,5 +1,5 @@
 import { topLevel } from '../git/rev.js';
-import { getIdentity, getKeyBinding, listIdentities } from './map.js';
+import { getIdentity, getKeyBinding, listIdentities, markStandingDown } from './map.js';
 import { resolveActive } from './resolve.js';
 import { removeKey } from './agent.js';
 import { appendAudit } from '../logging/audit.js';
@@ -47,17 +47,21 @@ export async function logoutIdentity(opts: {
   // configs referencing its keys go too — a previous `use` can leave them
   // behind after the repo moved on to someone else. When the identity IS
   // the config-derived active one its key configs drop unconditionally.
+  // A global-scope `use` wrote ~/.gitconfig — the same content-matched clear
+  // runs there (never forced: another person's global config survives).
   const { clearIdentityConfigLayer } = await import('./configClear.js');
-  const cleared = await clearIdentityConfigLayer(
-    {
-      name: identity.name,
-      email: identity.email,
-      pushKeyPath: binding.pushKey?.path,
-      signKey: binding.signKey,
-    },
-    { cwd: opts.cwd, forceKeys: resolved?.identity.id === id },
-  );
-  const clearedAnything = cleared.identityLayer || cleared.sshCommand || cleared.signing;
+  const layer = {
+    name: identity.name,
+    email: identity.email,
+    pushKeyPath: binding.pushKey?.path,
+    signKey: binding.signKey,
+  };
+  const cleared = await clearIdentityConfigLayer(layer, {
+    cwd: opts.cwd,
+    forceKeys: resolved?.identity.id === id,
+  });
+  const globalCleared = await clearIdentityConfigLayer(layer, { scope: 'global' });
+  const clearedAnything = cleared.identityLayer || cleared.sshCommand || cleared.signing || globalCleared.identityLayer || globalCleared.sshCommand || globalCleared.signing;
   // co-author selection + commit template ride along when the identity's
   // config layer went away — logout leaves the repo with zero
   // colabor-managed state
@@ -66,6 +70,12 @@ export async function logoutIdentity(opts: {
     const { clearTemplate } = await import('../message/template.js');
     await unsetAllConfig('colabor.selected', 'local', opts.cwd);
     await clearTemplate(opts.cwd).catch(() => {});
+  }
+  // logout = leave clean: auto-apply must not re-materialize the identity
+  // into this repo on the next repo event
+  if (cleared.identityLayer || cleared.sshCommand || cleared.signing) {
+    const tl = await safeTopLevel(opts.cwd);
+    if (tl) await markStandingDown(tl);
   }
 
   await appendAudit({

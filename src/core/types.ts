@@ -52,6 +52,9 @@ export type IdentityMap = {
   defaultIdentity?: string;
   /** lowercased emails hidden from auto-import (hide machine-level) */
   hidden?: Record<string, true>;
+  /** repo roots whose git config the user explicitly stripped — auto-apply
+   *  stands down until an explicit local-scope apply (see map.ts) */
+  standingDown?: string[];
 };
 
 export type HeldBy = {

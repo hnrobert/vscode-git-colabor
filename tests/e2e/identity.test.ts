@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { addIdentity, getKeyBinding, hideIdentityEmail, listIdentities, removeIdentity, setPushKey, setSignKey, updateIdentity } from '../../src/core/identity/map.js';
+import { addIdentity, getKeyBinding, hideIdentityEmail, listIdentities, removeIdentity, setPushKey, setSignKey, unhideIdentityEmail, updateIdentity } from '../../src/core/identity/map.js';
 import { applyIdentity } from '../../src/core/identity/apply.js';
 import { setCommitSigning, signingStatus } from '../../src/core/identity/sign.js';
 import { logoutIdentity } from '../../src/core/identity/logout.js';
@@ -14,7 +14,8 @@ import { readAudit } from '../../src/core/logging/audit.js';
 import { historyCommitters } from '../../src/core/git/committers.js';
 import { loadKey } from '../../src/core/identity/agent.js';
 import { writeFile, chmod as chmodFile } from 'node:fs/promises';
-import { importFromHistory } from '../../src/cli/identity.js';
+import { importFromHistory, dispatch } from '../../src/cli/identity.js';
+import type { GlobalFlags } from '../../src/cli/parse-args.js';
 import { resolveActive } from '../../src/core/identity/resolve.js';
 
 function git(cwd: string, args: string[]): string {
@@ -97,6 +98,119 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
   it('audit log records identity.use', async () => {
     const entries = await readAudit();
     expect(entries.some((e) => e.action === 'identity.use' && e.identityName === 'Bob')).toBe(true);
+  });
+
+  it('status reports per-scope config identities (repo vs global) and enrolls unknowns', async () => {
+    // local carries a KNOWN person, global carries an UNKNOWN one
+    const known = await addIdentity({ name: 'Repo Local', email: 'repolocal@x.com' });
+    git(root, ['config', '--local', 'user.name', 'Repo Local']);
+    git(root, ['config', '--local', 'user.email', 'repolocal@x.com']);
+    git(root, ['config', '--global', 'user.name', 'Global Stranger']);
+    git(root, ['config', '--global', 'user.email', 'stranger@x.com']);
+    try {
+      const r = await dispatch('status', ['--json'], { cwd: root, flags: {} as GlobalFlags });
+      if (!r.ok) throw new Error('status dispatch failed');
+      const data = r.data as {
+        configIdentities: { repo: { id: string; email: string } | null; global: { id: string; email: string } | null };
+        identities: { id: string; email: string; fromConfig?: boolean }[];
+      };
+      expect(data.configIdentities.repo?.email).toBe('repolocal@x.com');
+      expect(data.configIdentities.repo?.id).toBe(known.id); // known person matched by email, not re-enrolled
+      expect(data.configIdentities.global?.email).toBe('stranger@x.com');
+      // the unknown global identity enrolled (fromConfig) and appears as a row
+      const globalRow = data.identities.find((i) => i.email === 'stranger@x.com');
+      expect(globalRow?.id).toBe(data.configIdentities.global?.id);
+      expect(globalRow?.fromConfig).toBe(true);
+    } finally {
+      git(root, ['config', '--local', 'user.name', 'Original Name']);
+      git(root, ['config', '--local', 'user.email', 'original@x.com']);
+      git(root, ['config', '--global', '--unset', 'user.name']);
+      git(root, ['config', '--global', '--unset', 'user.email']);
+    }
+  });
+
+  it('a config person whose store row has a different display name maps to that row (no same-email fork)', async () => {
+    const bob = await addIdentity({ name: 'Bob', email: 'robert@x.com' });
+    git(root, ['config', '--local', 'user.name', 'Robert He']);
+    git(root, ['config', '--local', 'user.email', 'robert@x.com']);
+    try {
+      const resolved = await resolveActive(root, { enroll: true });
+      expect(resolved?.identity.id).toBe(bob.id); // email is the person key — no fork
+      expect(resolved?.enrolled).toBe(false);
+      const r = await dispatch('status', ['--json'], { cwd: root, flags: {} as GlobalFlags });
+      if (!r.ok) throw new Error('status dispatch failed');
+      const data = r.data as { configIdentities: { repo: { id: string } | null } };
+      expect(data.configIdentities.repo?.id).toBe(bob.id);
+    } finally {
+      git(root, ['config', '--local', 'user.name', 'Original Name']);
+      git(root, ['config', '--local', 'user.email', 'original@x.com']);
+    }
+  });
+
+  it('a hidden email is never enrolled from config; unset-config + standing-down round-trip', async () => {
+    // hidden person named by config: reported, not enrolled
+    await hideIdentityEmail('ghost@x.com');
+    git(root, ['config', '--global', 'user.name', 'Ghost']);
+    git(root, ['config', '--global', 'user.email', 'ghost@x.com']);
+    let r = await dispatch('status', ['--json'], { cwd: root, flags: {} as GlobalFlags });
+    if (!r.ok) throw new Error('status dispatch failed');
+    let data = r.data as { configIdentities: { global: { id: string; email: string } | null } };
+    expect(data.configIdentities.global?.email).toBe('ghost@x.com');
+    expect(data.configIdentities.global?.id).toBe(''); // hidden — no store row
+    const { identities } = await listIdentities();
+    expect(identities.find((i) => i.email === 'ghost@x.com')).toBeUndefined();
+    git(root, ['config', '--global', '--unset', 'user.name']);
+    git(root, ['config', '--global', '--unset', 'user.email']);
+    await unhideIdentityEmail('ghost@x.com');
+
+    // unset-config local: strips the layer and arms standing-down; a local use re-arms
+    const u = await addIdentity({ name: 'Unsetter', email: 'unsetter@x.com' });
+    await applyIdentity(u.id, { source: 'cli', cwd: root });
+    const uc = await dispatch('unset-config', [u.id, '--json'], { cwd: root, flags: {} as GlobalFlags });
+    if (!uc.ok) throw new Error('unset-config dispatch failed');
+    const cleared = (uc.data as { cleared: { identityLayer: boolean } }).cleared;
+    expect(cleared.identityLayer).toBe(true);
+    expect(await getConfig('user.name', 'local', root)).toBeUndefined();
+    r = await dispatch('status', ['--json'], { cwd: root, flags: {} as GlobalFlags });
+    if (!r.ok) throw new Error('status dispatch failed');
+    expect((r.data as { standingDown: boolean }).standingDown).toBe(true);
+    // an explicit local apply re-arms auto-apply
+    await applyIdentity(u.id, { source: 'cli', cwd: root });
+    r = await dispatch('status', ['--json'], { cwd: root, flags: {} as GlobalFlags });
+    if (!r.ok) throw new Error('status dispatch failed');
+    expect((r.data as { standingDown: boolean }).standingDown).toBe(false);
+    git(root, ['config', '--local', 'user.name', 'Original Name']);
+    git(root, ['config', '--local', 'user.email', 'original@x.com']);
+  });
+
+  it('identity use reports the agent state (the extension passphrase gate reads it)', async () => {
+    const k = await addIdentity({ name: 'Agenter', email: 'agenter@x.com' });
+    // global scope keeps the repo's local config untouched for the tests after
+    const r = await dispatch('use', [k.id, '--config-scope', 'global', '--json'], { cwd: root, flags: {} as GlobalFlags });
+    if (!r.ok) throw new Error('use dispatch failed');
+    expect((r.data as { agent: unknown }).agent).not.toBeUndefined();
+    git(root, ['config', '--global', '--unset', 'user.name']);
+    git(root, ['config', '--global', '--unset', 'user.email']);
+  });
+
+  it('identity use --config-scope global writes the global config, repo-local untouched', async () => {
+    const g = await addIdentity({ name: 'Globalia', email: 'globalia@x.com' });
+    const { result } = await applyIdentity(g.id, { source: 'cli', cwd: root, configScope: 'global' });
+    expect(result.name).toBe('Globalia');
+    expect(await getConfig('user.name', 'global')).toBe('Globalia');
+    expect(await getConfig('user.email', 'global')).toBe('globalia@x.com');
+    // the repo's own config is untouched by a global-scope apply
+    expect(await getConfig('user.name', 'local', root)).toBe('Original Name');
+    // the CLI flag parses and reaches the same path
+    const r = await dispatch('use', [g.id, '--config-scope', 'global', '--json'], {
+      cwd: root,
+      flags: {} as GlobalFlags,
+    });
+    if (!r.ok) throw new Error('use dispatch failed');
+    expect((r.data as { applied: { configScope: string } }).applied.configScope).toBe('global');
+    expect(await getConfig('user.name', 'global')).toBe('Globalia');
+    git(root, ['config', '--global', '--unset', 'user.name']);
+    git(root, ['config', '--global', '--unset', 'user.email']);
   });
 
   it('importKey references the source file (no copy) with a matching fingerprint', async () => {
