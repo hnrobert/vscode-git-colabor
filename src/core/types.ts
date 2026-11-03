@@ -42,6 +42,9 @@ export type SignKeyRef =
 export type KeyBinding = {
   pushKey?: SshKeyRef;
   signKey?: SignKeyRef;
+  /** the user turned commit signing on for this identity — every later apply
+   *  (repo or session) re-enables signing with its key until turned off */
+  signCommits?: boolean;
 };
 
 export type IdentityMap = {

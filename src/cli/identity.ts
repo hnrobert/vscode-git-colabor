@@ -16,6 +16,7 @@ import {
   removeIdentity,
   setDefault,
   setPushKey,
+  setSignCommits,
   setSignKey,
   unhideIdentityEmail,
 } from '../core/identity/map.js';
@@ -50,7 +51,7 @@ const AUDIT_SPEC = { valueFlags: ['--repo', '--since', '--tail'] };
 const APPLY_SPEC = { valueFlags: ['--name', '--email', '--ssh-command', '--source'] };
 const SET_SPEC = {
   valueFlags: ['--name', '--email', '--key', '--gpg-key', '--sign-key', '--scope'],
-  boolFlags: ['--no-key', '--no-gpg-key', '--no-sign-key'],
+  boolFlags: ['--no-key', '--no-gpg-key', '--no-sign-key', '--sign-commits', '--no-sign-commits'],
 };
 const SIGN_SPEC = { valueFlags: [], boolFlags: ['--off'] };
 const UNSET_SPEC = { valueFlags: ['--scope'], boolFlags: [] };
@@ -86,6 +87,8 @@ function identityToJson(i: Identity, defaultId?: string, agentPrints?: Set<strin
     fromConfig: !!i.fromConfig,
     scope: i.scope ?? (i.imported ? 'project' : 'machine'),
     isDefault: i.id === defaultId,
+    /** the user turned commit signing on for this identity */
+    signCommits: !!binding?.signCommits,
   };
 }
 
@@ -343,7 +346,7 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   const id = p.positionals[0];
   if (!id) {
     throw Errors.usage(
-      'git colabor identity set <id> --name <n> | --email <e> | --key <path> | --no-key | --gpg-key <k> | --no-gpg-key | --sign-key <path> | --no-sign-key | --scope <s>',
+      'git colabor identity set <id> --name <n> | --email <e> | --key <path> | --no-key | --gpg-key <k> | --no-gpg-key | --sign-key <path> | --no-sign-key | --sign-commits | --no-sign-commits | --scope <s>',
     );
   }
   await getIdentity(id); // validates existence
@@ -394,9 +397,17 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
       warnings.push({ code: 'encrypted-key', message: 'sign key is encrypted; it signs via the extension askpass session or an ssh-agent' });
     }
   }
+  if (p.bools.has('--sign-commits')) {
+    await setSignCommits(id, true);
+    keyTouched = true;
+  }
+  if (p.bools.has('--no-sign-commits')) {
+    await setSignCommits(id, false);
+    keyTouched = true;
+  }
   if (Object.keys(patch).length === 0 && !keyTouched) {
     throw Errors.usage(
-      'identity set needs at least one of --name / --email / --key / --no-key / --gpg-key / --no-gpg-key / --sign-key / --no-sign-key / --scope',
+      'identity set needs at least one of --name / --email / --key / --no-key / --gpg-key / --no-gpg-key / --sign-key / --no-sign-key / --sign-commits / --no-sign-commits / --scope',
     );
   }
   const next = Object.keys(patch).length > 0 ? await updateIdentity(id, patch) : await getIdentity(id);

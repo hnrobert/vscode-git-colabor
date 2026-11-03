@@ -311,6 +311,37 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     await rm(keyDir, { recursive: true, force: true });
   });
 
+  it('signing is remembered per identity: switching to a key-less identity turns it off, switching back re-enables it', async () => {
+    const keyDir = await mkdtemp(join(tmpdir(), 'ca-key-remember-'));
+    const keyPath = join(keyDir, 'id_remember');
+    spawnSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', keyPath, '-C', 'remember'], { encoding: 'utf8' });
+    const imp = await importKey(keyPath);
+    const signer = await addIdentity({ name: 'Remember', email: 'remember@x.com' });
+    await setPushKey(signer.id, { path: imp.path, fingerprint: imp.fingerprint });
+    const plain = await addIdentity({ name: 'Plain', email: 'plain@x.com' });
+
+    // signing on → config signs AND the preference is stored
+    await setCommitSigning({ source: 'cli', cwd: root, id: signer.id, on: true });
+    expect(await getKeyBinding(signer.id)).toMatchObject({ signCommits: true });
+
+    // switching to a key-less identity stops signing (no key to sign with)
+    await applyIdentity(plain.id, { source: 'cli', cwd: root });
+    expect(await getConfig('commit.gpgsign', 'local', root)).toBeUndefined();
+
+    // switching back re-enables signing — no explicit sign call needed
+    await applyIdentity(signer.id, { source: 'cli', cwd: root });
+    expect(await getConfig('commit.gpgsign', 'local', root)).toBe('true');
+    expect(await getConfig('user.signingKey', 'local', root)).toBe(keyPath);
+
+    // and an explicit OFF drops the preference for good
+    await setCommitSigning({ source: 'cli', cwd: root, id: signer.id, on: false });
+    expect((await getKeyBinding(signer.id)).signCommits).not.toBe(true);
+    await applyIdentity(signer.id, { source: 'cli', cwd: root });
+    expect(await getConfig('commit.gpgsign', 'local', root)).toBeUndefined();
+
+    await rm(keyDir, { recursive: true, force: true });
+  });
+
   it('signing off really stops signing when global config still signs, and status names the scope', async () => {
     const keyDir = await mkdtemp(join(tmpdir(), 'ca-key-global-'));
     const keyPath = join(keyDir, 'id_sign');

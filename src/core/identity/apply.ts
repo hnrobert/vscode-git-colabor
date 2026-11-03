@@ -170,13 +170,16 @@ export async function applyIdentity(
   result.keyMissing = keyMissing;
   result.keyDegraded = keyDegraded;
 
-  // signing re-bind: when the target scope signs, point it at this identity's sign key
+  // signing re-bind: when the target scope already signs, point it at this
+  // identity's sign key; when the identity carries the per-identity signing
+  // preference (its user once turned signing on), re-ENABLE signing —
+  // switching away (to a key-less identity) and back must restore it
   if (identity) {
     const scope = opts.configScope === 'global' ? 'global' : 'local';
     const gpgsign = await getConfig('commit.gpgsign', scope, opts.cwd);
-    if (gpgsign === 'true') {
+    if (gpgsign === 'true' || binding.signCommits) {
       const okSign = await writeIdentitySigning(identity, opts.cwd, opts.askpassScriptPath, scope);
-      if (!okSign) await disableSigning(opts.cwd, scope);
+      if (!okSign && gpgsign === 'true') await disableSigning(opts.cwd, scope);
     }
   }
 

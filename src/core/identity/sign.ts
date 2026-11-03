@@ -1,6 +1,6 @@
 import { getEffectiveConfig, setConfig, unsetConfig } from '../git/config.js';
 import { topLevel, insideWorkTree } from '../git/rev.js';
-import { getIdentity, getKeyBinding } from './map.js';
+import { getIdentity, getKeyBinding, setSignCommits } from './map.js';
 import { keyUsable } from './keys.js';
 import { keyInAgent } from './agent.js';
 import { appendAudit } from '../logging/audit.js';
@@ -152,6 +152,9 @@ export async function setCommitSigning(opts: {
   if (!opts.on) {
     // no managed flag anymore — off always means fully off
     await disableSigning(opts.cwd);
+    // off also drops the per-identity preference — switching back to this
+    // identity must NOT silently re-enable what was stopped
+    if (opts.id) await setSignCommits(opts.id, false);
     await appendAudit({ action: 'identity.sign', source: opts.source, identity: opts.id, repo: await safeTopLevel(opts.cwd), result: 'ok', message: 'signing off' });
     return { signing: false };
   }
@@ -160,6 +163,8 @@ export async function setCommitSigning(opts: {
   const identity = await getIdentity(opts.id);
   const cfg = await writeIdentitySigning(identity, opts.cwd, opts.askpassScriptPath);
   if (!cfg) throw Errors.usage(`identity "${identity.name}" has no usable SSH or GPG key to sign with`);
+  // remember the choice: every later apply of this identity signs again
+  await setSignCommits(opts.id, true);
   await appendAudit({
     action: 'identity.sign',
     source: opts.source,

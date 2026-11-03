@@ -139,6 +139,12 @@ export async function setSignKey(id: string, ref: SignKeyRef | undefined): Promi
   await setKeyBinding(id, { ...b, signKey: ref });
 }
 
+/** Record the per-identity commit-signing preference (re-applied on every later use). */
+export async function setSignCommits(id: string, on: boolean): Promise<void> {
+  const b = await getKeyBinding(id);
+  await setKeyBinding(id, { ...b, signCommits: on ? true : undefined });
+}
+
 /** Hide an email from future auto-imports (hide machine-level). */
 export async function hideIdentityEmail(email: string): Promise<void> {
   const map = await readMap();
