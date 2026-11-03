@@ -38,16 +38,6 @@
     "configuration": {
       "title": "Git Colabor",
       "properties": {
-        "gitColabor.user.name": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Overrides repo `user.name` in the extension context — **always wins** over git config. If empty, the active identity's name is used."
-        },
-        "gitColabor.user.email": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Overrides repo `user.email` in the extension context."
-        },
         "gitColabor.defaultIdentity": {
           "type": "string",
           "default": "",

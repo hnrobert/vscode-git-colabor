@@ -265,7 +265,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   };
 
-  // repo open/close/selection: debounced reconcile (enforce setting-wins) + refresh.
+  // repo open/close/selection: debounced reconcile (auto-apply) + refresh.
   // The vscode.git API may not be ready when we activate (notably under
   // Remote-SSH, where it can land in another extension-host process), so
   // wire the subscriptions only after the API is acquired and retry on
@@ -333,7 +333,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('gitColabor.postCommitSolo')) refresh();
-      if (e.affectsConfiguration('gitColabor.user') || e.affectsConfiguration('gitColabor.defaultIdentity')) {
+      if (e.affectsConfiguration('gitColabor.defaultIdentity') || e.affectsConfiguration('gitColabor.useTarget')) {
         runReconcile();
         refresh();
       }

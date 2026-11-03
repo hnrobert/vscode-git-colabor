@@ -118,17 +118,17 @@ Whether `git commit` signs is the result of layered git config — this window's
 - **Effective state:** `identity status` reports `signing` as git resolves it (`enabled`, `format`, `key`, `scope` + `origin` file of `commit.gpgsign`, `managed`, and the GPG key's `keyEmails`); the CLI runs with `GIT_CONFIG_COUNT=0`, so the extension overlays the window layer itself (`session/signing.ts`). The **Signing** row shows the result and its layer, and warns when the key is not the active identity's (another identity's key, or a GPG key without their email); applying a window identity into that state prompts once.
 - The window layer covers commits made from the Source Control view (the extension host's env); integrated-terminal commits follow repo/global config.
 
-## 6. The reconcile loop (setting-wins)
+## 6. The reconcile loop (auto-apply)
 
 `ReconcileController` enforces VS Code settings over whatever else (including the user's terminal) has touched the repo:
 
 1. Resolve **every open repository** of the session (`vscode.git`); none → no-op. Identity application, reconcile, signing toggles, and state watching all operate session-wide — one window, one identity configuration, every repo.
 2. `identity status` → `activeId = activeIdentity ?? gitColabor.defaultIdentity`.
-3. If an id resolves: `identity use <id> --source ext`, adding `--as-name`/`--as-email` **only when both** `gitColabor.user.name` and `.email` are set — settings always win over the identity's own fields (the SSH key still comes from the identity).
+3. If an id resolves: `identity use <id> --source ext`. (The old `gitColabor.user.*` "settings always win" override was removed — the layered Use actions and config-derived identities replaced it.)
 4. Else if both name+email settings exist (no identity): hidden `identity _apply --name --email --source ext`.
 5. Surface `data.conflict.heldBy` as a warning notification.
 
-**Triggers:** activation; repo open/close/selection change (400 ms debounce, then reconcile + refresh); `gitColabor.user.*` / `gitColabor.defaultIdentity` setting changes. The state-file watcher below deliberately triggers only a *refresh* — reconciling on it would fight the terminal CLI that just wrote the state.
+**Triggers:** activation; repo open/close/selection change (400 ms debounce, then reconcile + refresh); `gitColabor.defaultIdentity` / `gitColabor.useTarget` setting changes. The state-file watcher below deliberately triggers only a *refresh* — reconciling on it would fight the terminal CLI that just wrote the state.
 
 ## 7. UI refresh & drift watchers
 

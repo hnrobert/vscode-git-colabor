@@ -87,11 +87,10 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `gitColabor.user.name` / `gitColabor.user.email` | `""` | **Always win** over any identity's name/email in repos you open (re-applied by the reconcile loop) |
 | `gitColabor.defaultIdentity` | `""` | Identity id auto-activated when a repo has none active |
 | `gitColabor.cliPath` | `""` | Override the bundled CLI path (`resources/cli.cjs`) |
 | `gitColabor.coAuthorIdentities` | `[]` | Remembered co-authors (`"Name <email>"` entries in your VS Code user settings; right-click an identity → *Remember on VS Code User Settings*); these entries (plus all identities except the active one, and the repo's commit history) feed the Co-authors list |
-| `gitColabor.autoApplyOnRepoOpen` | `true` | Auto-apply the default/active identity and `gitColabor.user.*` when a repo opens; off = only explicit *Use Identity* writes config |
+| `gitColabor.autoApplyOnRepoOpen` | `true` | Auto-apply the config-derived active identity (or `gitColabor.defaultIdentity` on a fresh repo) when a repo opens; off = only explicit *Use* writes config |
 | `gitColabor.conflictWarningStaleMinutes` | *unset* | Advisory `heldBy` staleness threshold (minutes); **unset = a session lock never goes stale** |
 | `gitColabor.githubFetch` | `true` | Offer the GitHub user search (*Add Identity → From GitHub…*); hits `api.github.com` unauthenticated (60 req/h) |
 | `gitColabor.postCommitSolo` | `false` | Clear the selected co-authors after each commit (dual watch on `COMMIT_EDITMSG` + the reflog — aborted editor saves and checkouts never trigger it) |
