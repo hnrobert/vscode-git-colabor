@@ -25,6 +25,8 @@ export async function logoutIdentity(opts: {
   source: Source;
   cwd?: string;
   id?: string;
+  /** false = keep the key in ssh-agent (the extension asks first) */
+  removeAgentKey?: boolean;
 }): Promise<{
   identity: { id: string; name: string; fingerprint?: string };
   agentRemoved: boolean;
@@ -41,7 +43,7 @@ export async function logoutIdentity(opts: {
   const identity = await getIdentity(id);
   const binding = await getKeyBinding(id);
 
-  const agentRemoved = binding.pushKey ? await removeKey(binding.pushKey.path) : false;
+  const agentRemoved = opts.removeAgentKey === false ? false : binding.pushKey ? await removeKey(binding.pushKey.path) : false;
 
   // config layer: the identity's name/email clear on match, and any KEY
   // configs referencing its keys go too — a previous `use` can leave them

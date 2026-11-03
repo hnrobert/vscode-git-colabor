@@ -54,6 +54,7 @@ const SET_SPEC = {
   boolFlags: ['--no-key', '--no-gpg-key', '--no-sign-key', '--sign-commits', '--no-sign-commits'],
 };
 const SIGN_SPEC = { valueFlags: [], boolFlags: ['--off'] };
+const LOGOUT_SPEC = { valueFlags: [], boolFlags: ['--no-agent'] };
 const UNSET_SPEC = { valueFlags: ['--scope'], boolFlags: [] };
 const AGENT_SPEC = { valueFlags: [], boolFlags: ['--remove', '--verify'] };
 
@@ -120,7 +121,7 @@ export async function dispatch(command: string | undefined, tokens: string[], ct
     case 'rm':
       return rm(parseCommandArgs(tokens));
     case 'logout':
-      return logout(parseCommandArgs(tokens), ctx);
+      return logout(parseCommandArgs(tokens, LOGOUT_SPEC), ctx);
     case 'unset-config':
       return unsetConfigForIdentity(parseCommandArgs(tokens, UNSET_SPEC), ctx);
     case 'agent':
@@ -423,7 +424,12 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
 }
 
 async function logout(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
-  const r = await logoutIdentity({ source: 'cli', cwd: ctx.cwd, id: p.positionals[0] });
+  const r = await logoutIdentity({
+    source: 'cli',
+    cwd: ctx.cwd,
+    id: p.positionals[0],
+    removeAgentKey: !p.bools.has('--no-agent'),
+  });
   return ok({ identity: r.identity, cleared: r.cleared });
 }
 

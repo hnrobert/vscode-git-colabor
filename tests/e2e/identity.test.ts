@@ -500,6 +500,28 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     await rm(keyDir, { recursive: true, force: true });
   });
 
+  it('logout --no-agent skips the ssh-agent unload (the extension asks first)', async () => {
+    const keyDir = await mkdtemp(join(tmpdir(), 'ca-key-noagent-'));
+    const keyPath = join(keyDir, 'id_noagent');
+    spawnSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', keyPath, '-C', 'noagent'], { encoding: 'utf8' });
+    const imp = await importKey(keyPath);
+    const id = await addIdentity({ name: 'NoAgent', email: 'noagent@x.com' });
+    await setPushKey(id.id, { path: imp.path, fingerprint: imp.fingerprint });
+    git(root, ['config', '--local', 'user.name', 'NoAgent']);
+    git(root, ['config', '--local', 'user.email', 'noagent@x.com']);
+    try {
+      const r = await dispatch('logout', [id.id, '--no-agent', '--json'], { cwd: root, flags: {} as GlobalFlags });
+      if (!r.ok) throw new Error('logout dispatch failed');
+      expect((r.data as { cleared: { agent: boolean } }).cleared.agent).toBe(false);
+      // config still cleared even though the agent was left alone
+      expect(await getConfig('user.name', 'local', root)).toBeUndefined();
+      git(root, ['config', '--local', 'user.name', 'Original Name']);
+      git(root, ['config', '--local', 'user.email', 'original@x.com']);
+    } finally {
+      await rm(keyDir, { recursive: true, force: true });
+    }
+  });
+
   it('audit log never contains the passphrase command secret or key body', async () => {
     const id = await addIdentity({ name: 'Sec', email: 'sec@x.com' });
     await applyIdentity(id.id, { source: 'cli', cwd: root });
