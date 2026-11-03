@@ -216,13 +216,8 @@
         "category": "Git Colabor"
       },
       {
-        "command": "gitColabor._signCommitsWithKey",
-        "title": "Sign Commits with This Identity's Auth Key",
-        "category": "Git Colabor"
-      },
-      {
-        "command": "gitColabor._signCommitsWithAnotherKey",
-        "title": "Sign Commits with Another SSH Key…",
+        "command": "gitColabor._signCommitsWithSshKey",
+        "title": "Sign Commits with SSH Key…",
         "icon": "$(key)"
       },
       {
@@ -352,15 +347,9 @@
           "group": "3_key@3"
         },
         {
-          "command": "gitColabor._signCommitsWithKey",
-          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity|signing)(?=.*-k)(?!.*-ss)/",
-          "group": "3_key@4",
-          "title": null
-        },
-        {
-          "command": "gitColabor._signCommitsWithAnotherKey",
-          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity|signing)(?!.*-sk)(?!.*-sg)/",
-          "group": "3_key@5"
+          "command": "gitColabor._signCommitsWithSshKey",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity|signing)(?!.*-ss)(?!.*-sk)(?!.*-sg)/",
+          "group": "3_key@4"
         },
         {
           "command": "gitColabor._signCommitsWithGpgKey",
@@ -369,7 +358,7 @@
         },
         {
           "command": "gitColabor._stopSigningCommits",
-          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^signing-on|-s[sgk]/",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^signing-on|-ss|-s[sgk]/",
           "group": "3_key@7"
         },
         {
@@ -447,10 +436,6 @@
           "when": "false"
         },
         {
-          "command": "gitColabor._signCommitsWithKey",
-          "when": "false"
-        },
-        {
           "command": "gitColabor._signCommitsWithGpgKey",
           "when": "false"
         },
@@ -475,7 +460,7 @@
           "when": "false"
         },
         {
-          "command": "gitColabor._signCommitsWithAnotherKey",
+          "command": "gitColabor._signCommitsWithSshKey",
           "when": "false"
         },
         {

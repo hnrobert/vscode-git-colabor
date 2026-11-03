@@ -86,8 +86,7 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   reg('gitColabor._changeIdentityKey', (item) => modifyIdentityField(deps, item, 'key').then(refresh));
 
   // Opt-in commit signing at the identity's layer: this window, or repo config.
-  reg('gitColabor._signCommitsWithKey', (item) => startCommitSigning(deps, item, 'auth'));
-  reg('gitColabor._signCommitsWithAnotherKey', (item) => startCommitSigning(deps, item, 'another'));
+  reg('gitColabor._signCommitsWithSshKey', (item) => startCommitSigning(deps, item, 'ssh'));
   reg('gitColabor._signCommitsWithGpgKey', (item) => startCommitSigning(deps, item, 'gpg'));
   reg('gitColabor._stopSigningCommits', () => stopCommitSigning(deps));
 

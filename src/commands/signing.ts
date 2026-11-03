@@ -59,16 +59,15 @@ export async function stopCommitSigning(deps: CommandDeps): Promise<void> {
 }
 
 /**
- * Turn signing on for an identity. Three explicit choices:
- *  - `auth`   — the identity's own SSH AUTH key (push key); clears any
- *              dedicated sign-key binding first so signing really follows it
- *  - `another`— an SSH key picked now, bound as the identity's dedicated
- *              sign key (separate from the auth key)
- *  - `gpg`   — a GPG key picked now, bound as the sign key
+ * Turn signing on for an identity. Two explicit choices:
+ *  - `ssh` — an SSH key picked now (candidates include the identity's OWN
+ *            auth key first, then store keys, ~/.ssh, and global-config
+ *            keys), bound as the identity's dedicated sign key
+ *  - `gpg` — a GPG key picked now, bound as the sign key
  * The binding is a PREFERENCE in the store — it re-applies on every later
  * use/session of this identity.
  */
-export async function startCommitSigning(deps: CommandDeps, item: unknown, kind: 'auth' | 'another' | 'gpg'): Promise<void> {
+export async function startCommitSigning(deps: CommandDeps, item: unknown, kind: 'ssh' | 'gpg'): Promise<void> {
   const id = rowIdentityId(item);
   if (!id) {
     deps.log.warn('signing command invoked without an identity payload');
@@ -79,17 +78,7 @@ export async function startCommitSigning(deps: CommandDeps, item: unknown, kind:
   if (!identity) return;
   const cwd = deps.git.selectedRepoRoot();
 
-  if (kind === 'auth') {
-    if (!identity.hasKey || !identity.sshKeyPath) {
-      vscode.window.showWarningMessage(`Git Colabor: "${identity.name}" has no SSH auth key to sign with.`);
-      return;
-    }
-    if (identity.signKey) {
-      // back to the auth key: drop the dedicated sign-key preference
-      if ((await run(deps, ['identity', 'set', id, '--no-sign-key'], { cwd })) === undefined) return;
-      identity = { ...identity, signKey: null };
-    }
-  } else if (kind === 'another') {
+  if (kind === 'ssh') {
     const path = await pickSshKey(deps, identity);
     if (!path) return;
     if ((await run(deps, ['identity', 'set', id, '--sign-key', path], { cwd })) === undefined) return;
@@ -107,11 +96,11 @@ export async function startCommitSigning(deps: CommandDeps, item: unknown, kind:
 }
 
 /**
- * Pick an SSH key to sign with. Candidates: keys other identities in the
- * store already reference, private keys in ~/.ssh, and keys referenced by
- * the GLOBAL git config (`core.sshCommand -i`, path-shaped `user.signingKey`)
- * — those appear even when this repo's local config shadows them, so the
- * key you push with globally is one pick away.
+ * Pick an SSH key to sign with. Candidates, in order: THIS identity's own
+ * auth/sign keys, keys other store identities reference, private keys in
+ * ~/.ssh, and keys referenced by the GLOBAL git config (`core.sshCommand
+ * -i`, path-shaped `user.signingKey`) — those appear even when this repo's
+ * local config shadows them.
  */
 async function pickSshKey(deps: CommandDeps, identity: IdentityJson): Promise<string | undefined> {
   const [data, scanned, globalPaths] = await Promise.all([
@@ -121,22 +110,19 @@ async function pickSshKey(deps: CommandDeps, identity: IdentityJson): Promise<st
   ]);
   type Row = { label: string; description: string; detail: string; path: string; rank: number };
   const rows = new Map<string, Row>();
+  const add = (path: string | undefined, owner: string, rank: number, detail = `referenced by ${owner}`): void => {
+    if (!path || !existsSync(path) || rows.has(path)) return;
+    rows.set(path, { label: `$(key) ${basename(path)}`, description: dirname(path), detail, path, rank });
+  };
+  // this identity's own keys come first — its auth key is one pick away
+  add(identity.sshKeyPath, `${identity.name} (auth key)`, 0);
+  add(identity.signKey?.format === 'ssh' ? identity.signKey.path : undefined, `${identity.name} (sign key)`, 0);
   for (const i of data?.identities ?? []) {
-    for (const [path, owner] of [
-      [i.sshKeyPath, i.id === identity.id ? `${i.name} (auth key)` : i.name],
-      [i.signKey?.format === 'ssh' ? i.signKey.path : undefined, i.id === identity.id ? `${i.name} (sign key)` : i.name],
-    ] as Array<[string | undefined, string]>) {
-      if (!path || !existsSync(path)) continue;
-      if (!rows.has(path)) {
-        rows.set(path, { label: `$(key) ${basename(path)}`, description: dirname(path), detail: `referenced by ${owner}`, path, rank: 0 });
-      }
-    }
+    if (i.id === identity.id) continue;
+    add(i.sshKeyPath, i.name, 1);
+    add(i.signKey?.format === 'ssh' ? i.signKey.path : undefined, i.name, 1);
   }
-  for (const k of scanned) {
-    if (!rows.has(k.path)) {
-      rows.set(k.path, { label: `$(key) ${k.name}`, description: dirname(k.path), detail: k.kind, path: k.path, rank: 1 });
-    }
-  }
+  for (const k of scanned) add(k.path, k.kind, 2, k.kind);
   for (const path of globalPaths) {
     if (!existsSync(path)) continue;
     if (!rows.has(path)) {
@@ -145,7 +131,7 @@ async function pickSshKey(deps: CommandDeps, identity: IdentityJson): Promise<st
         description: dirname(path),
         detail: 'from global git config (not active in this repo)',
         path,
-        rank: 2,
+        rank: 3,
       });
     } else {
       rows.get(path)!.detail += ' · global git config';
