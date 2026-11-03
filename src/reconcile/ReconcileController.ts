@@ -39,8 +39,17 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
   }
 
   // active = config-derived; defaultIdentity only fills on repos where config
-  // carries nothing (fresh — no user.name/email anywhere)
-  const activeId = status?.activeIdentity?.id ?? (status?.inRepo && !status?.activeIdentity ? defaultIdentity() : undefined);
+  // carries nothing (fresh — no user.name/email anywhere). The setting takes
+  // the identity's id OR its email (email is the person key; it's the value
+  // the tree rows display).
+  const configured = defaultIdentity();
+  const fallback =
+    configured && status?.inRepo && !status.activeIdentity
+      ? status.identities.find(
+          (i) => i.id === configured || i.email.toLowerCase() === configured.trim().toLowerCase(),
+        )?.id
+      : undefined;
+  const activeId = status?.activeIdentity?.id ?? fallback;
 
   if (activeId) {
     logger.info(`reconcile[${root}]: applying identity ${activeId}`);

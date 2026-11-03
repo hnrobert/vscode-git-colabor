@@ -41,7 +41,7 @@
         "gitColabor.defaultIdentity": {
           "type": "string",
           "default": "",
-          "description": "Identity id to auto-activate when a repo opens and none is active."
+          "markdownDescription": "Identity to auto-activate when a repo opens with none active. Accepts the identity's **email** (e.g. `me@work.io` — shown on every identity row) or its **id** (`id_a1b2c3d4e5f6` — the identity row's tooltip and `git colabor identity ls` show it). Only applies to repos whose git config carries no identity at all (fresh clones)."
         },
         "gitColabor.cliPath": {
           "type": "string",

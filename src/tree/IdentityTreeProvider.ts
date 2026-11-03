@@ -347,7 +347,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
               : 'found in repo history';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
         description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}${i.id ? `\nid: ${i.id}` : ''}`,
         icon,
         iconColor: (i.active ? signingWithThisKey : i.hasKey)
           ? 'gitDecoration.addedResourceForeground'
