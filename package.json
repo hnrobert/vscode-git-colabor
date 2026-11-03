@@ -102,6 +102,21 @@
           ],
           "description": "Behavior when cancelling a key passphrase prompt at use/session time."
         },
+        "gitColabor.logoutAgentKey": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "remove",
+            "keep"
+          ],
+          "default": "ask",
+          "markdownDescription": "What **Logout Identity** does with the identity's key when it is loaded in ssh-agent:\n- `ask` — a Yes/No dialog per logout (dismissing it aborts the logout; \"Always Remove/Keep\" stores the choice here)\n- `remove` — always unload the key from ssh-agent\n- `keep` — always leave it loaded\n\nThe key FILE is never touched either way.",
+          "enumDescriptions": [
+            "Ask each time — the dialog also offers \"Always Remove\" / \"Always Keep\".",
+            "Always remove the key from ssh-agent on logout.",
+            "Always keep the key loaded in ssh-agent on logout."
+          ]
+        },
         "gitColabor.useTarget": {
           "type": "string",
           "enum": [

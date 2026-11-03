@@ -1,5 +1,13 @@
 import * as vscode from 'vscode';
-import { conflictWarningStaleMinutes, githubFetch, keyPromptCancel, setCoAuthorMemory, useTarget } from '../config.js';
+import {
+  conflictWarningStaleMinutes,
+  githubFetch,
+  keyPromptCancel,
+  logoutAgentKey,
+  setCoAuthorMemory,
+  setLogoutAgentKey,
+  useTarget,
+} from '../config.js';
 import { parseGitHubQuery, searchCandidates, type IdentityCandidate } from '../github/users.js';
 import type { IdentityJson, JsonResult } from '../types.js';
 import {
@@ -577,6 +585,35 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
     : await pickIdentity(deps, 'Select identity to logout (clear key)');
   if (!identity) return;
 
+  // ssh-agent: a loaded key normally unloads on logout — ask first (or
+  // follow the remembered choice). Dismissing the dialog (✕ / Esc) aborts
+  // the WHOLE logout; "Always …" persists the choice to user settings.
+  let removeAgentKey = true;
+  if (identity.inAgent && identity.sshKeyFingerprint) {
+    const pref = logoutAgentKey();
+    if (pref === 'keep') {
+      removeAgentKey = false;
+    } else if (pref === 'ask') {
+      const pick = await vscode.window.showWarningMessage(
+        `"${identity.name}"'s key is loaded in ssh-agent. Remove it from the agent on logout?`,
+        { modal: true, detail: `key ${identity.sshKeyFingerprint} — the key FILE is never touched` },
+        'Remove',
+        'Keep',
+        'Always Remove',
+        'Always Keep',
+      );
+      if (pick === 'Remove' || pick === 'Always Remove') {
+        removeAgentKey = true;
+        if (pick === 'Always Remove') await setLogoutAgentKey('remove');
+      } else if (pick === 'Keep' || pick === 'Always Keep') {
+        removeAgentKey = false;
+        if (pick === 'Always Keep') await setLogoutAgentKey('keep');
+      } else {
+        return; // dismissed — abort the whole logout
+      }
+    }
+  }
+
   // the git-config layer: when the identity being logged out ALSO lives in
   // raw git config (the "git config" tree row), ask what to do with it.
   // repo-only → clear silently; global → confirm; both → pick scope; none →
@@ -622,13 +659,15 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
   // the repo state would never be cleared and the tree kept showing the
   // identity as active
   const roots = deps.git.repoRoots;
+  const logoutArgs = ['identity', 'logout', identity.id];
+  if (!removeAgentKey) logoutArgs.push('--no-agent');
   let agentRemoved = false;
   if (roots.length === 0) {
-    const data = await run<{ cleared: { agent: boolean } }>(deps, ['identity', 'logout', identity.id]);
+    const data = await run<{ cleared: { agent: boolean } }>(deps, logoutArgs);
     agentRemoved = data?.cleared.agent ?? false;
   } else {
     for (const root of roots) {
-      const data = await run<{ cleared: { agent: boolean } }>(deps, ['identity', 'logout', identity.id], { cwd: root });
+      const data = await run<{ cleared: { agent: boolean } }>(deps, logoutArgs, { cwd: root });
       agentRemoved = agentRemoved || (data?.cleared.agent ?? false);
     }
   }
@@ -638,7 +677,12 @@ export async function logoutIdentity(deps: CommandDeps, item?: unknown): Promise
   }
   // a window-scoped identity also dies with the logout
   if (deps.session.get()?.id === identity.id) deps.session.clear();
-  vscode.window.showInformationMessage(`Logged out "${identity.name}".`);
+  const agentNote = identity.inAgent
+    ? agentRemoved
+      ? ' Key removed from ssh-agent.'
+      : ' Key kept in ssh-agent.'
+    : '';
+  vscode.window.showInformationMessage(`Logged out "${identity.name}".${agentNote}`);
 }
 
 /**

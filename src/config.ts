@@ -47,6 +47,18 @@ export function useTarget(): 'session' | 'repo' | 'global' {
   const v = vscode.workspace.getConfiguration('gitColabor').get<string>('useTarget');
   return v === 'repo' || v === 'global' ? v : 'session';
 }
+/**
+ * What logout does with a key that sits in ssh-agent: "ask" (default — a
+ * Yes/No dialog per logout; dismissing it aborts the logout), "remove"
+ * (always unload) or "keep" (never unload). Stored in USER settings.
+ */
+export function logoutAgentKey(): 'ask' | 'remove' | 'keep' {
+  const v = vscode.workspace.getConfiguration('gitColabor').get<string>('logoutAgentKey');
+  return v === 'remove' || v === 'keep' ? v : 'ask';
+}
+export async function setLogoutAgentKey(value: 'remove' | 'keep'): Promise<void> {
+  await vscode.workspace.getConfiguration('gitColabor').update('logoutAgentKey', value, vscode.ConfigurationTarget.Global);
+}
 export function postCommitSolo(): boolean {
   return getBool('postCommitSolo', false);
 }

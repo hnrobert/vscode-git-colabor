@@ -95,6 +95,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | `gitColabor.githubFetch` | `true` | Offer the GitHub user search (*Add Identity → From GitHub…*); hits `api.github.com` unauthenticated (60 req/h) |
 | `gitColabor.postCommitSolo` | `false` | Clear the selected co-authors after each commit (dual watch on `COMMIT_EDITMSG` + the reflog — aborted editor saves and checkouts never trigger it) |
 | `gitColabor.keyPromptCancel` | `cancel` | Behavior when cancelling a key passphrase prompt at use time: `cancel` aborts the whole application; `degrade` applies the identity without the key |
+| `gitColabor.logoutAgentKey` | `ask` | Logout with the key loaded in ssh-agent: `ask` (Yes/No dialog — dismissing aborts the logout, "Always…" stores the choice) / `remove` / `keep`; the key file is never touched |
 | `gitColabor.useTarget` | `session` | Which config layer the default Use action writes (row click / *Use Identity…*): `session` (this window only), `repo`, or `global`; the right-click items always name their target |
 | `gitColabor.logLevel` | `info` | Output channel log level: `trace` / `debug` / `info` / `warning` / `error` / `off` |
 
