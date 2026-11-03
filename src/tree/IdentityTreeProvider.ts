@@ -325,9 +325,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       const signsGpg = s.signing.enabled && s.signing.format === 'openpgp'
         && (sameKey(s.signing.key, (i as { gpgKey?: string }).gpgKey) || (sk?.format === 'openpgp' && sameKey(s.signing.key, sk.key)));
       const signingWithThisKey = signsSsh || signsGpg;
-      // the active row is always a plain CHECK — green when commits sign with
-      // this identity's key; the filled "verified" badge lives on the Signing
-      // row only (one place, not two)
+      // the active row is always a plain CHECK; green means ONLY "this
+      // identity has an SSH auth key" (active or not). Signing state lives
+      // on the Signing row — including its warnings
       const icon = i.active ? 'check' : 'account';
       // source label reflects where this identity was found — git config
       // scopes outrank every memory: the config file itself vouches for the
@@ -349,9 +349,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
         tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}${i.id ? `\nid: ${i.id}` : ''}`,
         icon,
-        iconColor: (i.active ? signingWithThisKey : i.hasKey)
-          ? 'gitDecoration.addedResourceForeground'
-          : undefined,
+        iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -rv = remembered in

@@ -81,6 +81,10 @@ export function signingMatch(s: SigningJson, active: KeyOwner | undefined, ident
   if (s.format === 'openpgp' && s.keyEmails?.length) {
     return s.keyEmails.includes(active.email.toLowerCase()) ? 'match' : 'mismatch';
   }
+  // the active identity HAS a key it would sign with (dedicated sign key or
+  // its auth key) — any other effective signing key is a mismatch, whoever
+  // or wherever it came from: their commits would show as Unverified
+  if (identitySigningKey(active)) return 'mismatch';
   return identities.some((i) => i.id !== active.id && owns(i)) ? 'mismatch' : 'unknown';
 }
 

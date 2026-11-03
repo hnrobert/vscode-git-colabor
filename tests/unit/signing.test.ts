@@ -82,10 +82,15 @@ describe('signingMatch', () => {
     expect(signingMatch({ ...globalGpg, keyEmails: ['alice@x.com'] }, alice, [alice, bob])).toBe('match');
   });
 
-  it("another identity's SSH key is a mismatch, an unknown key never warns", () => {
+  it("another identity's SSH key is a mismatch; so is ANY key when the active identity has one of its own", () => {
     const ssh = { ...off, enabled: true, format: 'ssh', scope: 'local', key: '/k/id_bob.pub' };
     expect(signingMatch(ssh, alice, [alice, bob])).toBe('mismatch');
-    expect(signingMatch({ ...ssh, key: '/elsewhere/id' }, alice, [alice, bob])).toBe('unknown');
+    // alice HAS a key she would sign with — a key owned by no one is still
+    // not hers: warn (their commits would show as Unverified)
+    expect(signingMatch({ ...ssh, key: '/elsewhere/id' }, alice, [alice, bob])).toBe('mismatch');
+    // a key-less identity has nothing to compare against — never warns
+    const keylessAlice = { ...alice, sshKeyPath: undefined, hasKey: false, gpgKey: undefined, signKey: null };
+    expect(signingMatch({ ...ssh, key: '/elsewhere/id' }, keylessAlice, [alice, bob])).toBe('unknown');
   });
 
   it('nothing to compare when not signing or no identity is active', () => {

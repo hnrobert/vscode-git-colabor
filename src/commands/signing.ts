@@ -42,6 +42,10 @@ export async function stopCommitSigning(deps: CommandDeps): Promise<void> {
     if (!(await inEveryRepo(deps, ['identity', 'sign', repoId, '--off']))) return;
   } else {
     await deps.session.setSigning(false);
+    // window-layer off drops the per-identity preference too — switching
+    // identities must not silently re-enable what was stopped
+    const id = deps.provider?.current?.activeIdentity?.id ?? deps.session.get()?.id;
+    if (id) await run(deps, ['identity', 'set', id, '--no-sign-commits'], { cwd: deps.git.selectedRepoRoot() });
   }
   // name the config that was signing without colabor — it keeps signing
   // everywhere else (other windows, terminal) and surprises users
@@ -173,9 +177,11 @@ async function signWithIdentityKey(deps: CommandDeps, identity: IdentityJson): P
     vscode.window.showInformationMessage(`Git Colabor: commits sign with ${whose} (repo config — every window).`);
   } else {
     // signing implies the window identity (the injection lives on it);
-    // re-applying also refreshes its key binding
+    // re-applying also refreshes its key binding. Persist the preference so
+    // switching away and back re-enables signing (repo AND session applies).
     await deps.session.apply(identity);
     await deps.session.setSigning(true);
+    await run(deps, ['identity', 'set', identity.id, '--sign-commits'], { cwd: deps.git.selectedRepoRoot() });
     vscode.window.showInformationMessage(
       `Git Colabor: commits in THIS WINDOW sign with ${whose} — repo config untouched.`,
     );

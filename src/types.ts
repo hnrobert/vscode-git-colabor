@@ -27,6 +27,8 @@ export type IdentityJson = {
   gpgKey?: string;
   /** dedicated signing key from the bindings table (wins over the push key) */
   signKey?: SignKeyJson | null;
+  /** the user turned commit signing on for this identity — every apply re-enables it */
+  signCommits?: boolean;
   isDefault: boolean;
 };
 

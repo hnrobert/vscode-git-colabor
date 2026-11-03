@@ -31,6 +31,8 @@ type ApplyInput = {
   sshKeyPath?: string;
   inAgent?: boolean;
   gpgKey?: string;
+  /** per-identity signing preference — identities that signed before sign again */
+  signCommits?: boolean;
 };
 
 /** Inject config pairs (empty = strip everything). */
@@ -91,7 +93,10 @@ export class SessionIdentityController {
     }
     const signingKey = identitySigningKey(identity);
     this.current = { id: identity.id, name: identity.name, email: identity.email, sshCommand, signingKey };
-    if (this.signingMode === 'identity' && !signingKey) this.signingMode = 'off';
+    // signing follows the identity: a stored preference re-enables it, and a
+    // key-less identity can never keep it on
+    if (identity.signCommits && signingKey) this.signingMode = 'identity';
+    else if (this.signingMode === 'identity' && !signingKey) this.signingMode = 'off';
     await this.rebuild();
     this.log.info(`session identity set: ${identity.name} <${identity.email}> (this window only)`);
     this.onChange?.();
