@@ -439,6 +439,26 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     await rm(keyDir, { recursive: true, force: true });
   });
 
+  it('switching to a key-less identity turns signing off even when only an outer scope signs', async () => {
+    // global config signs with a foreign key; repo-local carries nothing
+    git(root, ['config', '--global', 'commit.gpgsign', 'true']);
+    git(root, ['config', '--global', 'user.signingKey', '/keys/id_personal']);
+    git(root, ['config', '--global', 'gpg.format', 'ssh']);
+    try {
+      expect((await signingStatus(root)).enabled).toBe(true); // inherited from global
+      const plain = await addIdentity({ name: 'Bare', email: 'bare@x.com' });
+      await applyIdentity(plain.id, { source: 'cli', cwd: root });
+      // signing follows the identity: no key → really off, pinned locally
+      expect(await getConfig('commit.gpgsign', 'local', root)).toBe('false');
+      expect(await signingStatus(root)).toMatchObject({ enabled: false, scope: 'local' });
+    } finally {
+      git(root, ['config', '--local', '--unset', 'commit.gpgsign']);
+      git(root, ['config', '--global', '--unset', 'commit.gpgsign']);
+      git(root, ['config', '--global', '--unset', 'user.signingKey']);
+      git(root, ['config', '--global', '--unset', 'gpg.format']);
+    }
+  });
+
   it('a dedicated sign key (set --sign-key) wins over the auth key, and unbinding falls back', async () => {
     const keyDir = await mkdtemp(join(tmpdir(), 'ca-key-dual-'));
     const authPath = join(keyDir, 'id_auth');

@@ -9,7 +9,7 @@ import { clearStandingDown, getIdentity, getKeyBinding, setPushKey } from './map
 import { keyUsable, fingerprintOfFile } from './keys.js';
 import { disableSigning, writeIdentitySigning } from './sign.js';
 import { discoverSessionBridge } from '../secrets/session-bridge.js';
-import { getConfig } from '../git/config.js';
+import { getEffectiveConfig, getConfig } from '../git/config.js';
 import type { Identity, Source } from '../types.js';
 
 export type ApplyOpts = {
@@ -70,9 +70,11 @@ export async function applyResolvedIdentity(args: {
     // no key in effect — a leftover key from a previous identity is exactly
     // what triggers stray passphrase prompts; clear it
     await unsetConfig('core.sshCommand', scope, opts.cwd);
-    // signing follows the identity: no key to sign with → really off
-    const gpgsign = await getConfig('commit.gpgsign', scope, opts.cwd);
-    if (gpgsign === 'true') await disableSigning(opts.cwd, scope);
+    // signing follows the identity — no key to sign with means OFF, with no
+    // dialog asking about it: check the EFFECTIVE state (an outer scope may
+    // still sign with a foreign key) and pin this scope off when it would
+    const eff = await getEffectiveConfig('commit.gpgsign', opts.cwd, 'bool');
+    if (eff?.value === 'true') await disableSigning(opts.cwd, scope);
   }
 
   // report-only: is the push key already in the agent?
