@@ -1,13 +1,11 @@
 import * as vscode from 'vscode';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
-import { homedir } from 'node:os';
+import { basename, dirname } from 'node:path';
 import { rowIdentityId, run, type CommandDeps } from './shared.js';
 import { signingMismatchAction } from '../config.js';
 import { describeSigning, identitySigningKey, signingMatch } from '../session/signing.js';
 import { globalConfigKeyPaths } from '../ssh/gitConfig.js';
-import { scanPrivateKeys } from '../ssh/scanPrivateKeys.js';
+import { pickKeyFile, type KeyFileCandidate } from '../ssh/pickKeyFile.js';
 import type { GpgKeyJson, IdentityJson } from '../types.js';
 
 /**
@@ -98,87 +96,42 @@ export async function startCommitSigning(deps: CommandDeps, item: unknown, kind:
 }
 
 /**
- * Pick an SSH key to sign with. Candidates, in order: THIS identity's own
- * auth/sign keys, keys other store identities reference, private keys in
- * ~/.ssh, and keys referenced by the GLOBAL git config (`core.sshCommand
- * -i`, path-shaped `user.signingKey`) — those appear even when this repo's
- * local config shadows them.
+ * Pick an SSH key to sign with — the shared key picker (pickKeyFile) with
+ * this identity's own keys ranked first, then store keys, then the ~/.ssh
+ * scan, and keys referenced by the GLOBAL git config (those appear even when
+ * this repo's local config shadows them). Typed paths autocomplete; Browse
+ * opens ~/.ssh.
  */
 async function pickSshKey(deps: CommandDeps, identity: IdentityJson): Promise<string | undefined> {
-  const [data, scanned, globalPaths] = await Promise.all([
+  const [data, globalPaths] = await Promise.all([
     run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']),
-    scanPrivateKeys(join(homedir(), '.ssh')),
     globalConfigKeyPaths(),
   ]);
-  type Row = { label: string; description: string; detail: string; path: string; rank: number };
-  const rows = new Map<string, Row>();
-  const add = (path: string | undefined, owner: string, rank: number, detail = `referenced by ${owner}`): void => {
-    if (!path || !existsSync(path) || rows.has(path)) return;
-    rows.set(path, { label: `$(key) ${basename(path)}`, description: dirname(path), detail, path, rank });
+  const candidates: KeyFileCandidate[] = [];
+  const seen = new Set<string>();
+  const add = (path: string | undefined, owner: string, detail: string): void => {
+    if (!path || seen.has(path) || !existsSync(path)) return;
+    seen.add(path);
+    candidates.push({ path, label: `$(key) ${basename(path)}`, description: dirname(path), detail });
   };
   // this identity's own keys come first — its auth key is one pick away
-  add(identity.sshKeyPath, `${identity.name} (auth key)`, 0);
-  add(identity.signKey?.format === 'ssh' ? identity.signKey.path : undefined, `${identity.name} (sign key)`, 0);
+  add(identity.sshKeyPath, identity.name, `referenced by ${identity.name} (auth key)`);
+  add(identity.signKey?.format === 'ssh' ? identity.signKey.path : undefined, identity.name, `referenced by ${identity.name} (sign key)`);
   for (const i of data?.identities ?? []) {
     if (i.id === identity.id) continue;
-    add(i.sshKeyPath, i.name, 1);
-    add(i.signKey?.format === 'ssh' ? i.signKey.path : undefined, i.name, 1);
+    add(i.sshKeyPath, i.name, `referenced by ${i.name}`);
+    add(i.signKey?.format === 'ssh' ? i.signKey.path : undefined, i.name, `referenced by ${i.name}`);
   }
-  for (const k of scanned) add(k.path, k.kind, 2, k.kind);
   for (const path of globalPaths) {
-    if (!existsSync(path)) continue;
-    if (!rows.has(path)) {
-      rows.set(path, {
-        label: `$(globe) ${basename(path)}`,
-        description: dirname(path),
-        detail: 'from global git config (not active in this repo)',
-        path,
-        rank: 3,
-      });
-    } else {
-      rows.get(path)!.detail += ' · global git config';
-    }
+    add(path, 'global', 'from global git config (not active in this repo)');
   }
-  // always offer a way out of the scan: pick any file on disk
-  const BROWSE = '__browse__';
-  const sorted = [...rows.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
-  sorted.push({
-    label: '$(file) Browse for a key file…',
-    description: '',
-    detail: 'pick any private key file on disk',
-    path: BROWSE,
-    rank: 99,
-  });
-  const sel = await vscode.window.showQuickPick(sorted, { placeHolder: `SSH key to sign "${identity.name}"'s commits with` });
-  if (!sel) return undefined;
-  return sel.path === BROWSE ? browseKeyFile() : sel.path;
-}
-
-/**
- * OS file dialog for a private key — the quick pick only scans known places
- * (~/.ssh, the store, global git config); this covers everything else.
- * Content-checked: every private-key format carries a BEGIN … PRIVATE KEY
- * armor header (same detection as the ~/.ssh scan).
- */
-async function browseKeyFile(): Promise<string | undefined> {
-  const picked = await vscode.window.showOpenDialog({
-    canSelectMany: false,
+  const pick = await pickKeyFile({
+    title: 'SSH signing key',
+    placeHolder: `SSH key to sign "${identity.name}"'s commits with`,
+    candidates,
     openLabel: 'Sign with this key',
-    title: 'Pick an SSH private key file',
   });
-  const path = picked?.[0]?.fsPath;
-  if (!path) return undefined;
-  try {
-    const head = (await readFile(path, 'utf8')).slice(0, 256);
-    if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(head)) {
-      vscode.window.showWarningMessage('Git Colabor: that file does not look like a private key (no PRIVATE KEY header).');
-      return undefined;
-    }
-  } catch {
-    vscode.window.showWarningMessage('Git Colabor: cannot read that file.');
-    return undefined;
-  }
-  return path;
+  return pick?.kind === 'path' ? pick.path : undefined;
 }
 
 /** Turn signing on with the identity's effective key at the identity's layer. */

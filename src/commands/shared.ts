@@ -1,8 +1,6 @@
 import * as vscode from 'vscode';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { scanPrivateKeys } from '../ssh/scanPrivateKeys.js';
 import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
+import { pickKeyFile } from '../ssh/pickKeyFile.js';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
 import type { SessionIdentityController } from '../session/SessionIdentity.js';
@@ -69,76 +67,41 @@ export async function pickIdentity(deps: CommandDeps, placeholder: string): Prom
   return sel?.identity;
 }
 
-type KeyPickItem = vscode.QuickPickItem & { path?: string; skip?: boolean; clear?: boolean; generate?: boolean; paste?: boolean };
-
 /**
- * Pick the SSH private key for an identity: prefills the expanded `~/.ssh/`
- * path and offers the private key files actually found there
- * (content-scanned); any other path can be typed instead, Esc skips.
- * With `allowClear`, an extra entry returns `null` meaning "remove the key".
- * Two wizard entries create a key on the fly: "Generate New Key…" (type /
- * directory / file name / comment / optional passphrase) and "Paste Private
- * Key…" (multi-line paste via an untitled document). A generated passphrase
- * is banked straight into the session store via `deps`, when given.
+ * Pick the SSH private key for an identity — the shared key picker
+ * (pickKeyFile): ~/.ssh scan + typed-path autocomplete + Browse (opens
+ * ~/.ssh) + Generate/Paste wizards. Esc skips; with `allowClear` an extra
+ * entry returns `null` meaning "remove the key". A generated passphrase is
+ * banked straight into the session store via `deps`, when given.
  */
 export async function pickPrivateKey(allowClear = false, deps?: CommandDeps): Promise<string | null | undefined> {
-  const dir = join(homedir(), '.ssh');
-  const picked = await new Promise<{ item?: KeyPickItem; typed: string }>((resolve) => {
-    const pick = vscode.window.createQuickPick<KeyPickItem>();
-    pick.title = 'SSH private key';
-    pick.placeholder = 'Pick a key from ~/.ssh, type a path, generate or paste one — Esc to skip';
-    // NOTE: no programmatic pick.value prefill — a prefilled value acts as a
-    // filter (with matchOn*) and hides every item, showing an empty list
-    pick.matchOnDescription = true;
-    pick.matchOnDetail = true;
-    let typed = '';
-    pick.onDidChangeValue((v) => (typed = v));
-    void scanPrivateKeys(dir)
-      .catch(() => [])
-      .then((keys) => {
-        const items: KeyPickItem[] = [
-          ...keys.map((k) => ({ label: `$(key) ${k.name}`, description: k.path, detail: k.kind, path: k.path })),
-          { label: '$(add) Generate New Key…', detail: 'ed25519 / rsa / ecdsa — directory, file name, comment, optional passphrase', generate: true },
-          { label: '$(clippy) Paste Private Key…', detail: 'paste an existing private key, choose where to save it', paste: true },
-          { label: '$(circle-slash) No SSH key (skip)', skip: true },
-        ];
-        if (allowClear) items.push({ label: '$(trash) Clear the key reference', clear: true });
-        pick.items = items;
-        // first scanned key, or Generate when ~/.ssh has none
-        pick.activeItems = [items[0]];
-      });
-    pick.onDidAccept(() => {
-      resolve({ item: pick.activeItems[0], typed });
-      pick.hide();
-    });
-    pick.onDidHide(() => {
-      resolve({ item: undefined, typed });
-      pick.dispose();
-    });
-    pick.show();
+  const pick = await pickKeyFile({
+    title: 'SSH private key',
+    placeHolder: 'Pick a key, type a path (autocompletes), or browse ~/.ssh — Esc to skip',
+    generate: true,
+    paste: true,
+    skip: true,
+    clear: allowClear,
+    openLabel: 'Use this key',
   });
-
-  const { item, typed } = picked;
-  if (!item) {
-    // no active item — a typed path still counts
-    const t = typed.trim();
-    return t !== '' && !t.endsWith('/') ? t : undefined;
-  }
-  if (item.skip) return undefined;
-  if (item.clear) return null;
-  if (item.path) return item.path;
-  if (item.generate) {
-    const generated = await generateKeyWizard();
-    if (!generated) return undefined;
-    if (generated.encrypted && generated.passphrase && deps) {
-      deps.sessionPassphrases.set(generated.fingerprint, generated.passphrase);
-      deps.log.info(`passphrase for generated key ${generated.fingerprint} banked (session only)`);
+  if (!pick) return undefined;
+  switch (pick.kind) {
+    case 'skip':
+      return undefined;
+    case 'clear':
+      return null;
+    case 'path':
+      return pick.path;
+    case 'generate': {
+      const generated = await generateKeyWizard();
+      if (!generated) return undefined;
+      if (generated.encrypted && generated.passphrase && deps) {
+        deps.sessionPassphrases.set(generated.fingerprint, generated.passphrase);
+        deps.log.info(`passphrase for generated key ${generated.fingerprint} banked (session only)`);
+      }
+      return generated.path;
     }
-    return generated.path;
+    case 'paste':
+      return (await pasteKeyWizard())?.path;
   }
-  if (item.paste) {
-    const pasted = await pasteKeyWizard();
-    return pasted?.path;
-  }
-  return undefined;
 }
