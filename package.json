@@ -117,6 +117,19 @@
             "Always keep the key loaded in ssh-agent on logout."
           ]
         },
+        "gitColabor.signingMismatchAction": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "warn"
+          ],
+          "default": "auto",
+          "markdownDescription": "How a **signing mismatch** is reconciled after switching identities (the new identity would commit under a foreign signing key, e.g. a personal key from `~/.gitconfig`):\n- `auto` — signing silently follows: a keyed identity rebinds to its own key, a key-less one turns signing off. No dialog.\n- `warn` — a reminder dialog instead: **keep** the current (foreign) key, **switch** to the identity's key, or **stop** signing.",
+          "enumDescriptions": [
+            "Signing follows the identity silently — keyed rebinds to its key, key-less turns signing off.",
+            "Show a reminder dialog: Keep Current Key / Switch to Their Key / Stop Signing."
+          ]
+        },
         "gitColabor.useTarget": {
           "type": "string",
           "enum": [

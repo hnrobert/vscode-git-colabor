@@ -59,6 +59,17 @@ export function logoutAgentKey(): 'ask' | 'remove' | 'keep' {
 export async function setLogoutAgentKey(value: 'remove' | 'keep'): Promise<void> {
   await vscode.workspace.getConfiguration('gitColabor').update('logoutAgentKey', value, vscode.ConfigurationTarget.Global);
 }
+/**
+ * How a signing mismatch is reconciled after an identity switch (the new
+ * identity would commit under a foreign signing key):
+ * "auto" (default) — signing silently follows: a keyed identity rebinds to
+ * its own key, a key-less one turns signing off. "warn" — a reminder dialog
+ * (keep the foreign key / switch to the identity's key / stop signing).
+ */
+export function signingMismatchAction(): 'auto' | 'warn' {
+  const v = vscode.workspace.getConfiguration('gitColabor').get<string>('signingMismatchAction');
+  return v === 'warn' ? 'warn' : 'auto';
+}
 export function postCommitSolo(): boolean {
   return getBool('postCommitSolo', false);
 }

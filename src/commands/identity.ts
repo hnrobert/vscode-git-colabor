@@ -5,6 +5,7 @@ import {
   keyPromptCancel,
   logoutAgentKey,
   setCoAuthorMemory,
+  signingMismatchAction,
   setLogoutAgentKey,
   useTarget,
 } from '../config.js';
@@ -22,7 +23,7 @@ import {
 import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
 import { identityConfigScopes, clearIdentityConfig } from '../ssh/gitConfig.js';
 import { warnSigningMismatch } from './signing.js';
-import { identitySigningKey } from '../session/signing.js';
+import { describeSigning, identitySigningKey } from '../session/signing.js';
 
 /**
  * DEFAULT use flow. What the default Use writes follows gitColabor.useTarget:
@@ -206,18 +207,34 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
   const applied = degraded ? { ...identity, hasKey: false, sshKeyPath: undefined, signKey: undefined } : identity;
   // signing follows the identity — switching to a key-less one while config
   // still signs (typically a previous identity's or a personal key from
-  // ~/.gitconfig) turns signing OFF for this window automatically, with no
-  // dialog asking about it
+  // ~/.gitconfig) is reconciled per gitColabor.signingMismatchAction:
+  // "auto" (default) turns it off for this window silently; "warn" shows a
+  // keep/stop reminder instead
   const signingWasOn = deps.provider?.current?.signing.enabled === true;
   const keyless = !identitySigningKey(applied);
   await deps.session.apply(applied);
-  if (keyless && signingWasOn) await deps.session.setSigning(false);
+  if (keyless && signingWasOn) {
+    if (signingMismatchAction() === 'warn') {
+      const keep = 'Keep Current Key';
+      const stop = 'Stop Signing';
+      const choice = await vscode.window.showWarningMessage(
+        `Git Colabor: "${identity.name}" has no key, but commits would still be signed with ${describeSigning(deps.provider!.current!.signing)} — a foreign key. Keep it?`,
+        keep,
+        stop,
+      );
+      if (choice === stop) await deps.session.setSigning(false);
+      // Keep — reminder served; the foreign key keeps signing
+    } else {
+      await deps.session.setSigning(false);
+    }
+  }
   vscode.window.showInformationMessage(
     degraded
       ? `Git Colabor: "${identity.name}" applied WITHOUT its key (passphrase not entered — click the row to retry).`
       : `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use & write git repo config" for every window.`,
   );
-  // a keyed identity may still inherit a foreign signing key — offer the fix
+  // a keyed identity may still inherit a foreign signing key — reconcile it
+  // per the same setting (auto: rebind; warn: ask)
   if (!keyless) {
     warnSigningMismatch(deps).catch((e) => deps.log.warn(`signing check: ${e instanceof Error ? e.message : String(e)}`));
   }

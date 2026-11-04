@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { rowIdentityId, run, type CommandDeps } from './shared.js';
+import { signingMismatchAction } from '../config.js';
 import { describeSigning, identitySigningKey, signingMatch } from '../session/signing.js';
 import { globalConfigKeyPaths } from '../ssh/gitConfig.js';
 import { scanPrivateKeys } from '../ssh/scanPrivateKeys.js';
@@ -227,9 +228,13 @@ async function pickGpgKey(deps: CommandDeps, identity: IdentityJson): Promise<st
 }
 
 /**
- * After a window identity switch: when commits would now be signed with a
- * key that is not this identity's (typically a personal GPG key inherited
- * from ~/.gitconfig), say so once and offer the fix.
+ * After an identity switch: when commits would now be signed with a key that
+ * is not this identity's (typically a personal GPG key inherited from
+ * ~/.gitconfig), reconcile it. gitColabor.signingMismatchAction decides HOW:
+ *  - "auto" (default) — signing silently follows the identity: a keyed one
+ *    rebinds to its own key (same as picking "Switch to Their Key"), no dialog
+ *  - "warn" — a reminder dialog: keep the current (foreign) key, switch to
+ *    the identity's key, or stop signing
  */
 export async function warnSigningMismatch(deps: CommandDeps): Promise<void> {
   const s = await deps.provider?.reload();
@@ -237,13 +242,23 @@ export async function warnSigningMismatch(deps: CommandDeps): Promise<void> {
   if (!s || !active) return;
   const row = s.identities.find((i) => i.id === active.id) ?? active;
   if (signingMatch(s.signing, row, s.identities) !== 'mismatch') return;
-  const sign = `Sign with ${row.name}'s Key`;
+  const mine = identitySigningKey(row);
+  if (signingMismatchAction() === 'auto') {
+    // silently follow: rebind to the identity's key (a key-less identity has
+    // no key to rebind to — its switch already turned signing off)
+    if (mine) await signWithIdentityKey(deps, row);
+    return;
+  }
+  const keep = 'Keep Current Key';
+  const sign = 'Switch to Their Key';
   const stop = 'Stop Signing';
   const choice = await vscode.window.showWarningMessage(
     `Git Colabor: "${row.name}"'s commits would be signed with ${describeSigning(s.signing)} — not their key, so they show as Unverified.`,
-    ...(identitySigningKey(row) ? [sign] : []),
+    ...(mine ? [sign] : []),
+    keep,
     stop,
   );
   if (choice === stop) await stopCommitSigning(deps);
-  else if (choice === sign) await signWithIdentityKey(deps, row);
+  else if (choice === sign && mine) await signWithIdentityKey(deps, row);
+  // Keep Current Key — reminder served, the foreign key stays
 }
