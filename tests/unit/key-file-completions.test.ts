@@ -33,7 +33,7 @@ afterAll(async () => {
 
 describe('tilde handling', () => {
   it('bare ~ lists the home directory itself, labels complete the typed path', async () => {
-    const rows = await pathCompletions('~', home, new Map());
+    const rows = await pathCompletions('~', home, new Map(), sshDir);
     const labels = rows.map((r) => r.label);
     // hidden dirs are visible — keys usually live in them
     expect(labels.some((n) => n.includes('~/.ssh/'))).toBe(true);
@@ -42,14 +42,21 @@ describe('tilde handling', () => {
 
   it('~/ lists the same; ~/Doc completes to ~/Documents/', async () => {
     const cache: DirCache = new Map();
-    const slash = await pathCompletions('~/', home, cache);
+    const slash = await pathCompletions('~/', home, cache, sshDir);
     expect(slash.length).toBeGreaterThan(0);
-    const doc = await pathCompletions('~/Doc', home, cache);
+    const doc = await pathCompletions('~/Doc', home, cache, sshDir);
     expect(doc.some((r) => r.label === '$(folder) ~/Documents/')).toBe(true);
   });
 
+  it('a bare word searches the fallback directory with absolute labels', async () => {
+    const rows = await pathCompletions('id_p', home, new Map(), sshDir);
+    expect(rows.map((r) => r.label)).toEqual(['$(key) /var-ish/.ssh/id_plain'.replace('/var-ish', home)]);
+    // platform fuzzy filter matches the word against the absolute label
+    expect(rows[0].label.includes('id_plain')).toBe(true);
+  });
+
   it('~/Documents/ drills into the directory', async () => {
-    const rows = await pathCompletions('~/.ssh/', home, new Map());
+    const rows = await pathCompletions('~/.ssh/', home, new Map(), sshDir);
     const keys = rows.filter((r) => r.keyPath).filter((r) => !r.label.includes('.hidden'));
     // labels complete the typed path — the QuickPick input is FILTER TEXT,
     // so every row must contain it to survive the platform's fuzzy filter;

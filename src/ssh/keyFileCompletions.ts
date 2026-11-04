@@ -125,31 +125,46 @@ export async function listDirRows(dir: string, cache: DirCache): Promise<Complet
 }
 
 /**
- * Completions for a typed path: `~` / `~/` list the home directory itself;
- * a trailing `/` lists that directory; otherwise the last segment
- * prefix-filters the parent's listing.
+ * Completions for a typed path. A trailing `/` lists that directory;
+ * otherwise the last segment prefix-filters the parent's listing. A value
+ * with NO slash at all is a plain word — the fallback directory (the
+ * picker's default ~/.ssh) is listed instead, labels absolute, letting the
+ * platform's own fuzzy filter narrow it.
  *
  * IMPORTANT: the QuickPick input is FILTER TEXT — VS Code fuzzily filters
  * whatever items we set against it. Completion rows therefore carry the
- * TYPED path in their label (e.g. "~/Doc" → "$(folder) ~/Documents/"), so
- * the platform filter always passes; description holds the absolute path.
+ * TYPED path in their label (e.g. "/Users/x/.ssh/id_p" completes to
+ * "$(key) /Users/x/.ssh/id_plain"), so the platform filter always passes;
+ * description holds the absolute path.
  */
-export async function pathCompletions(value: string, home: string, cache: DirCache): Promise<CompletionRow[]> {
+export async function pathCompletions(
+  value: string,
+  home: string,
+  cache: DirCache,
+  fallbackDir: string,
+): Promise<CompletionRow[]> {
+  const slashless = !value.includes('/') && !value.startsWith('~');
   const expanded = expandTilde(value, home);
   const endsInDir = value.endsWith('/') || value === '~';
   const idx = expanded.lastIndexOf('/');
-  const dirPart = endsInDir ? expanded : idx >= 0 ? expanded.slice(0, idx) || '/' : '.';
-  const prefix = endsInDir ? '' : expanded.slice(idx + 1).toLowerCase();
+  const dirPart = slashless ? fallbackDir : endsInDir ? expanded : idx >= 0 ? expanded.slice(0, idx) || '/' : '.';
+  const prefix = slashless ? value.toLowerCase() : endsInDir ? '' : expanded.slice(idx + 1).toLowerCase();
   const rows = await listDirRows(dirPart, cache);
   // how the completed path looks in the user's own spelling: the typed value
-  // plus the rest of the entry's name ("~/Doc" + "uments/")
+  // plus the rest of the entry's name ("/Users/x/.ssh/id_p" + "lain")
   const labelOf = (name: string, isDir: boolean): string => {
-    const head = value === '~' ? '~/' : endsInDir ? value : value.slice(0, value.length - prefix.length);
+    const head = slashless
+      ? `${fallbackDir}/`
+      : value === '~'
+        ? '~/'
+        : endsInDir
+          ? value
+          : value.slice(0, value.length - (prefix || '').length);
     return `${head}${name}${isDir ? '/' : ''}`;
   };
-  const out = rows
+  return rows
     .filter((r) => {
-      if (prefix === '') return true;
+      if (!prefix) return true;
       const name = r.dirPath ? r.dirPath.split('/').pop() : r.keyPath?.split('/').pop();
       return (name ?? '').toLowerCase().startsWith(prefix);
     })
@@ -158,5 +173,4 @@ export async function pathCompletions(value: string, home: string, cache: DirCac
       const name = (r.dirPath ?? r.keyPath ?? '').split('/').pop() ?? '';
       return { ...r, label: `${isDir ? '$(folder)' : r.label.startsWith('$(lock)') ? '$(lock)' : '$(key)'} ${labelOf(name, isDir)}` };
     });
-  return out;
 }

@@ -5,20 +5,22 @@ import { join } from 'node:path';
 import {
   expandTilde,
   isPrivateKeyFile,
-  listDirRows,
   pathCompletions,
-  pathLike,
   type CompletionRow,
   type DirCache,
 } from './keyFileCompletions.js';
 
 /**
- * The ONE SSH-private-key picker (auth key, sign key): a custom QuickPick
- * that lists known keys (candidates + a classified ~/.ssh scan), autocompletes
- * a typed filesystem path live (dirs drill down; only directories and
- * private keys are offered, encrypted keys marked), and offers a Browse
- * dialog defaulting to ~/.ssh. Extras (generate / paste / skip / clear) are
- * enabled per caller.
+ * The ONE SSH-private-key picker (auth key, sign key) — a path browser
+ * rooted at ~/.ssh. The input is PREFILLED with the absolute `~/.ssh/` path
+ * (absolute-path completion from the first keystroke, no tilde ambiguity)
+ * and lists that directory: folders first, then classified private keys
+ * (encrypted ones locked). Typing narrows by path prefix (labels complete
+ * the typed text — the QuickPick input is filter text and hides anything
+ * else); a bare word searches the default listing through the platform's
+ * own fuzzy filter. Candidates (e.g. the identity's own keys) pin to the
+ * top and the extras (Browse / Generate / Paste / Skip / Clear) pin to the
+ * bottom of EVERY listing — `alwaysShow` keeps them above the filter.
  */
 
 export type KeyFileCandidate = {
@@ -52,8 +54,6 @@ type Item = vscode.QuickPickItem & {
   browse?: boolean;
 };
 
-const BROWSE_LABEL = 'Browse for a key file…';
-
 /**
  * Pick an SSH private key. Returns undefined when cancelled; a `path` result
  * is always a content-checked private key (candidate rows count as checked).
@@ -61,7 +61,7 @@ const BROWSE_LABEL = 'Browse for a key file…';
 export async function pickKeyFile(opts: {
   title: string;
   placeHolder: string;
-  /** pre-ranked known keys, shown above the ~/.ssh scan */
+  /** pre-ranked known keys pinned to the top (e.g. the identity's own) */
   candidates?: KeyFileCandidate[];
   generate?: boolean;
   paste?: boolean;
@@ -72,65 +72,50 @@ export async function pickKeyFile(opts: {
   const cache: DirCache = new Map();
   const home = homedir();
   const sshDir = join(home, '.ssh');
+  const initial = `${sshDir}/`;
 
-  // static list: candidates first (already ranked), then a classified ~/.ssh
-  // scan (keys only, with encryption icons), then extras
+  // pinned top: candidates (already ranked)
   const seen = new Set<string>();
-  const staticItems: Item[] = [];
+  const pinned: Item[] = [];
   for (const c of opts.candidates ?? []) {
     if (!c.path || seen.has(c.path) || !existsSync(c.path)) continue;
     seen.add(c.path);
-    staticItems.push({ label: c.label, description: c.description, detail: c.detail, keyPath: c.path });
+    pinned.push({ label: c.label, description: c.description, detail: c.detail, keyPath: c.path, alwaysShow: true });
   }
-  for (const row of await listDirRows(sshDir, cache)) {
-    if (!row.keyPath || seen.has(row.keyPath)) continue;
-    seen.add(row.keyPath);
-    staticItems.push({ label: row.label, description: row.description, detail: row.detail, keyPath: row.keyPath });
-  }
-  staticItems.push({ label: `$(file) ${BROWSE_LABEL}`, detail: 'pick any private key file on disk', browse: true });
-  if (opts.generate) staticItems.push({ label: '$(add) Generate New Key…', detail: 'ed25519 / rsa / ecdsa — directory, file name, comment, optional passphrase', generate: true });
-  if (opts.paste) staticItems.push({ label: '$(clippy) Paste Private Key…', detail: 'paste an existing private key, choose where to save it', paste: true });
-  if (opts.skip) staticItems.push({ label: '$(circle-slash) No SSH key (skip)', skip: true });
-  if (opts.clear) staticItems.push({ label: '$(trash) Clear the key reference', clear: true });
+  // pinned bottom: the extras, present in EVERY listing
+  const extras: Item[] = [{ label: '$(file) Browse for a key file…', detail: 'pick any private key file on disk', browse: true, alwaysShow: true }];
+  if (opts.generate) extras.push({ label: '$(add) Generate New Key…', detail: 'ed25519 / rsa / ecdsa — directory, file name, comment, optional passphrase', generate: true, alwaysShow: true });
+  if (opts.paste) extras.push({ label: '$(clippy) Paste Private Key…', detail: 'paste an existing private key, choose where to save it', paste: true, alwaysShow: true });
+  if (opts.skip) extras.push({ label: '$(circle-slash) No SSH key (skip)', skip: true, alwaysShow: true });
+  if (opts.clear) extras.push({ label: '$(trash) Clear the key reference', clear: true, alwaysShow: true });
 
   const pick = vscode.window.createQuickPick<Item>();
   pick.title = opts.title;
   pick.placeholder = opts.placeHolder;
-  pick.items = staticItems;
-  pick.activeItems = [staticItems[0]];
-
-  const filterStatic = (q: string): Item[] => {
-    const needle = q.toLowerCase();
-    return staticItems.filter((i) => `${i.label} ${i.description ?? ''} ${i.detail ?? ''}`.toLowerCase().includes(needle));
-  };
+  pick.value = initial; // absolute ~/.ssh — path completion from the first keystroke
 
   const refresh = (value: string): void => {
-    if (value === '') {
-      pick.items = staticItems;
-    } else if (pathLike(value)) {
-      pick.busy = true;
-      pathCompletions(value, home, cache)
-        .then((rows: CompletionRow[]) => {
-          if (rows.length > 0) {
-            const items = rows.map((r) => ({ ...r, unverified: true }));
-            pick.items = items;
-            pick.activeItems = [items[0]];
-          } else {
-            // the typed value must appear in the label — the QuickPick input
-            // is FILTER TEXT and hides anything it does not fuzzy-match
-            pick.items = [{ label: `$(error) ${value} — no matches` }];
-          }
-          pick.busy = false;
-        })
-        .catch((e: unknown) => {
-          pick.busy = false;
-          vscode.window.showWarningMessage(`Git Colabor: path completion failed: ${e instanceof Error ? e.message : String(e)}`);
-        });
-    } else {
-      pick.items = filterStatic(value);
-    }
+    pick.busy = true;
+    pathCompletions(value, home, cache, sshDir)
+      .then((rows: CompletionRow[]) => {
+        const items = [
+          ...pinned,
+          ...rows.map((r) => ({ ...r, unverified: true })),
+          ...(rows.length > 0
+            ? extras
+            : [{ label: `$(error) ${value} — no matches` } as Item, ...extras]),
+        ];
+        pick.items = items;
+        pick.activeItems = [rows.length > 0 ? items[pinned.length] : items[items.length - 1]];
+        pick.busy = false;
+      })
+      .catch((e: unknown) => {
+        pick.busy = false;
+        vscode.window.showWarningMessage(`Git Colabor: path completion failed: ${e instanceof Error ? e.message : String(e)}`);
+      });
   };
   pick.onDidChangeValue(refresh);
+  refresh(initial);
 
   return new Promise<KeyFilePick | undefined>((resolve) => {
     const finish = (r: KeyFilePick | undefined): void => {
