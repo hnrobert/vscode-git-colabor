@@ -22,6 +22,7 @@ import {
 import { generateKeyWizard, pasteKeyWizard } from '../ssh/keyWizard.js';
 import { identityConfigScopes, clearIdentityConfig } from '../ssh/gitConfig.js';
 import { warnSigningMismatch } from './signing.js';
+import { identitySigningKey } from '../session/signing.js';
 
 /**
  * DEFAULT use flow. What the default Use writes follows gitColabor.useTarget:
@@ -202,14 +203,24 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
       }
     }
   }
-  await deps.session.apply(degraded ? { ...identity, hasKey: false, sshKeyPath: undefined, signKey: undefined } : identity);
+  const applied = degraded ? { ...identity, hasKey: false, sshKeyPath: undefined, signKey: undefined } : identity;
+  // signing follows the identity — switching to a key-less one while config
+  // still signs (typically a previous identity's or a personal key from
+  // ~/.gitconfig) turns signing OFF for this window automatically, with no
+  // dialog asking about it
+  const signingWasOn = deps.provider?.current?.signing.enabled === true;
+  const keyless = !identitySigningKey(applied);
+  await deps.session.apply(applied);
+  if (keyless && signingWasOn) await deps.session.setSigning(false);
   vscode.window.showInformationMessage(
     degraded
       ? `Git Colabor: "${identity.name}" applied WITHOUT its key (passphrase not entered — click the row to retry).`
       : `Git Colabor: "${identity.name}" applies to THIS WINDOW only. Right-click → "Use & write git repo config" for every window.`,
   );
-  // e.g. a personal GPG key from ~/.gitconfig would now sign this identity's commits
-  warnSigningMismatch(deps).catch((e) => deps.log.warn(`signing check: ${e instanceof Error ? e.message : String(e)}`));
+  // a keyed identity may still inherit a foreign signing key — offer the fix
+  if (!keyless) {
+    warnSigningMismatch(deps).catch((e) => deps.log.warn(`signing check: ${e instanceof Error ? e.message : String(e)}`));
+  }
 }
 
 type UseResult = Extract<JsonResult, { ok: true }> | Extract<JsonResult, { ok: false }>;
