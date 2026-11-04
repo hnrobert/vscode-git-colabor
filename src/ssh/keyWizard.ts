@@ -63,7 +63,7 @@ export async function generateKeyWizard(): Promise<GeneratedKey | undefined> {
   // 1. algorithm (ed25519 recommended default)
   const typePick = await vscode.window.showQuickPick(
     [
-      { label: '$(check) ed25519', description: 'recommended — modern, fast, short keys', type: 'ed25519', bits: '' },
+      { label: 'ed25519', description: 'recommended — modern, fast, short keys', type: 'ed25519', bits: '' },
       { label: 'rsa', description: 'widely compatible legacy — 4096 bits', type: 'rsa', bits: '4096' },
       { label: 'ecdsa', description: 'nistp256', type: 'ecdsa', bits: '256' },
     ],

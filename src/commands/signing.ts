@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { rowIdentityId, run, type CommandDeps } from './shared.js';
@@ -138,13 +139,46 @@ async function pickSshKey(deps: CommandDeps, identity: IdentityJson): Promise<st
       rows.get(path)!.detail += ' · global git config';
     }
   }
-  if (rows.size === 0) {
-    vscode.window.showWarningMessage('Git Colabor: no SSH private key found (scan of ~/.ssh, the store, and global git config).');
+  // always offer a way out of the scan: pick any file on disk
+  const BROWSE = '__browse__';
+  const sorted = [...rows.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
+  sorted.push({
+    label: '$(file) Browse for a key file…',
+    description: '',
+    detail: 'pick any private key file on disk',
+    path: BROWSE,
+    rank: 99,
+  });
+  const sel = await vscode.window.showQuickPick(sorted, { placeHolder: `SSH key to sign "${identity.name}"'s commits with` });
+  if (!sel) return undefined;
+  return sel.path === BROWSE ? browseKeyFile() : sel.path;
+}
+
+/**
+ * OS file dialog for a private key — the quick pick only scans known places
+ * (~/.ssh, the store, global git config); this covers everything else.
+ * Content-checked: every private-key format carries a BEGIN … PRIVATE KEY
+ * armor header (same detection as the ~/.ssh scan).
+ */
+async function browseKeyFile(): Promise<string | undefined> {
+  const picked = await vscode.window.showOpenDialog({
+    canSelectMany: false,
+    openLabel: 'Sign with this key',
+    title: 'Pick an SSH private key file',
+  });
+  const path = picked?.[0]?.fsPath;
+  if (!path) return undefined;
+  try {
+    const head = (await readFile(path, 'utf8')).slice(0, 256);
+    if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(head)) {
+      vscode.window.showWarningMessage('Git Colabor: that file does not look like a private key (no PRIVATE KEY header).');
+      return undefined;
+    }
+  } catch {
+    vscode.window.showWarningMessage('Git Colabor: cannot read that file.');
     return undefined;
   }
-  const sorted = [...rows.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
-  const sel = await vscode.window.showQuickPick(sorted, { placeHolder: `SSH key to sign "${identity.name}"'s commits with` });
-  return sel?.path;
+  return path;
 }
 
 /** Turn signing on with the identity's effective key at the identity's layer. */
