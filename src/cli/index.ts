@@ -190,8 +190,8 @@ function identityHuman(command: string | undefined, d: unknown): string {
     if (identities.length === 0) return 'No identities. Add one: git colabor identity add --name <n> --email <e>';
     return identities
       .map(
-        (i) =>
-          `${i.isDefault ? '* ' : '  '}${i.name} <${i.email}>${i.hasKey ? `  [key ${i.sshKeyFingerprint ?? ''}${i.inAgent ? ' · in agent' : ''}]` : ''}`,
+        (i, idx) =>
+          `${idx + 1}. ${i.isDefault ? '* ' : '  '}${i.name} <${i.email}>${i.hasKey ? `  [key ${i.sshKeyFingerprint ?? ''}${i.inAgent ? ' · in agent' : ''}]` : ''}`,
       )
       .join('\n');
   }

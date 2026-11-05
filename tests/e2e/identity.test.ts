@@ -136,6 +136,19 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     git(root, ['config', '--local', 'user.email', 'original@x.com']);
   });
 
+  it('a 1-based index ref resolves in `identity ls` order; out of range errors', async () => {
+    const { identities } = await listIdentities();
+    expect(identities.length).toBeGreaterThan(1);
+    const first = identities[0];
+    const r = await dispatch('use', ['1', '--json'], { cwd: root, flags: {} as GlobalFlags });
+    if (!r.ok) throw new Error('use-by-index failed');
+    expect((r.data as { identity: { name: string; email: string } }).identity.email).toBe(first.email);
+    const out = await dispatch('use', ['9999', '--json'], { cwd: root, flags: {} as GlobalFlags }).catch(() => null);
+    expect(out === null || out.ok === false).toBe(true);
+    git(root, ['config', '--local', 'user.name', 'Original Name']);
+    git(root, ['config', '--local', 'user.email', 'original@x.com']);
+  });
+
   it('status reports per-scope config identities (repo vs global) and enrolls unknowns', async () => {
     // local carries a KNOWN person, global carries an UNKNOWN one
     const known = await addIdentity({ name: 'Repo Local', email: 'repolocal@x.com' });

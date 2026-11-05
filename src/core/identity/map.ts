@@ -28,12 +28,20 @@ function parseAuthorRef(ref: string): { name: string; email: string } | undefine
   return m ? { name: m[1], email: m[2] } : undefined;
 }
 
-/** Resolve a caller ref — `Name <email>`, a legacy id_ hash, or a bare email (unique). */
+/** Resolve a caller ref — `Name <email>`, a 1-based list index, or a unique bare email. */
 function resolveRow(map: IdentityMap, ref: string): Identity {
   const author = parseAuthorRef(ref);
   if (author) {
     const hit = map.identities.find((i) => norm(i.name) === norm(author.name) && norm(i.email) === norm(author.email));
     if (hit) return hit;
+  }
+  // a bare number is the 1-based position in `identity ls` order
+  if (/^\d+$/.test(ref.trim())) {
+    const row = map.identities[Number(ref.trim()) - 1];
+    if (row) return row;
+    throw Errors.usage(
+      `identity index ${ref.trim()} out of range — the list has ${map.identities.length} entries (see \`git colabor identity ls\`)`,
+    );
   }
   if (!author) {
     const byEmail = map.identities.filter((i) => norm(i.email) === norm(ref));
