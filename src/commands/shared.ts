@@ -69,10 +69,11 @@ export async function pickIdentity(deps: CommandDeps, placeholder: string): Prom
 
 /**
  * Pick the SSH private key for an identity — the shared key picker
- * (pickKeyFile): ~/.ssh scan + typed-path autocomplete + Browse (opens
- * ~/.ssh) + Generate/Paste wizards. Esc skips; with `allowClear` an extra
- * entry returns `null` meaning "remove the key". A generated passphrase is
- * banked straight into the session store via `deps`, when given.
+ * (pickKeyFile): a path browser rooted at ~/.ssh (autocomplete, Browse,
+ * Generate/Paste wizards). "No SSH key" returns `null` when `allowClear`
+ * (remove the reference) or `undefined` (just no key); Esc skips untouched.
+ * A generated passphrase is banked straight into the session store via
+ * `deps`, when given.
  */
 export async function pickPrivateKey(allowClear = false, deps?: CommandDeps): Promise<string | null | undefined> {
   const pick = await pickKeyFile({
@@ -81,15 +82,12 @@ export async function pickPrivateKey(allowClear = false, deps?: CommandDeps): Pr
     generate: true,
     paste: true,
     skip: true,
-    clear: allowClear,
     openLabel: 'Use this key',
   });
   if (!pick) return undefined;
   switch (pick.kind) {
     case 'skip':
-      return undefined;
-    case 'clear':
-      return null;
+      return allowClear ? null : undefined;
     case 'path':
       return pick.path;
     case 'generate': {

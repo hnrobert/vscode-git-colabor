@@ -19,8 +19,8 @@ import {
  * the typed text — the QuickPick input is filter text and hides anything
  * else); a bare word searches the default listing through the platform's
  * own fuzzy filter. Candidates (e.g. the identity's own keys) pin to the
- * top and the extras (Browse / Generate / Paste / Skip / Clear) pin to the
- * bottom of EVERY listing — `alwaysShow` keeps them above the filter.
+ * top and the extras (Browse / Generate / Paste / No SSH key) pin to the
+ * bottom of EVERY listing — `alwaysShow` keeps them above the filter. Esc skips.
  */
 
 export type KeyFileCandidate = {
@@ -38,8 +38,7 @@ export type KeyFilePick =
   | { kind: 'path'; path: string }
   | { kind: 'generate' }
   | { kind: 'paste' }
-  | { kind: 'skip' }
-  | { kind: 'clear' };
+  | { kind: 'skip' };
 
 type Item = vscode.QuickPickItem & {
   keyPath?: string;
@@ -50,7 +49,6 @@ type Item = vscode.QuickPickItem & {
   generate?: boolean;
   paste?: boolean;
   skip?: boolean;
-  clear?: boolean;
   browse?: boolean;
 };
 
@@ -66,7 +64,6 @@ export async function pickKeyFile(opts: {
   generate?: boolean;
   paste?: boolean;
   skip?: boolean;
-  clear?: boolean;
   openLabel?: string;
 }): Promise<KeyFilePick | undefined> {
   const cache: DirCache = new Map();
@@ -86,8 +83,8 @@ export async function pickKeyFile(opts: {
   const extras: Item[] = [{ label: '$(file) Browse for a key file…', detail: 'pick any private key file on disk', browse: true, alwaysShow: true }];
   if (opts.generate) extras.push({ label: '$(add) Generate New Key…', detail: 'ed25519 / rsa / ecdsa — directory, file name, comment, optional passphrase', generate: true, alwaysShow: true });
   if (opts.paste) extras.push({ label: '$(clippy) Paste Private Key…', detail: 'paste an existing private key, choose where to save it', paste: true, alwaysShow: true });
-  if (opts.skip) extras.push({ label: '$(circle-slash) No SSH key (skip)', skip: true, alwaysShow: true });
-  if (opts.clear) extras.push({ label: '$(trash) Clear the key reference', clear: true, alwaysShow: true });
+  // one "no key" entry — Esc is the skip (cancel, change nothing)
+  if (opts.skip) extras.push({ label: '$(circle-slash) No SSH key', skip: true, alwaysShow: true });
 
   const pick = vscode.window.createQuickPick<Item>();
   pick.title = opts.title;
@@ -143,7 +140,6 @@ export async function pickKeyFile(opts: {
       if (item?.generate) return finish({ kind: 'generate' });
       if (item?.paste) return finish({ kind: 'paste' });
       if (item?.skip) return finish({ kind: 'skip' });
-      if (item?.clear) return finish({ kind: 'clear' });
       if (item?.keyPath) {
         if (item.unverified && !(await isPrivateKeyFile(item.keyPath))) {
           void warnNotAKey();
