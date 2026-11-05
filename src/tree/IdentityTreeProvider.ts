@@ -269,19 +269,19 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       if (repoCfgId && id.id === repoCfgId) return 1;
       if (globalCfgId && id.id === globalCfgId) return 2;
       if (remembered.has(id.email.toLowerCase())) return 3;
-      return (id.scope ?? (id.imported ? 'project' : 'machine')) === 'machine' ? 4 : 5;
+      return id.scope === 'machine' ? 4 : 5;
     };
     const sorted = [...identities].sort((a, b) => tier(a) - tier(b));
     const seen = new Set<string>();
     const out: StatusIdentityJson[] = [];
     for (const id of sorted) {
-      // same EMAIL = same person for git identity purposes: a keyed row and
-      // a keyless row sharing an email (imported vs manually added, or before
-      // and after "Add SSH Key") collapse into one. name+key keeps distinct
-      // key-sharers (e.g. demo identities referencing one key) separate.
-      const emailKey = `email:${id.email.toLowerCase()}`;
+      // (name, email) is the identity's primary key: exact duplicates
+      // (a keyed row and a keyless row for the same person, imported vs
+      // manually added) collapse into one; the same email with a DIFFERENT
+      // name is a different identity and stays visible.
+      const personKey = `${id.name.trim().toLowerCase()}|${id.email.toLowerCase()}`;
       if (id.active) {
-        seen.add(emailKey);
+        seen.add(personKey);
         if (id.sshKeyPath) seen.add(`${id.name}|${id.sshKeyPath}|${id.host ?? ''}`);
         out.push(id);
         continue;
@@ -289,13 +289,13 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // project-scope: strictly filtered to the current repo's committers —
       // EXCEPT vscode-memory identities and config-derived rows (tier ≤ 2),
       // which git config itself vouches for
-      const isProject = (id.scope ?? (id.imported ? 'project' : 'machine')) === 'project';
+      const isProject = id.scope === 'project';
       const email = id.email.toLowerCase();
       if (isProject && tier(id) > 2 && inRepo && !repoEmails.has(email) && !remembered.has(email)) continue;
-      const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : emailKey;
-      if (seen.has(key) || seen.has(emailKey)) continue;
+      const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : personKey;
+      if (seen.has(key) || seen.has(personKey)) continue;
       seen.add(key);
-      seen.add(emailKey);
+      seen.add(personKey);
       out.push(id);
     }
     return out.sort((a, b) => tier(a) - tier(b));
@@ -342,12 +342,12 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
           ? 'found in git global config'
           : saved.user
             ? 'found in vscode memory'
-            : i.scope === 'machine' || (!i.scope && !i.imported)
+            : i.scope === 'machine'
               ? 'found in machine memory'
               : 'found in repo history';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
         description: `${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}${i.id ? `\nid: ${i.id}` : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
         icon,
         iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
@@ -356,18 +356,17 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       // vscode settings (a settings-layer flag — the inspect() API only
       // surfaces the highest-priority effective layer, so user/workspace
       // merge into one "vscode memory" label), -rm = machine scope,
-      // -g = imported from repo history, -k = usable key, -a = key loaded in
+      // -k = usable key, -a = key loaded in
       // ssh-agent, -cr/-cg = named by the repo-local / global git config
       // (drives the Unset-in-config menu items), -ss = commits sign with
       // this identity's AUTH key, -sk = with its BOUND sign key
       // (keyBindings), -sg = with its GPG key
       const rememberedInVSCode = saved.user;
-      const isMachineScope = i.scope === 'machine' || (!i.scope && !i.imported);
+      const isMachineScope = i.scope === 'machine';
       item.contextValue =
         item.kind +
         (rememberedInVSCode ? '-rv' : '') +
         (isMachineScope ? '-rm' : '') +
-        (i.imported ? '-g' : '') +
         (i.hasKey ? '-k' : '') +
         (i.inAgent ? '-a' : '') +
         (isRepoCfg ? '-cr' : '') +

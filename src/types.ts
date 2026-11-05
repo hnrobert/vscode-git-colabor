@@ -18,7 +18,6 @@ export type IdentityJson = {
   keyEncrypted?: boolean;
   /** key fingerprint currently held by ssh-agent (live check per status call) */
   inAgent?: boolean;
-  imported?: boolean;
   disabled?: boolean;
   /** store-level scope; the "vscode memory" is a settings-layer flag, not a scope value */
   scope?: 'machine' | 'project';

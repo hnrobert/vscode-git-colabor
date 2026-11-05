@@ -22,7 +22,7 @@ beforeAll(async () => {
   process.env.GIT_COLABOR_MAP = join(mapDir, 'identities.json');
   await writeFile(
     join(mapDir, 'identities.json'),
-    JSON.stringify({ schemaVersion: 1, identities: { id_1: { id: 'id_1', name: 'A', email: 'a@x.com', createdAt: '2026-01-01T00:00:00Z' } } }),
+    JSON.stringify({ schemaVersion: 1, identities: { id_0123456789ab: { id: 'id_0123456789ab', name: 'A', email: 'a@x.com', createdAt: '2026-01-01T00:00:00Z' } } }),
   );
 });
 
@@ -40,7 +40,8 @@ describe.runIf(bundleReady)('CliClient (spawns the real bundled CLI)', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       const data = r.data as { identities: { id: string }[] };
-      expect(data.identities.some((i) => i.id === 'id_1')).toBe(true);
+      // the legacy id_-keyed map migrates on read: id aliases `Name <email>`
+      expect(data.identities.some((i) => i.id === 'A <a@x.com>')).toBe(true);
     }
   });
 
