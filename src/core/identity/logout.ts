@@ -1,5 +1,5 @@
 import { topLevel } from '../git/rev.js';
-import { getIdentity, getKeyBinding, listIdentities, markStandingDown } from './map.js';
+import { getIdentity, getKeyBinding, idOf, listIdentities, markStandingDown } from './map.js';
 import { resolveActive } from './resolve.js';
 import { removeKey } from './agent.js';
 import { appendAudit } from '../logging/audit.js';
@@ -34,10 +34,10 @@ export async function logoutIdentity(opts: {
   cleared: { agent: boolean; config: boolean; sshCommand: boolean; signing: boolean };
 }> {
   const resolved = await resolveActive(opts.cwd);
-  let id = opts.id ?? resolved?.identity.id;
+  let id = opts.id ?? (resolved ? idOf(resolved.identity.name, resolved.identity.email) : undefined);
   if (!id) {
     const { identities } = await listIdentities();
-    if (identities.length === 1) id = identities[0].id;
+    if (identities.length === 1) id = idOf(identities[0].name, identities[0].email);
     else throw Errors.usage('no active identity — specify one: git colabor identity logout <id>');
   }
   const identity = await getIdentity(id);
@@ -60,7 +60,7 @@ export async function logoutIdentity(opts: {
   };
   const cleared = await clearIdentityConfigLayer(layer, {
     cwd: opts.cwd,
-    forceKeys: resolved?.identity.id === id,
+    forceKeys: !!(resolved && idOf(resolved.identity.name, resolved.identity.email) === id),
   });
   const globalCleared = await clearIdentityConfigLayer(layer, { scope: 'global' });
   const clearedAnything = cleared.identityLayer || cleared.sshCommand || cleared.signing || globalCleared.identityLayer || globalCleared.sshCommand || globalCleared.signing;
@@ -83,7 +83,7 @@ export async function logoutIdentity(opts: {
   await appendAudit({
     action: 'identity.logout',
     source: opts.source,
-    identity: identity.id,
+    identity: id,
     identityName: identity.name,
     fingerprint: binding.pushKey?.fingerprint,
     repo: await safeTopLevel(opts.cwd),
@@ -95,7 +95,7 @@ export async function logoutIdentity(opts: {
   });
 
   return {
-    identity: { id: identity.id, name: identity.name, fingerprint: binding.pushKey?.fingerprint },
+    identity: { id, name: identity.name, fingerprint: binding.pushKey?.fingerprint },
     agentRemoved,
     cleared: {
       agent: agentRemoved,

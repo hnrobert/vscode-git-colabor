@@ -10,7 +10,7 @@
  */
 
 import { getEffectiveConfig } from '../git/config.js';
-import { addIdentity, getKeyBinding, listIdentities, setPushKey, setSignKey } from './map.js';
+import { addIdentity, getKeyBinding, idOf, listIdentities, setPushKey, setSignKey } from './map.js';
 import { fingerprintOfFile } from './keys.js';
 import type { Identity, SshKeyRef } from '../types.js';
 
@@ -59,11 +59,12 @@ export async function resolveActive(
 
   const { identities } = await listIdentities();
 
-  // 1+2: email then name. EMAIL is the person key: a config name that
-  // differs from the store row's display name maps to the same person —
-  // never forks a second same-email identity (the tree dedups by email).
-  const byEmail = identities.filter((i) => norm(i.email) === norm(email));
-  let match: Identity | undefined = byEmail.find((i) => norm(i.name) === norm(name)) ?? byEmail[0];
+  // 1+2: email then name — (name, email) is the primary key. A config name
+  // that differs from every same-email row is a DIFFERENT identity (a
+  // shared address like noreply@github.com must not collapse people).
+  let match: Identity | undefined = identities.find(
+    (i) => norm(i.email) === norm(email) && norm(i.name) === norm(name),
+  );
 
   let enrolled = false;
   if (!match) {
@@ -80,32 +81,32 @@ export async function resolveActive(
   const cfgPushPath = keyPathFromSshCommand(sshCmd?.value);
   if (cfgPushPath) {
     const fp = await fpOf(cfgPushPath);
-    const binding = await getKeyBinding(match.id);
+    const binding = await getKeyBinding(idOf(match.name, match.email));
     if (!binding.pushKey || binding.pushKey.path !== cfgPushPath || (fp && binding.pushKey.fingerprint !== fp)) {
       const ref: SshKeyRef = { path: cfgPushPath, fingerprint: fp ?? binding.pushKey?.fingerprint ?? '' };
-      await setPushKey(match.id, ref);
+      await setPushKey(idOf(match.name, match.email), ref);
     }
   }
   const signKeyCfg = await getEffectiveConfig('user.signingKey', cwd);
   const gpgFormat = await getEffectiveConfig('gpg.format', cwd);
   if (signKeyCfg?.value) {
-    const binding = await getKeyBinding(match.id);
+    const binding = await getKeyBinding(idOf(match.name, match.email));
     const cur = binding.signKey;
     if (gpgFormat?.value === 'openpgp') {
       if (!cur || cur.format !== 'openpgp' || cur.key !== signKeyCfg.value) {
-        await setSignKey(match.id, { format: 'openpgp', key: signKeyCfg.value });
+        await setSignKey(idOf(match.name, match.email), { format: 'openpgp', key: signKeyCfg.value });
       }
     } else {
       // ssh signing: the value is the private key path (or .pub when agent-held)
       const path = signKeyCfg.value.replace(/\.pub$/, '');
       if (!cur || cur.format !== 'ssh' || cur.path !== path) {
         const fp = await fpOf(path);
-        if (fp) await setSignKey(match.id, { format: 'ssh', path, fingerprint: fp });
+        if (fp) await setSignKey(idOf(match.name, match.email), { format: 'ssh', path, fingerprint: fp });
       }
     }
   }
 
-  const finalBinding = await getKeyBinding(match.id);
+  const finalBinding = await getKeyBinding(idOf(match.name, match.email));
   return {
     identity: match,
     enrolled,

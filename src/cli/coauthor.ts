@@ -20,7 +20,7 @@ async function requireRepo(cwd?: string): Promise<void> {
 async function identityAuthors(): Promise<{ id: string; author: Author }[]> {
   const { identities } = await listIdentities();
   return identities.map((i) => ({
-    id: i.id,
+    id: `${i.name} <${i.email}>`,
     author: new Author(genKey(i.name, i.email), i.name, i.email),
   }));
 }

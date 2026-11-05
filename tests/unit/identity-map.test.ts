@@ -3,8 +3,8 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  identityId,
   addIdentity,
+  idOf,
   getIdentity,
   listIdentities,
   readMap,
@@ -28,40 +28,47 @@ afterEach(async () => {
 });
 
 describe('identity map', () => {
-  it('identityId is deterministic (name+email hash)', () => {
-    expect(identityId('Alice', 'a@x.io')).toBe(identityId('Alice', 'a@x.io'));
-    expect(identityId('Alice', 'a@x.io')).not.toBe(identityId('Alice', 'b@x.io'));
-    expect(identityId('Alice', 'a@x.io')).toMatch(/^id_[0-9a-f]{12}$/);
+  it('(name, email) is the primary key — id aliases `Name <email>`, same email + different name stays distinct', async () => {
+    const a = await addIdentity({ name: 'Alice', email: 'alice@x.com' });
+    expect(idOf(a.name, a.email)).toBe('Alice <alice@x.com>'); // the DERIVED ref (never stored)
+    expect('id' in a).toBe(false); // no id field exists on the row
+    const again = await addIdentity({ name: 'Alice', email: 'alice@x.com' });
+    expect(again.createdAt).toBe(a.createdAt); // exact (name,email) re-add is idempotent
+    const other = await addIdentity({ name: 'Alice Renamed', email: 'alice@x.com' });
+    expect(idOf(other.name, other.email)).toBe('Alice Renamed <alice@x.com>'); // shared email ≠ same identity
   });
 
   it('add + get round-trips', async () => {
     const a = await addIdentity({ name: 'Alice', email: 'alice@x.com' });
-    expect(a.id).toMatch(/^id_/);
-    const got = await getIdentity(a.id);
+    const got = await getIdentity(idOf(a.name, a.email));
     expect(got.email).toBe('alice@x.com');
     expect(got.createdAt.length).toBeGreaterThan(0);
   });
 
   it('list + setDefault', async () => {
     const a = await addIdentity({ name: 'Alice', email: 'alice@x.com' });
-    await setDefault(a.id);
+    await setDefault(idOf(a.name, a.email));
     const { identities, defaultIdentity } = await listIdentities();
     expect(identities).toHaveLength(1);
-    expect(defaultIdentity).toBe(a.id);
+    expect(defaultIdentity).toBe('alice <alice@x.com>'); // store key = lowercase composite
   });
 
   it('remove deletes and clears default', async () => {
     const a = await addIdentity({ name: 'Alice', email: 'alice@x.com' });
-    await setDefault(a.id);
-    await removeIdentity(a.id);
+    const ref = idOf(a.name, a.email);
+    await setDefault(ref);
+    await removeIdentity(ref);
     const { identities, defaultIdentity } = await listIdentities();
     expect(identities).toHaveLength(0);
     expect(defaultIdentity).toBeUndefined();
   });
 
-  it('persists across reads (atomic write)', async () => {
-    const a = await addIdentity({ name: 'Alice', email: 'alice@x.com' });
-    expect((await readMap()).identities[a.id]).toBeDefined();
+  it('persists across reads (atomic write) — identities are a plain list', async () => {
+    await addIdentity({ name: 'Alice', email: 'alice@x.com' });
+    const { identities } = await readMap();
+    expect(Array.isArray(identities)).toBe(true);
+    expect(identities.find((i) => i.email === 'alice@x.com')).toBeDefined();
+    expect(identities.find((i) => 'id' in i)).toBeUndefined(); // no id field anywhere
   });
 
   it('writes the map file mode 0600', async () => {

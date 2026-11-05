@@ -6,18 +6,16 @@
 export type Source = 'ext' | 'cli';
 
 export type Identity = {
-  /** deterministic: "id_" + sha256(name + "\n" + email) — stable across key changes */
-  id: string;
   name: string;
   email: string;
   /** informational, e.g. "github.com" */
   host?: string;
-  /** true when auto-imported from repo history (`identity import`) */
-  imported?: boolean;
   /** where this identity is remembered: machine (identities.json) or project (repo scan) */
   scope?: 'machine' | 'project';
   /** true when discovered from git config (auto-enrollment) rather than added by hand */
   fromConfig?: boolean;
+  /** this identity's key/signing preferences, carried ON the row (machine scope by construction) */
+  keyBindings?: KeyBinding;
   /** ISO8601 */
   createdAt: string;
 };
@@ -49,9 +47,9 @@ export type KeyBinding = {
 
 export type IdentityMap = {
   schemaVersion: 1;
-  identities: Record<string, Identity>;
-  /** key preferences, keyed by identity id — machine scope by construction */
-  keyBindings?: Record<string, KeyBinding>;
+  /** a plain LIST of self-contained rows — no keys, no ids, no side tables */
+  identities: Identity[];
+  /** derived lowercase `name <email>` ref of the default identity */
   defaultIdentity?: string;
   /** lowercased emails hidden from auto-import (hide machine-level) */
   hidden?: Record<string, true>;

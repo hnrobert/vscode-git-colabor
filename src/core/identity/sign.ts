@@ -1,6 +1,6 @@
 import { getEffectiveConfig, setConfig, unsetConfig } from '../git/config.js';
 import { topLevel, insideWorkTree } from '../git/rev.js';
-import { getIdentity, getKeyBinding, setSignCommits } from './map.js';
+import { getIdentity, getKeyBinding, idOf, setSignCommits } from './map.js';
 import { keyUsable } from './keys.js';
 import { keyInAgent } from './agent.js';
 import { appendAudit } from '../logging/audit.js';
@@ -77,7 +77,7 @@ async function signingKeyPath(sshKeyPath: string, fingerprint?: string): Promise
 export type SigningConfig = { format: 'openpgp' | 'ssh'; key: string };
 
 async function signingConfigFor(identity: Identity): Promise<SigningConfig | undefined> {
-  const binding = await getKeyBinding(identity.id);
+  const binding = await getKeyBinding(idOf(identity.name, identity.email));
   if (binding.signKey) {
     return binding.signKey.format === 'openpgp'
       ? { format: 'openpgp', key: binding.signKey.key }

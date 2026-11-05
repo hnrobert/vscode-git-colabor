@@ -191,7 +191,7 @@ function identityHuman(command: string | undefined, d: unknown): string {
     return identities
       .map(
         (i) =>
-          `${i.isDefault ? '* ' : '  '}${i.id}  ${i.name} <${i.email}>${i.hasKey ? `  [key ${i.sshKeyFingerprint ?? ''}${i.inAgent ? ' · in agent' : ''}]` : ''}`,
+          `${i.isDefault ? '* ' : '  '}${i.name} <${i.email}>${i.hasKey ? `  [key ${i.sshKeyFingerprint ?? ''}${i.inAgent ? ' · in agent' : ''}]` : ''}`,
       )
       .join('\n');
   }
@@ -224,14 +224,14 @@ function identityHuman(command: string | undefined, d: unknown): string {
   }
   if (command === 'add') {
     const data = d as { identity: IdentityJson; encrypted: boolean | null };
-    return `Added identity "${data.identity.name}" <${data.identity.email}> (${data.identity.id})${
+    return `Added identity "${data.identity.name}" <${data.identity.email}>${
       data.identity.hasKey ? ` key=${data.identity.sshKeyFingerprint ?? ''}` : ''
     }`;
   }
   if (command === 'rm') return `Removed identity ${(d as { removed: string }).removed}`;
   if (command === 'set') {
     const data = d as { identity: IdentityJson };
-    return `Updated identity "${data.identity.name}" <${data.identity.email}> (${data.identity.id})${
+    return `Updated identity "${data.identity.name}" <${data.identity.email}>${
       data.identity.hasKey ? ` key=${data.identity.sshKeyFingerprint ?? ''}` : ''
     }`;
   }

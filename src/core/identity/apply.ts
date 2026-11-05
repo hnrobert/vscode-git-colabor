@@ -5,7 +5,7 @@ import { dataDir } from '../paths.js';
 import { topLevel } from '../git/rev.js';
 import { appendAudit } from '../logging/audit.js';
 import { keyInAgent } from './agent.js';
-import { clearStandingDown, getIdentity, getKeyBinding, setPushKey } from './map.js';
+import { clearStandingDown, getIdentity, getKeyBinding, idOf, setPushKey } from './map.js';
 import { keyUsable, fingerprintOfFile } from './keys.js';
 import { disableSigning, writeIdentitySigning } from './sign.js';
 import { discoverSessionBridge } from '../secrets/session-bridge.js';
@@ -78,7 +78,7 @@ export async function applyResolvedIdentity(args: {
   }
 
   // report-only: is the push key already in the agent?
-  const binding = identity ? await getKeyBinding(identity.id) : undefined;
+  const binding = identity ? await getKeyBinding(idOf(identity.name, identity.email)) : undefined;
   let agent: ApplyResult['agent'];
   if (binding?.pushKey) {
     agent = { inAgent: await keyInAgent(binding.pushKey.fingerprint) };
@@ -94,7 +94,7 @@ export async function applyResolvedIdentity(args: {
   await appendAudit({
     action: 'identity.use',
     source: opts.source,
-    identity: identity?.id,
+    identity: identity ? idOf(identity.name, identity.email) : undefined,
     identityName: identity?.name ?? name,
     fingerprint: binding?.pushKey?.fingerprint,
     repo: await safeTopLevel(opts.cwd),

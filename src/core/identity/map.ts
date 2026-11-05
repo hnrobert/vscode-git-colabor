@@ -1,71 +1,139 @@
 import { readFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { Errors } from '../errors.js';
 import { mapPath } from '../paths.js';
 import { atomicWriteJson } from '../io.js';
 import type { Identity, IdentityMap, KeyBinding, SshKeyRef, SignKeyRef } from '../types.js';
 
-/** Deterministic identity id: stable across key changes and re-adding (idempotent auto-enroll). */
-export function identityId(name: string, email: string): string {
-  return 'id_' + createHash('sha256').update(`${name}\n${email}`).digest('hex').slice(0, 12);
+/**
+ * The store is a LIST of self-contained rows — no keys, no ids, no side
+ * tables. An identity IS its (name, email) plus attributes, and carries its
+ * own key preferences in `keyBindings` on the row. Every reference
+ * (`Name <email>`, or a unique bare email) resolves by scanning; exact
+ * (name, email) duplicates are collapsed at migration time and prevented at
+ * write time. The `defaultIdentity` marker stores the derived lowercase
+ * author form.
+ */
+
+const norm = (s: string): string => s.trim().toLowerCase();
+
+/** derived canonical author form — the store's comparison / marker form */
+const refOf = (i: Pick<Identity, 'name' | 'email'>): string => `${norm(i.name)} <${norm(i.email)}>`;
+
+/** display-case author form — the ref callers pass around; never stored */
+export const idOf = (name: string, email: string): string => `${name.trim()} <${email.trim()}>`;
+
+/** `Name <email>` → parts, when the ref carries both */
+function parseAuthorRef(ref: string): { name: string; email: string } | undefined {
+  const m = ref.match(/^(.*) <([^<>]+)>$/);
+  return m ? { name: m[1], email: m[2] } : undefined;
+}
+
+/** Resolve a caller ref — `Name <email>`, a legacy id_ hash, or a bare email (unique). */
+function resolveRow(map: IdentityMap, ref: string): Identity {
+  const author = parseAuthorRef(ref);
+  if (author) {
+    const hit = map.identities.find((i) => norm(i.name) === norm(author.name) && norm(i.email) === norm(author.email));
+    if (hit) return hit;
+  }
+  if (!author) {
+    const byEmail = map.identities.filter((i) => norm(i.email) === norm(ref));
+    if (byEmail.length === 1) return byEmail[0];
+    if (byEmail.length > 1) {
+      const list = byEmail.map((i) => `"${idOf(i.name, i.email)}"`).join(', ');
+      throw Errors.usage(`email "${ref}" matches several identities — use the full form: ${list}`);
+    }
+  }
+  throw Errors.usage(`identity "${ref}" not found`);
+}
+
+type RawRow = Omit<Identity, 'keyBindings' | 'scope'> & {
+  keyBindings?: KeyBinding;
+  // legacy shapes read from disk (their extra fields — incl. any stored id — are ignored)
+  scope?: string;
+  imported?: boolean;
+  sshKeyPath?: string;
+  sshKeyFingerprint?: string;
+  sshKeyEncrypted?: boolean;
+  gpgKey?: string;
+  passphraseCommand?: string;
+  disabled?: boolean;
+  remoteKeys?: Record<string, string>;
+};
+
+/** Fold one raw row (from any era) into the normalized list shape. */
+function foldRow(rows: Identity[], raw: RawRow): void {
+  // migrate the single-slot key into the row's own bindings (once)
+  let keyBindings = raw.keyBindings;
+  if (raw.sshKeyPath && raw.sshKeyFingerprint && !keyBindings?.pushKey) {
+    const ref: SshKeyRef = { path: raw.sshKeyPath, fingerprint: raw.sshKeyFingerprint };
+    if (raw.sshKeyEncrypted) ref.encrypted = true;
+    keyBindings = { ...keyBindings, pushKey: ref };
+  }
+  if (raw.gpgKey && !keyBindings?.signKey) {
+    keyBindings = { ...keyBindings, signKey: { format: 'openpgp', key: raw.gpgKey } };
+  }
+  const scope: Identity['scope'] =
+    raw.scope === 'user' || raw.scope === 'vscode'
+      ? 'machine'
+      : ((raw.scope as Identity['scope']) ?? (raw.imported ? 'project' : 'machine')); // imported ⟺ history ⟺ project scope
+  const row: Identity = {
+    name: raw.name,
+    email: raw.email,
+    createdAt: raw.createdAt,
+    ...(raw.host !== undefined ? { host: raw.host } : {}),
+    ...(scope !== undefined ? { scope } : {}),
+    ...(raw.fromConfig !== undefined ? { fromConfig: raw.fromConfig } : {}),
+    ...(keyBindings ? { keyBindings } : {}),
+  };
+  const dup = rows.find((i) => norm(i.name) === norm(row.name) && norm(i.email) === norm(row.email));
+  if (dup) {
+    // exact duplicate (possible in keyed maps) — merge the richer bindings
+    dup.keyBindings = { ...(row.keyBindings ?? {}), ...(dup.keyBindings ?? {}) };
+    return;
+  }
+  rows.push(row);
 }
 
 export async function readMap(): Promise<IdentityMap> {
   try {
     const txt = await readFile(mapPath(), 'utf8');
-    const parsed = JSON.parse(txt) as Partial<IdentityMap>;
-    const identities = { ...parsed.identities };
-    const keyBindings: Record<string, KeyBinding> = { ...(parsed.keyBindings ?? {}) };
-    for (const id of Object.keys(identities)) {
-      const row = identities[id] as Identity & {
-        // legacy fields (pre keyBindings) — migrated below
-        sshKeyPath?: string;
-        sshKeyFingerprint?: string;
-        sshKeyEncrypted?: boolean;
-        gpgKey?: string;
-        passphraseCommand?: string;
-        disabled?: boolean;
-        remoteKeys?: Record<string, string>;
-        scope?: string;
-      };
-      // migrate the single-slot key into the bindings table (once)
-      if (row.sshKeyPath && row.sshKeyFingerprint && !keyBindings[id]?.pushKey) {
-        const ref: SshKeyRef = { path: row.sshKeyPath, fingerprint: row.sshKeyFingerprint };
-        if (row.sshKeyEncrypted) ref.encrypted = true;
-        const existing = keyBindings[id] ?? {};
-        keyBindings[id] = { ...existing, pushKey: ref };
+    const parsed = JSON.parse(txt) as Partial<IdentityMap> & {
+      // earlier shapes
+      identities?: unknown;
+      keyBindings?: Record<string, KeyBinding>;
+    };
+    const raws = Array.isArray(parsed.identities)
+      ? (parsed.identities as RawRow[])
+      : Object.entries((parsed.identities as unknown as Record<string, RawRow> | undefined) ?? {}).map(([k, row]) => ({
+          ...row,
+          keyBindings: row.keyBindings ?? parsed.keyBindings?.[k],
+        }));
+    const identities: Identity[] = [];
+    for (const raw of raws) foldRow(identities, raw);
+    // the default marker survives when its ref (any era) still resolves
+    let defaultIdentity: string | undefined;
+    if (parsed.defaultIdentity) {
+      try {
+        defaultIdentity = refOf(resolveRow({ schemaVersion: 1, identities }, parsed.defaultIdentity));
+      } catch {
+        defaultIdentity = undefined; // dangling marker — drop it
       }
-      if (row.gpgKey && !keyBindings[id]?.signKey) {
-        const existing = keyBindings[id] ?? {};
-        keyBindings[id] = { ...existing, signKey: { format: 'openpgp', key: row.gpgKey } };
-      }
-      // strip legacy fields so they vanish on next write
-      delete row.sshKeyPath;
-      delete row.sshKeyFingerprint;
-      delete row.sshKeyEncrypted;
-      delete row.gpgKey;
-      delete row.passphraseCommand;
-      delete row.disabled;
-      delete row.remoteKeys;
-      const legacyScope = row.scope as string | undefined;
-      if (legacyScope === 'user' || legacyScope === 'vscode') row.scope = 'machine';
     }
-    const migrated = {
+    const migrated: IdentityMap = {
       schemaVersion: 1,
       identities,
-      keyBindings,
-      defaultIdentity: parsed.defaultIdentity,
-      hidden: parsed.hidden,
-      standingDown: parsed.standingDown,
-    } satisfies IdentityMap;
+      ...(defaultIdentity ? { defaultIdentity } : {}),
+      ...(parsed.hidden ? { hidden: parsed.hidden } : {}),
+      ...(parsed.standingDown ? { standingDown: parsed.standingDown } : {}),
+    };
     // persist the migration immediately so a read-only command (ls/status)
-    // still lands the new keyBindings on disk
+    // still lands the new shape on disk
     if (JSON.stringify(parsed) !== JSON.stringify(migrated)) {
       await writeMap(migrated);
     }
     return migrated;
   } catch {
-    return { schemaVersion: 1, identities: {} };
+    return { schemaVersion: 1, identities: [] };
   }
 }
 
@@ -73,82 +141,84 @@ export async function writeMap(map: IdentityMap): Promise<void> {
   await atomicWriteJson(mapPath(), map, 0o600);
 }
 
-export async function getIdentity(id: string): Promise<Identity> {
-  const map = await readMap();
-  const found = map.identities[id];
-  if (!found) throw Errors.usage(`identity "${id}" not found`);
-  return found;
+export async function getIdentity(ref: string): Promise<Identity> {
+  return resolveRow(await readMap(), ref);
 }
 
 /** Find an identity by (name, email) — the uniqueness key. */
 export async function findIdentity(name: string, email: string): Promise<Identity | undefined> {
-  const map = await readMap();
-  return Object.values(map.identities).find(
-    (i) => i.email.toLowerCase() === email.toLowerCase() && i.name.trim() === name.trim(),
-  );
+  const { identities } = await readMap();
+  return identities.find((i) => norm(i.email) === norm(email) && norm(i.name) === norm(name));
 }
 
-export type NewIdentity = Omit<Identity, 'id' | 'createdAt'> & { id?: string };
+export type NewIdentity = Omit<Identity, 'createdAt'>;
 
 export async function addIdentity(input: NewIdentity): Promise<Identity> {
   const map = await readMap();
-  const id = input.id ?? identityId(input.name, input.email);
-  const identity: Identity = { ...input, id, createdAt: new Date().toISOString() };
-  if (map.identities[id]) return map.identities[id]; // idempotent (deterministic id)
-  map.identities[id] = identity;
+  const dup = map.identities.find((i) => norm(i.name) === norm(input.name) && norm(i.email) === norm(input.email));
+  if (dup) return dup; // idempotent — (name,email) IS the identity
+  const identity: Identity = { ...input, createdAt: new Date().toISOString() };
+  map.identities.push(identity);
   // a manual add of a previously hidden committer un-hides it for future imports
-  if (map.hidden?.[identity.email.toLowerCase()]) delete map.hidden[identity.email.toLowerCase()];
+  const hiddenKey = norm(input.email);
+  if (map.hidden?.[hiddenKey]) delete map.hidden[hiddenKey];
   await writeMap(map);
   return identity;
 }
 
-/** Patch editable fields of an identity (name/email/scope). */
+/**
+ * Patch editable fields of an identity (name/email/scope). (name, email) is
+ * the identity: an exact-duplicate patch is refused, and the default marker
+ * follows a changed (name, email) — no fork, no side table to re-key.
+ */
 export async function updateIdentity(
-  id: string,
+  ref: string,
   patch: Partial<Pick<Identity, 'name' | 'email' | 'scope' | 'host' | 'fromConfig'>>,
 ): Promise<Identity> {
   const map = await readMap();
-  const identity = map.identities[id];
-  if (!identity) throw Errors.usage(`identity "${id}" not found`);
-  map.identities[id] = { ...identity, ...patch };
+  const row = resolveRow(map, ref);
+  const before = refOf(row);
+  Object.assign(row, patch);
+  const after = refOf(row);
+  const clash = map.identities.find((i) => i !== row && refOf(i) === after);
+  if (clash) throw Errors.usage(`"${idOf(row.name, row.email)}" already exists`);
+  if (map.defaultIdentity === before) map.defaultIdentity = after;
   await writeMap(map);
-  return map.identities[id];
+  return row;
 }
 
-// --- key bindings (preference records, machine scope by construction) ---
+// --- key bindings (preference records carried ON the identity row) ---
 
-export async function getKeyBinding(id: string): Promise<KeyBinding> {
-  const map = await readMap();
-  return map.keyBindings?.[id] ?? {};
+export async function getKeyBinding(ref: string): Promise<KeyBinding> {
+  return (await getIdentity(ref)).keyBindings ?? {};
 }
 
-export async function setKeyBinding(id: string, binding: KeyBinding): Promise<void> {
+export async function setKeyBinding(ref: string, binding: KeyBinding): Promise<void> {
   const map = await readMap();
-  if (!map.identities[id]) throw Errors.usage(`identity "${id}" not found`);
-  map.keyBindings = { ...map.keyBindings, [id]: binding };
+  resolveRow(map, ref).keyBindings = binding;
   await writeMap(map);
 }
 
-export async function setPushKey(id: string, ref: SshKeyRef | undefined): Promise<void> {
-  const b = await getKeyBinding(id);
-  await setKeyBinding(id, { ...b, pushKey: ref });
+export async function setPushKey(ref: string, ref_: SshKeyRef | undefined): Promise<void> {
+  const b = await getKeyBinding(ref);
+  await setKeyBinding(ref, { ...b, pushKey: ref_ });
 }
 
-export async function setSignKey(id: string, ref: SignKeyRef | undefined): Promise<void> {
-  const b = await getKeyBinding(id);
-  await setKeyBinding(id, { ...b, signKey: ref });
+export async function setSignKey(ref: string, key: SignKeyRef | undefined): Promise<void> {
+  const b = await getKeyBinding(ref);
+  await setKeyBinding(ref, { ...b, signKey: key });
 }
 
 /** Record the per-identity commit-signing preference (re-applied on every later use). */
-export async function setSignCommits(id: string, on: boolean): Promise<void> {
-  const b = await getKeyBinding(id);
-  await setKeyBinding(id, { ...b, signCommits: on ? true : undefined });
+export async function setSignCommits(ref: string, on: boolean): Promise<void> {
+  const b = await getKeyBinding(ref);
+  await setKeyBinding(ref, { ...b, signCommits: on ? true : undefined });
 }
 
 /** Hide an email from future auto-imports (hide machine-level). */
 export async function hideIdentityEmail(email: string): Promise<void> {
   const map = await readMap();
-  map.hidden = { ...map.hidden, [email.toLowerCase()]: true };
+  map.hidden = { ...map.hidden, [norm(email)]: true };
   await writeMap(map);
 }
 
@@ -184,7 +254,7 @@ export async function isStandingDown(root: string): Promise<boolean> {
 /** Remove an email from the hidden list (unhide / restore). */
 export async function unhideIdentityEmail(email: string): Promise<boolean> {
   const map = await readMap();
-  const key = email.toLowerCase();
+  const key = norm(email);
   if (!map.hidden?.[key]) return false;
   delete map.hidden[key];
   await writeMap(map);
@@ -197,23 +267,21 @@ export async function listHiddenEmails(): Promise<string[]> {
   return Object.keys(map.hidden ?? {});
 }
 
-export async function removeIdentity(id: string): Promise<void> {
+export async function removeIdentity(ref: string): Promise<void> {
   const map = await readMap();
-  if (!map.identities[id]) throw Errors.usage(`identity "${id}" not found`);
-  delete map.identities[id];
-  if (map.keyBindings?.[id]) delete map.keyBindings[id];
-  if (map.defaultIdentity === id) delete map.defaultIdentity;
+  const row = resolveRow(map, ref);
+  map.identities = map.identities.filter((i) => i !== row);
+  if (map.defaultIdentity === refOf(row)) delete map.defaultIdentity;
   await writeMap(map);
 }
 
-export async function setDefault(id: string): Promise<void> {
+export async function setDefault(ref: string): Promise<void> {
   const map = await readMap();
-  if (!map.identities[id]) throw Errors.usage(`identity "${id}" not found`);
-  map.defaultIdentity = id;
+  map.defaultIdentity = refOf(resolveRow(map, ref));
   await writeMap(map);
 }
 
 export async function listIdentities(): Promise<{ identities: Identity[]; defaultIdentity?: string }> {
   const map = await readMap();
-  return { identities: Object.values(map.identities), defaultIdentity: map.defaultIdentity };
+  return { identities: map.identities, ...(map.defaultIdentity ? { defaultIdentity: map.defaultIdentity } : {}) };
 }

@@ -24,6 +24,7 @@ import { historyCommitters } from '../core/git/committers.js';
 import { getConfig } from '../core/git/config.js';
 import { importKey } from '../core/identity/keys.js';
 import { applyIdentity, applyResolvedIdentity } from '../core/identity/apply.js';
+import { idOf } from '../core/identity/map.js';
 import { setCommitSigning, signingStatus } from '../core/identity/sign.js';
 import { logoutIdentity } from '../core/identity/logout.js';
 import { appendAudit, readAudit } from '../core/logging/audit.js';
@@ -63,7 +64,7 @@ function identityToJson(i: Identity, defaultId?: string, agentPrints?: Set<strin
   const push = binding?.pushKey;
   const sign = binding?.signKey;
   return {
-    id: i.id,
+    id: idOf(i.name, i.email), // derived ref — never stored
     name: i.name,
     email: i.email,
     host: i.host,
@@ -84,14 +85,16 @@ function identityToJson(i: Identity, defaultId?: string, agentPrints?: Set<strin
             ...(sign.encrypted ? { encrypted: true } : {}),
           }
       : null,
-    imported: !!i.imported,
     fromConfig: !!i.fromConfig,
-    scope: i.scope ?? (i.imported ? 'project' : 'machine'),
-    isDefault: i.id === defaultId,
+    scope: i.scope ?? 'machine',
+    isDefault: !!defaultId && ckey(i) === defaultId.toLowerCase(),
     /** the user turned commit signing on for this identity */
     signCommits: !!binding?.signCommits,
   };
 }
+
+/** composite store key of a row (see map.ts — `name <email>` lowercased) */
+const ckey = (i: Identity): string => `${i.name.trim().toLowerCase()} <${i.email.trim().toLowerCase()}>`;
 
 function asSource(v: string | undefined): Source {
   return v === 'ext' ? 'ext' : 'cli';
@@ -142,12 +145,11 @@ export async function dispatch(command: string | undefined, tokens: string[], ct
 }
 
 async function ls(): Promise<JsonResult> {
-  const map = await readMap();
   const { identities, defaultIdentity } = await listIdentities();
   const prints = await agentFingerprints();
   const hidden = new Set(await listHiddenEmails());
   const visible = identities.filter((i) => !hidden.has(i.email.toLowerCase()));
-  return ok({ identities: visible.map((i) => identityToJson(i, defaultIdentity, prints, map.keyBindings?.[i.id])), defaultIdentity });
+  return ok({ identities: visible.map((i) => identityToJson(i, defaultIdentity, prints, i.keyBindings)), defaultIdentity });
 }
 
 /** `identity hide <email>` — hide an identity on this machine (display + import). */
@@ -170,10 +172,10 @@ async function hideIdentityCmd(p: CmdParsed): Promise<JsonResult> {
  */
 async function agentKey(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   const id = p.positionals[0];
-  if (!id) throw Errors.usage('git colabor identity agent <id> [--remove | --verify]');
+  if (!id) throw Errors.usage('git colabor identity agent <email> [--remove | --verify]');
   const identity = await getIdentity(id);
   const binding = await getKeyBinding(id);
-  if (!binding.pushKey) throw Errors.usage(`identity "${id}" has no SSH push key`);
+  if (!binding.pushKey) throw Errors.usage(`identity "${id}" (email) has no SSH push key`);
   const { path: keyPath, fingerprint } = binding.pushKey;
   const remove = p.bools.has('--remove');
   const verify = p.bools.has('--verify');
@@ -218,7 +220,7 @@ async function agentKey(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
 
 async function use(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   const id = p.positionals[0];
-  if (!id) throw Errors.usage('git colabor identity use <id>');
+  if (!id) throw Errors.usage('git colabor identity use <email>');
   const scopeVal = p.values['--config-scope'];
   if (scopeVal !== undefined && scopeVal !== 'local' && scopeVal !== 'global') {
     throw Errors.usage(`--config-scope must be local|global, got "${scopeVal}"`);
@@ -246,10 +248,9 @@ async function use(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
       message: `passphrase unavailable — identity applied WITHOUT the push/sign key; retry via the extension or ssh-add`,
     });
   }
-  const map = await readMap();
   return ok(
     {
-      identity: identityToJson(identity, undefined, undefined, map.keyBindings?.[identity.id]),
+      identity: identityToJson(identity, undefined, undefined, identity.keyBindings),
       applied: {
         userName: result.name,
         userEmail: result.email,
@@ -286,11 +287,10 @@ async function add(p: CmdParsed): Promise<JsonResult> {
   // key is a PREFERENCE: record it in the bindings table, apply nothing here
   if (keySource) {
     const imp = await importKey(keySource);
-    await setPushKey(identity.id, { path: imp.path, fingerprint: imp.fingerprint, ...(imp.encrypted ? { encrypted: true } : {}) });
+    await setPushKey(idOf(identity.name, identity.email), { path: imp.path, fingerprint: imp.fingerprint, ...(imp.encrypted ? { encrypted: true } : {}) });
   }
-  if (p.bools.has('--default')) await setDefault(identity.id);
-  const map = await readMap();
-  return ok({ identity: identityToJson(identity, undefined, undefined, map.keyBindings?.[identity.id]), encrypted }, warnings);
+  if (p.bools.has('--default')) await setDefault(idOf(identity.name, identity.email));
+  return ok({ identity: identityToJson(identity, undefined, undefined, identity.keyBindings), encrypted }, warnings);
 }
 
 /**
@@ -307,7 +307,7 @@ export async function importFromHistory(ctx: IdCtx): Promise<JsonResult> {
   for (const c of committers) {
     const id = c.email.toLowerCase();
     if (known.has(id) || hidden.has(id)) continue;
-    const identity = await addIdentity({ name: c.name, email: c.email, imported: true, scope: 'project' });
+    const identity = await addIdentity({ name: c.name, email: c.email, scope: 'project' }) // history import ⟺ project scope;
     known.add(id);
     added.push(identity);
   }
@@ -330,7 +330,7 @@ async function rm(p: CmdParsed): Promise<JsonResult> {
   try {
     const identity = await getIdentity(id);
     email = identity.email;
-    wasImported = !!identity.imported;
+    wasImported = identity.scope === 'project'; // history-derived — hide so re-import cannot resurrect
   } catch {
     // fall through — removeIdentity reports the not-found error
   }
@@ -347,7 +347,7 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   const id = p.positionals[0];
   if (!id) {
     throw Errors.usage(
-      'git colabor identity set <id> --name <n> | --email <e> | --key <path> | --no-key | --gpg-key <k> | --no-gpg-key | --sign-key <path> | --no-sign-key | --sign-commits | --no-sign-commits | --scope <s>',
+      'git colabor identity set <email> --name <n> | --email <e> | --key <path> | --no-key | --gpg-key <k> | --no-gpg-key | --sign-key <path> | --no-sign-key | --sign-commits | --no-sign-commits | --scope <s>',
     );
   }
   await getIdentity(id); // validates existence
@@ -419,8 +419,7 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
     identityName: next.name,
     message: `set ${[...Object.keys(patch), ...(keyTouched ? ['key'] : [])].join(', ')}`,
   });
-  const map = await readMap();
-  return ok({ identity: identityToJson(next, undefined, undefined, map.keyBindings?.[id]) }, warnings);
+  return ok({ identity: identityToJson(next, undefined, undefined, next.keyBindings) }, warnings);
 }
 
 async function logout(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
@@ -442,7 +441,7 @@ async function logout(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
  */
 async function unsetConfigForIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   const id = p.positionals[0];
-  if (!id) throw Errors.usage('git colabor identity unset-config <id> [--scope local|global]');
+  if (!id) throw Errors.usage('git colabor identity unset-config <email> [--scope local|global]');
   const scope = p.values['--scope'];
   if (scope !== undefined && scope !== 'local' && scope !== 'global') {
     throw Errors.usage(`--scope must be local|global, got "${scope}"`);
@@ -534,19 +533,19 @@ async function status(ctx: IdCtx): Promise<JsonResult> {
     const [n, e] = await Promise.all([getConfig('user.name', scope, ctx.cwd), getConfig('user.email', scope, ctx.cwd)]);
     if (!n || !e) return null;
     const norm = (s: string): string => s.trim().toLowerCase();
-    const byEmail = Object.values((await readMap()).identities).filter((i) => norm(i.email) === norm(e));
-    const match = byEmail.find((i) => norm(i.name) === norm(n)) ?? byEmail[0];
-    if (match) return { name: n, email: e, id: match.id };
+    const match = Object.values((await readMap()).identities).find(
+      (i) => norm(i.email) === norm(e) && norm(i.name) === norm(n),
+    );
+    if (match) return { name: n, email: e, id: idOf(match.name, match.email) };
     if ((await listHiddenEmails()).includes(e.toLowerCase())) return { name: n, email: e, id: '' };
     const added = await addIdentity({ name: n, email: e, scope: 'machine', fromConfig: true });
-    return { name: n, email: e, id: added.id };
+    return { name: n, email: e, id: idOf(added.name, added.email) };
   };
   const configIdentities = {
     repo: rs.inRepo ? await scopeIdentity('local') : null,
     global: await scopeIdentity('global'),
   };
 
-  const map = await readMap();
   const { identities, defaultIdentity } = await listIdentities();
   const prints = await agentFingerprints();
 
@@ -554,14 +553,14 @@ async function status(ctx: IdCtx): Promise<JsonResult> {
   // store (auto-enrolling unknowns); the tree marks it active
   const resolved = rs.inRepo ? await resolveActive(ctx.cwd, { enroll: true }) : undefined;
   const active = resolved?.identity;
-  const activeId = active?.id;
+  const activeId = active ? ckey(active) : undefined;
 
   const hidden = new Set(await listHiddenEmails());
   const rows = identities
-    .filter((i) => i.id === activeId || !hidden.has(i.email.toLowerCase()))
+    .filter((i) => ckey(i) === activeId || !hidden.has(i.email.toLowerCase()))
     .map((i) => ({
-      ...identityToJson(i, defaultIdentity, prints, map.keyBindings?.[i.id]),
-      active: i.id === activeId,
+      ...identityToJson(i, defaultIdentity, prints, i.keyBindings),
+      active: ckey(i) === activeId,
     }));
 
   return ok({
@@ -569,7 +568,7 @@ async function status(ctx: IdCtx): Promise<JsonResult> {
     inRepo: rs.inRepo,
     // what `git commit` will actually do here, and which scope decides it
     signing: await signingStatus(ctx.cwd),
-    activeIdentity: active ? identityToJson(active, defaultIdentity, prints, map.keyBindings?.[active.id]) : null,
+    activeIdentity: active ? identityToJson(active, defaultIdentity, prints, active.keyBindings) : null,
     enrolled: resolved?.enrolled ?? false,
     identities: rows,
     // which identity each git-config SCOPE names (repo-local / global) —
