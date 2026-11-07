@@ -1,8 +1,9 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { writeFile, unlink, chmod, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, unlink, chmod, mkdir, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { CliLogger } from '../cli/CliClient.js';
 
 export type AskpassDeps = {
@@ -108,6 +109,8 @@ export class AskpassServer {
     });
     if (this.socketPath) await unlink(this.socketPath).catch(() => {});
     this.socketPath = undefined;
+    // this exthost's session descriptor dies with its server
+    await unlink(join(colaborDir(), `session-${process.pid}.json`)).catch(() => {});
   }
 }
 
@@ -116,6 +119,69 @@ function constantTimeEqual(a: string, b: string): boolean {
   const bb = Buffer.from(b);
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
+}
+
+function pidIsAlive(pid: unknown): boolean {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM = exists but owned by another user; ESRCH = dead
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** only ever unlink sock FILES WE OWN, inside our dir, by our naming pattern */
+const isOurSocket = (dir: string, path: unknown): path is string =>
+  typeof path === 'string' && /^askpass-[\w.-]+\.sock$/.test(basename(path)) && join(dir, basename(path)) === path;
+
+/**
+ * Best-effort sweep of the data dir: session-*.json whose extension-host pid
+ * is gone (window closed / reloaded / crashed) are deleted together with
+ * their socket file, and askpass-*.sock files no live session references are
+ * removed as crash leftovers. Every extension start runs this, so the dir
+ * self-cleans instead of accumulating one token-bearing file per exthost
+ * lifetime.
+ */
+export async function sweepSessionFiles(dir = colaborDir()): Promise<{ sessions: number; sockets: number }> {
+  const removed = { sessions: 0, sockets: 0 };
+  try {
+    const entries = await readdir(dir);
+    const liveSockets = new Set<string>();
+    for (const f of entries.filter((n) => /^session-.*\.json$/.test(n))) {
+      try {
+        const parsed = JSON.parse(await readFile(join(dir, f), 'utf8')) as { pid?: unknown; socketPath?: string };
+        const ours = isOurSocket(dir, parsed.socketPath);
+        // stale = pid gone, OR the pid was REUSED by an unrelated process and
+        // the bridge socket it pointed at no longer exists
+        const stale = !pidIsAlive(parsed.pid) || !ours || (parsed.socketPath !== undefined && !existsSync(parsed.socketPath));
+        if (!stale && ours) {
+          liveSockets.add(basename(parsed.socketPath!));
+          continue;
+        }
+        await unlink(join(dir, f)).catch(() => {});
+        removed.sockets += await rmIfOurs(dir, parsed.socketPath);
+        removed.sessions += 1;
+      } catch {
+        // unreadable session file — leave it to the next sweep
+      }
+    }
+    for (const f of entries.filter((n) => /^askpass-[\w.-]+\.sock$/.test(n))) {
+      if (liveSockets.has(f)) continue;
+      await unlink(join(dir, f)).catch(() => {});
+      removed.sockets += 1;
+    }
+  } catch {
+    // dir missing / unreadable — nothing to sweep
+  }
+  return removed;
+}
+
+async function rmIfOurs(dir: string, path: unknown): Promise<number> {
+  if (!isOurSocket(dir, path)) return 0;
+  await unlink(path).catch(() => {});
+  return 1;
 }
 
 export function colaborDir(): string {
@@ -131,6 +197,8 @@ export function colaborDir(): string {
  * not in its env — terminal invocation path.)
  */
 export async function writeSessionFile(sessionId: string, socketPath: string, token: string): Promise<void> {
+  // every new session sweeps the corpses of previous ones (crash leftovers included)
+  void sweepSessionFiles().catch(() => {});
   const file = join(colaborDir(), `session-${process.pid}.json`);
   await writeFile(file, JSON.stringify({ sessionId, socketPath, token, pid: process.pid }) + '\n', {
     encoding: 'utf8',
