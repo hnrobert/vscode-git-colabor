@@ -149,6 +149,29 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     git(root, ['config', '--local', 'user.email', 'original@x.com']);
   });
 
+  it('alias: settable, unique, shown in JSON, and usable as a CLI ref', async () => {
+    const a = await addIdentity({ name: 'Alias Guy', email: 'alias@x.com' });
+    const b = await addIdentity({ name: 'Alias Two', email: 'alias2@x.com' });
+    const ref = idOf(a.name, a.email);
+    // set + JSON exposure
+    const set1 = await dispatch('set', [ref, '--alias', 'guy', '--json'], { cwd: root, flags: {} as GlobalFlags });
+    if (!set1.ok) throw new Error('set --alias failed');
+    expect((set1.data as { identity: { alias: string | null } }).identity.alias).toBe('guy');
+    // usable as a ref
+    const use = await dispatch('use', ['guy', '--json'], { cwd: root, flags: {} as GlobalFlags });
+    expect(use.ok && (use.data as { identity: { email: string } }).identity.email === 'alias@x.com').toBe(true);
+    // uniqueness + numeric rejection
+    const dup = await dispatch('set', [idOf(b.name, b.email), '--alias', 'guy', '--json'], { cwd: root, flags: {} as GlobalFlags }).catch(() => null);
+    expect(dup === null || dup.ok === false).toBe(true);
+    const num = await dispatch('set', [ref, '--alias', '42', '--json'], { cwd: root, flags: {} as GlobalFlags }).catch(() => null);
+    expect(num === null || num.ok === false).toBe(true);
+    // clear
+    const cleared = await dispatch('set', ['guy', '--no-alias', '--json'], { cwd: root, flags: {} as GlobalFlags });
+    expect(cleared.ok && (cleared.data as { identity: { alias: string | null } }).identity.alias === null).toBe(true);
+    git(root, ['config', '--local', 'user.name', 'Original Name']);
+    git(root, ['config', '--local', 'user.email', 'original@x.com']);
+  });
+
   it('status reports per-scope config identities (repo vs global) and enrolls unknowns', async () => {
     // local carries a KNOWN person, global carries an UNKNOWN one
     const known = await addIdentity({ name: 'Repo Local', email: 'repolocal@x.com' });

@@ -35,6 +35,9 @@ function resolveRow(map: IdentityMap, ref: string): Identity {
     const hit = map.identities.find((i) => norm(i.name) === norm(author.name) && norm(i.email) === norm(author.email));
     if (hit) return hit;
   }
+  // a user-assigned alias resolves like any other ref
+  const byAlias = map.identities.find((i) => i.alias !== undefined && i.alias.toLowerCase() === ref.trim().toLowerCase());
+  if (byAlias) return byAlias;
   // a bare number is the 1-based position in `identity ls` order
   if (/^\d+$/.test(ref.trim())) {
     const row = map.identities[Number(ref.trim()) - 1];
@@ -89,6 +92,7 @@ function foldRow(rows: Identity[], raw: RawRow): void {
     email: raw.email,
     createdAt: raw.createdAt,
     ...(raw.host !== undefined ? { host: raw.host } : {}),
+    ...(raw.alias !== undefined && raw.alias !== '' ? { alias: raw.alias } : {}),
     ...(scope !== undefined ? { scope } : {}),
     ...(raw.fromConfig !== undefined ? { fromConfig: raw.fromConfig } : {}),
     ...(keyBindings ? { keyBindings } : {}),
@@ -122,13 +126,13 @@ export async function readMap(): Promise<IdentityMap> {
     let defaultIdentity: string | undefined;
     if (parsed.defaultIdentity) {
       try {
-        defaultIdentity = refOf(resolveRow({ schemaVersion: 1, identities }, parsed.defaultIdentity));
+        defaultIdentity = refOf(resolveRow({ schemaVersion: 2, identities }, parsed.defaultIdentity));
       } catch {
         defaultIdentity = undefined; // dangling marker — drop it
       }
     }
     const migrated: IdentityMap = {
-      schemaVersion: 1,
+      schemaVersion: 2, // any v1 shape on disk folds into the v2 list above
       identities,
       ...(defaultIdentity ? { defaultIdentity } : {}),
       ...(parsed.hidden ? { hidden: parsed.hidden } : {}),
@@ -141,7 +145,7 @@ export async function readMap(): Promise<IdentityMap> {
     }
     return migrated;
   } catch {
-    return { schemaVersion: 1, identities: [] };
+    return { schemaVersion: 2, identities: [] };
   }
 }
 
@@ -181,13 +185,17 @@ export async function addIdentity(input: NewIdentity): Promise<Identity> {
  */
 export async function updateIdentity(
   ref: string,
-  patch: Partial<Pick<Identity, 'name' | 'email' | 'scope' | 'host' | 'fromConfig'>>,
+  patch: Partial<Pick<Identity, 'name' | 'email' | 'scope' | 'host' | 'fromConfig' | 'alias'>>,
+  opts: { clearAlias?: boolean } = {},
 ): Promise<Identity> {
   const map = await readMap();
   const row = resolveRow(map, ref);
   const before = refOf(row);
   Object.assign(row, patch);
+  if (opts?.clearAlias) delete row.alias;
   const after = refOf(row);
+  const aliasClash = patch.alias && map.identities.find((i) => i !== row && i.alias === patch.alias);
+  if (aliasClash) throw Errors.usage(`alias "${patch.alias}" already belongs to ${idOf(aliasClash.name, aliasClash.email)}`);
   const clash = map.identities.find((i) => i !== row && refOf(i) === after);
   if (clash) throw Errors.usage(`"${idOf(row.name, row.email)}" already exists`);
   if (map.defaultIdentity === before) map.defaultIdentity = after;

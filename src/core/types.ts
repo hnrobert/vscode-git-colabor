@@ -8,6 +8,8 @@ export type Source = 'ext' | 'cli';
 export type Identity = {
   name: string;
   email: string;
+  /** user-assigned short handle ("work") — shown first in the tree, usable as a CLI ref */
+  alias?: string;
   /** informational, e.g. "github.com" */
   host?: string;
   /** where this identity is remembered: machine (identities.json) or project (repo scan) */
@@ -46,7 +48,8 @@ export type KeyBinding = {
 };
 
 export type IdentityMap = {
-  schemaVersion: 1;
+  /** 2 = list-shaped identities with row-carried keyBindings (v1 maps migrate on read) */
+  schemaVersion: 2;
   /** a plain LIST of self-contained rows — no keys, no ids, no side tables */
   identities: Identity[];
   /** derived lowercase `name <email>` ref of the default identity */

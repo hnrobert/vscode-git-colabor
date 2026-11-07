@@ -65,7 +65,9 @@ describe('identity map', () => {
 
   it('persists across reads (atomic write) — identities are a plain list', async () => {
     await addIdentity({ name: 'Alice', email: 'alice@x.com' });
-    const { identities } = await readMap();
+    const map = await readMap();
+    expect(map.schemaVersion).toBe(2);
+    const { identities } = map;
     expect(Array.isArray(identities)).toBe(true);
     expect(identities.find((i) => i.email === 'alice@x.com')).toBeDefined();
     expect(identities.find((i) => 'id' in i)).toBeUndefined(); // no id field anywhere

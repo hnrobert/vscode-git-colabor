@@ -51,8 +51,8 @@ const ADD_SPEC = {
 const AUDIT_SPEC = { valueFlags: ['--repo', '--since', '--tail'] };
 const APPLY_SPEC = { valueFlags: ['--name', '--email', '--ssh-command', '--source'] };
 const SET_SPEC = {
-  valueFlags: ['--name', '--email', '--key', '--gpg-key', '--sign-key', '--scope'],
-  boolFlags: ['--no-key', '--no-gpg-key', '--no-sign-key', '--sign-commits', '--no-sign-commits'],
+  valueFlags: ['--name', '--email', '--key', '--gpg-key', '--sign-key', '--scope', '--alias'],
+  boolFlags: ['--no-key', '--no-gpg-key', '--no-sign-key', '--sign-commits', '--no-sign-commits', '--no-alias'],
 };
 const SIGN_SPEC = { valueFlags: [], boolFlags: ['--off'] };
 const LOGOUT_SPEC = { valueFlags: [], boolFlags: ['--no-agent'] };
@@ -67,6 +67,7 @@ function identityToJson(i: Identity, defaultId?: string, agentPrints?: Set<strin
     id: idOf(i.name, i.email), // derived ref — never stored
     name: i.name,
     email: i.email,
+    alias: i.alias ?? null,
     host: i.host,
     // reference mode: a key counts only while the referenced file is still there
     hasKey: !!push && existsSync(push.path),
@@ -347,7 +348,7 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   const id = p.positionals[0];
   if (!id) {
     throw Errors.usage(
-      'git colabor identity set <email> --name <n> | --email <e> | --key <path> | --no-key | --gpg-key <k> | --no-gpg-key | --sign-key <path> | --no-sign-key | --sign-commits | --no-sign-commits | --scope <s>',
+      'git colabor identity set <ref> --name <n> | --email <e> | --alias <a> | --no-alias | --key <path> | --no-key | --gpg-key <k> | --no-gpg-key | --sign-key <path> | --no-sign-key | --sign-commits | --no-sign-commits | --scope <s>',
     );
   }
   await getIdentity(id); // validates existence
@@ -388,6 +389,18 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
     await setSignKey(id, { format: 'openpgp', key: key.fingerprint });
     keyTouched = true;
   }
+  const aliasVal = p.values['--alias'];
+  if (aliasVal !== undefined) {
+    // short handle: no spaces/@/angle brackets (would shadow the other ref
+    // forms), not a bare number (would shadow the 1-based index ref)
+    if (!/^[A-Za-z0-9._-]+$/.test(aliasVal)) {
+      throw Errors.usage(`alias must be letters/digits/dot/dash/underscore, got "${aliasVal}"`);
+    }
+    if (/^\d+$/.test(aliasVal)) {
+      throw Errors.usage(`alias cannot be a bare number ("${aliasVal}") — it would shadow the 1-based list index ref`);
+    }
+    patch.alias = aliasVal;
+  }
   if (p.values['--sign-key']) {
     const signSource = p.values['--sign-key'];
     if (!existsSync(signSource)) throw Errors.usage(`key file not found: ${signSource}`);
@@ -406,12 +419,15 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
     await setSignCommits(id, false);
     keyTouched = true;
   }
+  const clearAlias = p.bools.has('--no-alias');
+  if (clearAlias) keyTouched = true; // --no-alias alone is a valid call
   if (Object.keys(patch).length === 0 && !keyTouched) {
     throw Errors.usage(
-      'identity set needs at least one of --name / --email / --key / --no-key / --gpg-key / --no-gpg-key / --sign-key / --no-sign-key / --sign-commits / --no-sign-commits / --scope',
+      'identity set needs at least one of --name / --email / --alias / --no-alias / --key / --no-key / --gpg-key / --no-gpg-key / --sign-key / --no-sign-key / --sign-commits / --no-sign-commits / --scope',
     );
   }
-  const next = Object.keys(patch).length > 0 ? await updateIdentity(id, patch) : await getIdentity(id);
+  const next =
+    Object.keys(patch).length > 0 || clearAlias ? await updateIdentity(id, patch, { clearAlias }) : await getIdentity(id);
   await appendAudit({
     action: 'identity.set',
     source: process.env.GIT_COLABOR_SOURCE === 'ext' ? 'ext' : 'cli',
