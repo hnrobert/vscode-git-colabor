@@ -46,7 +46,10 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
   const fallback =
     configured && status?.inRepo && !status.activeIdentity
       ? status.identities.find(
-          (i) => i.id === configured || i.email.toLowerCase() === configured.trim().toLowerCase(),
+          (i) =>
+            i.id === configured ||
+            i.email.toLowerCase() === configured.trim().toLowerCase() ||
+            (i.alias !== undefined && i.alias !== null && i.alias.toLowerCase() === configured.trim().toLowerCase()),
         )?.id
       : undefined;
   const activeId = status?.activeIdentity?.id ?? fallback;

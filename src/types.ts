@@ -10,6 +10,8 @@ export type IdentityJson = {
   id: string;
   name: string;
   email: string;
+  /** user-assigned short handle — shown first in the tree, usable as a CLI ref */
+  alias?: string | null;
   sshKeyFingerprint?: string;
   host?: string;
   hasKey: boolean;
