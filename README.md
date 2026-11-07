@@ -126,6 +126,7 @@ This is the contract the VS Code extension consumes.
 
 | Path | Purpose | Mode |
 | --- | --- | --- |
+| `~/.config/git-colabor/session-*.json` | One per running extension instance (askpass bridge endpoint + token). Auto-cleaned: descriptors whose extension-host pid is gone — and any orphaned `askpass-*.sock` — are deleted on every new session and on every CLI bridge discovery. | `0600` |
 | `~/.config/git-colabor/identities.json` | Identity map (referenced key paths + fingerprints; env `GIT_COLABOR_MAP`) | `0600` |
 | `~/.config/git-colabor/audit.log` | JSONL audit trail | `0600` |
 | `<git-dir>/colabor/state.json` | Per-repo state: active identity, `heldBy`, opt-in signing flag, config backups | `0600` |
