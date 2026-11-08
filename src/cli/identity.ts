@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { existsSync, accessSync, constants } from 'node:fs';
 import { parseCommandArgs, type CmdParsed, type GlobalFlags } from './parse-args.js';
 import { Errors } from '../core/errors.js';
 import { ok } from './json.js';
 import {
   addIdentity,
+  findByIdentityEmail,
   getKeyBinding,
   getIdentity,
   hideIdentityEmail,
@@ -219,9 +221,37 @@ async function agentKey(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   );
 }
 
+/**
+ * A bare-email ref hitting SEVERAL identities: interactive sessions pick from
+ * a numbered list; --json / non-tty keep the usage error (machines cannot
+ * answer prompts — the error already lists the full-form candidates).
+ */
+async function resolveRefOrPrompt(ref: string, ctx: IdCtx): Promise<string> {
+  try {
+    await getIdentity(ref);
+    return ref;
+  } catch (e) {
+    const byEmail = await findByIdentityEmail(ref);
+    const canPrompt = !ctx.flags.json && process.stdin.isTTY && process.stdout.isTTY;
+    if (byEmail.length > 1 && canPrompt) {
+      const lines = byEmail.map((x, i) => `  ${i + 1}. ${idOf(x.name, x.email)}${x.alias ? `  (${x.alias})` : ''}`);
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await new Promise<string | undefined>((done) =>
+        rl.question(`email "${ref}" matches ${byEmail.length} identities:\n${lines.join('\n')}\npick one [1-${byEmail.length}]: `, (a) => done(a)),
+      ).finally(() => rl.close());
+      const n = Number((answer ?? '').trim());
+      if (Number.isInteger(n) && n >= 1 && n <= byEmail.length) {
+        return idOf(byEmail[n - 1].name, byEmail[n - 1].email);
+      }
+    }
+    throw e;
+  }
+}
+
 async function use(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
-  const id = p.positionals[0];
-  if (!id) throw Errors.usage('git colabor identity use <email>');
+  const rawRef = p.positionals[0];
+  if (!rawRef) throw Errors.usage('git colabor identity use <ref>');
+  const id = await resolveRefOrPrompt(rawRef, ctx);
   const scopeVal = p.values['--config-scope'];
   if (scopeVal !== undefined && scopeVal !== 'local' && scopeVal !== 'global') {
     throw Errors.usage(`--config-scope must be local|global, got "${scopeVal}"`);
@@ -393,11 +423,14 @@ async function setIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
   if (aliasVal !== undefined) {
     // short handle: no spaces/@/angle brackets (would shadow the other ref
     // forms), not a bare number (would shadow the 1-based index ref)
-    if (!/^[A-Za-z0-9._-]+$/.test(aliasVal)) {
-      throw Errors.usage(`alias must be letters/digits/dot/dash/underscore, got "${aliasVal}"`);
+    if (!/^[A-Za-z0-9._@-]+$/.test(aliasVal)) {
+      throw Errors.usage(`alias must be letters/digits/dot/dash/underscore/@, got "${aliasVal}"`);
     }
     if (/^\d+$/.test(aliasVal)) {
       throw Errors.usage(`alias cannot be a bare number ("${aliasVal}") — it would shadow the 1-based list index ref`);
+    }
+    if (aliasVal.includes(' <') || aliasVal.includes('>')) {
+      throw Errors.usage(`alias cannot contain angle brackets ("${aliasVal}") — it would shadow the "Name <email>" ref form`);
     }
     patch.alias = aliasVal;
   }

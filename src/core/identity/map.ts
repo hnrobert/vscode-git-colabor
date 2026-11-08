@@ -157,6 +157,12 @@ export async function getIdentity(ref: string): Promise<Identity> {
   return resolveRow(await readMap(), ref);
 }
 
+/** All identities carrying this email EXACTLY (case-insensitive) — ambiguity detection for refs. */
+export async function findByIdentityEmail(email: string): Promise<Identity[]> {
+  const { identities } = await readMap();
+  return identities.filter((i) => norm(i.email) === norm(email));
+}
+
 /** Find an identity by (name, email) — the uniqueness key. */
 export async function findIdentity(name: string, email: string): Promise<Identity | undefined> {
   const { identities } = await readMap();
