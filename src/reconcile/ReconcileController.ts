@@ -39,19 +39,36 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
   }
 
   // active = config-derived; defaultIdentity only fills on repos where config
-  // carries nothing (fresh — no user.name/email anywhere). The setting takes
-  // the identity's id OR its email (email is the person key; it's the value
-  // the tree rows display).
+  // carries nothing (fresh — no user.name/email anywhere). The setting's value
+  // resolves EXACTLY, alias first (aliases may contain @, so it cannot be
+  // told apart by shape), then the full `Name <email>` form, then email. An
+  // email several identities share pops a picker; a value matching nothing
+  // leaves the repo untouched.
   const configured = defaultIdentity();
-  const fallback =
-    configured && status?.inRepo && !status.activeIdentity
-      ? status.identities.find(
-          (i) =>
-            i.id === configured ||
-            i.email.toLowerCase() === configured.trim().toLowerCase() ||
-            (i.alias !== undefined && i.alias !== null && i.alias.toLowerCase() === configured.trim().toLowerCase()),
-        )?.id
-      : undefined;
+  let fallback: string | undefined;
+  if (configured && status?.inRepo && !status.activeIdentity) {
+    const want = configured.trim().toLowerCase();
+    const rows = status.identities;
+    const byAlias = rows.filter((i) => (i.alias ?? '').toLowerCase() === want && want !== '');
+    const byId = rows.filter((i) => i.id.toLowerCase() === want);
+    const byEmail = rows.filter((i) => i.email.toLowerCase() === want);
+    const chosen =
+      byAlias[0] ?? byId[0] ?? (byEmail.length === 1 ? byEmail[0] : undefined);
+    if (!chosen && byEmail.length > 1) {
+      const picked = await vscode.window.showQuickPick(
+        byEmail.map((i) => ({
+          label: `${i.name} <${i.email}>`,
+          description: i.alias ?? undefined,
+          detail: i.scope === 'machine' ? 'found in machine memory' : 'found in repo history',
+          id: i.id,
+        })),
+        { placeHolder: `"${configured}" matches ${byEmail.length} identities — pick the default` },
+      );
+      fallback = picked?.id;
+    } else {
+      fallback = chosen?.id;
+    }
+  }
   const activeId = status?.activeIdentity?.id ?? fallback;
 
   if (activeId) {
