@@ -43,6 +43,15 @@
           "default": "",
           "markdownDescription": "Identity to auto-activate when a repo opens with none active (fresh repos only — a repo whose git config already names an identity always follows its config). Resolves exactly like `identity use`: **alias first** (`--alias`, aliases may contain `@` so shape cannot distinguish), then the email. An email shared by several identities pops a picker; a value matching nothing leaves the repo untouched."
         },
+        "gitColabor.rememberedIdentities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "markdownDescription": "**Remembered identities** — `\"Name <email>\"` entries in your VS Code settings (right-click an identity → *Remember on VS Code User Settings*). Remembered rows show in every repo as \"found in vscode memory\" and feed the Co-authors list."
+        },
         "gitColabor.cliPath": {
           "type": "string",
           "default": "",
@@ -79,15 +88,6 @@
           ],
           "default": "info",
           "description": "Output channel log level."
-        },
-        "gitColabor.coAuthorIdentities": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "scope": "window",
-          "markdownDescription": "Remembered identities as `\"Name <email>\"` entries (used as co-author candidates). Two layers only: user (cross-machine) and workspace (per repo) — the machine level is the identity store itself (~/.config/git-colabor/identities.json). Saved from the Identities group's right-click menu."
         },
         "gitColabor.keyPromptCancel": {
           "type": "string",

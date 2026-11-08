@@ -74,7 +74,9 @@ export function postCommitSolo(): boolean {
   return getBool('postCommitSolo', false);
 }
 
-// --- remembered identities (gitColabor.coAuthorIdentities, "Name <email>" entries) ---
+// --- remembered identities (gitColabor.rememberedIdentities, "Name <email>" entries) ---
+// The pre-rename key coAuthorIdentities still reads (per layer, new key wins)
+// and is cleared on the next remember/forget write.
 // Settings layers: user (global, cross-machine), workspace (per repo), and
 // vscode's "machine" layer — the remote window's Machine tab, where
 // ConfigurationTarget.Global writes can land from a remote extension host.
@@ -102,15 +104,28 @@ const sameAuthors = (a: ParsedAuthor[], b: ParsedAuthor[]): boolean =>
   a.length === b.length && a.every((x, i) => x.name === b[i].name && x.email === b[i].email);
 
 /** Both memory layers from ONE configuration inspect (cheap enough per render). */
+function mergedLayer(newV: unknown, oldV: unknown): ParsedAuthor[] {
+  const out = asAuthorList(newV);
+  const seen = new Set(out.map((a) => a.email.toLowerCase()));
+  for (const a of asAuthorList(oldV)) {
+    if (!seen.has(a.email.toLowerCase())) {
+      out.push(a);
+      seen.add(a.email.toLowerCase());
+    }
+  }
+  return out;
+}
+
 export function coAuthorMemoriesByScope(): Record<MemoryScope, ParsedAuthor[]> {
   const config = vscode.workspace.getConfiguration('gitColabor');
-  const inspect = config.inspect('coAuthorIdentities') as CoAuthorsInspection | undefined;
-  const user = asAuthorList(inspect?.globalValue);
-  const workspace = asAuthorList(inspect?.workspaceValue);
+  const inspectNew = config.inspect('rememberedIdentities') as CoAuthorsInspection | undefined;
+  const inspectOld = config.inspect('coAuthorIdentities') as CoAuthorsInspection | undefined;
+  const user = mergedLayer(inspectNew?.globalValue, inspectOld?.globalValue);
+  const workspace = mergedLayer(inspectNew?.workspaceValue, inspectOld?.workspaceValue);
   // window-scoped settings REPLACE per layer, so a non-empty effective value
   // that matches neither exposed layer can only be the machine layer —
   // recover it instead of losing entries inspect() cannot name.
-  const effective = asAuthorList(config.get('coAuthorIdentities'));
+  const effective = mergedLayer(config.get('rememberedIdentities'), config.get('coAuthorIdentities'));
   if (effective.length > 0 && !sameAuthors(effective, user) && !sameAuthors(effective, workspace)) {
     const seen = new Set(user.map((a) => a.email.toLowerCase()));
     for (const a of effective) {
@@ -163,7 +178,8 @@ export async function setCoAuthorMemory(scope: MemoryScope, author: ParsedAuthor
   const e = author.email.toLowerCase();
   const list = coAuthorMemoriesByScope()[scope].filter((a) => a.email.toLowerCase() !== e);
   if (save) list.push(author);
-  await vscode.workspace
-    .getConfiguration('gitColabor')
-    .update('coAuthorIdentities', list.map((a) => `${a.name} <${a.email}>`), target);
+  const config = vscode.workspace.getConfiguration('gitColabor');
+  await config.update('rememberedIdentities', list.map((a) => `${a.name} <${a.email}>`), target);
+  // the pre-rename key dies on the first write — no stale duplicate setting
+  await config.update('coAuthorIdentities', undefined, target);
 }

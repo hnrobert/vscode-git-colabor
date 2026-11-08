@@ -572,7 +572,7 @@ async function pickAndApplyScope(deps: CommandDeps, id: string, name: string): P
   if (!picked) return; // cancelled → defaults to machine scope
 
   if (picked.scope === 'vscode') {
-    // save in VS Code user settings (coAuthorIdentities); 'user' below is the
+    // save in VS Code user settings (rememberedIdentities); 'user' below is the
     // settings LAYER (ConfigurationTarget.Global), not the identity scope
     const identity = (await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']))?.identities.find((i) => i.id === id);
     if (identity) {
