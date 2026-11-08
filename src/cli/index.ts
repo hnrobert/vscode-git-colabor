@@ -182,6 +182,7 @@ type IdentityJson = {
   hasKey: boolean;
   inAgent?: boolean;
   isDefault: boolean;
+  alias?: string | null;
 };
 
 function identityHuman(command: string | undefined, d: unknown): string {
@@ -191,7 +192,7 @@ function identityHuman(command: string | undefined, d: unknown): string {
     return identities
       .map(
         (i, idx) =>
-          `${idx + 1}. ${i.isDefault ? '* ' : '  '}${i.name} <${i.email}>${i.hasKey ? `  [key ${i.sshKeyFingerprint ?? ''}${i.inAgent ? ' · in agent' : ''}]` : ''}`,
+          `${idx + 1}. ${i.isDefault ? '* ' : '  '}${i.name} <${i.email}>${i.alias ? ` [${i.alias}]` : ''}${i.hasKey ? `  [key ${i.sshKeyFingerprint ?? ''}${i.inAgent ? ' · in agent' : ''}]` : ''}`,
       )
       .join('\n');
   }
