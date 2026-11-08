@@ -40,20 +40,18 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
 
   // active = config-derived; defaultIdentity only fills on repos where config
   // carries nothing (fresh — no user.name/email anywhere). The setting's value
-  // resolves EXACTLY, alias first (aliases may contain @, so it cannot be
-  // told apart by shape), then the full `Name <email>` form, then email. An
-  // email several identities share pops a picker; a value matching nothing
-  // leaves the repo untouched.
+  // resolves EXACTLY like `identity use`: alias first (aliases may contain @,
+  // so shape cannot distinguish), then email. An email several identities
+  // share pops a picker; a value matching nothing leaves the repo untouched.
+  // (The `Name <email>` author form is internal plumbing, not a user ref.)
   const configured = defaultIdentity();
   let fallback: string | undefined;
   if (configured && status?.inRepo && !status.activeIdentity) {
     const want = configured.trim().toLowerCase();
     const rows = status.identities;
     const byAlias = rows.filter((i) => (i.alias ?? '').toLowerCase() === want && want !== '');
-    const byId = rows.filter((i) => i.id.toLowerCase() === want);
     const byEmail = rows.filter((i) => i.email.toLowerCase() === want);
-    const chosen =
-      byAlias[0] ?? byId[0] ?? (byEmail.length === 1 ? byEmail[0] : undefined);
+    const chosen = byAlias[0] ?? (byEmail.length === 1 ? byEmail[0] : undefined);
     if (!chosen && byEmail.length > 1) {
       const picked = await vscode.window.showQuickPick(
         byEmail.map((i) => ({

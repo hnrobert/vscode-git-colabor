@@ -87,7 +87,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `gitColabor.defaultIdentity` | `""` | Identity auto-activated when a repo opens with none active. Resolves exactly — **alias first**, then `Name <email>`, then email; a shared email pops a picker, no match = no change. Fresh repos only |
+| `gitColabor.defaultIdentity` | `""` | Identity auto-activated when a repo opens with none active. Resolves exactly like `identity use` — **alias first**, then email; a shared email pops a picker, no match = no change. Fresh repos only |
 | `gitColabor.cliPath` | `""` | Override the bundled CLI path (`resources/cli.cjs`) |
 | `gitColabor.coAuthorIdentities` | `[]` | Remembered co-authors (`"Name <email>"` entries in your VS Code user settings; right-click an identity → *Remember on VS Code User Settings*); these entries (plus all identities except the active one, and the repo's commit history) feed the Co-authors list |
 | `gitColabor.autoApplyOnRepoOpen` | `true` | Auto-apply the config-derived active identity (or `gitColabor.defaultIdentity` on a fresh repo) when a repo opens; off = only explicit *Use* writes config |
