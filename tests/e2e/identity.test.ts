@@ -32,6 +32,9 @@ let prevHome: string | undefined;
 let prevMap: string | undefined;
 let prevAudit: string | undefined;
 
+let agentPid: number | undefined;
+let prevAuthSock: string | undefined;
+
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'ca-id-e2e-'));
   home = await mkdtemp(join(tmpdir(), 'ca-id-home-'));
@@ -42,6 +45,16 @@ beforeAll(async () => {
   process.env.HOME = home; // isolates ~/.gitmessage, global git config, and keysDir()
   process.env.GIT_COLABOR_MAP = join(dataDir, 'identities.json');
   process.env.GIT_COLABOR_AUDIT_FILE = join(dataDir, 'audit.log');
+  // PRIVATE ssh-agent: loadKey/agent tests run real `ssh-add` — without this
+  // they would load the test keys into the USER's real agent (exactly the
+  // leak this once caused: one 'load' key per e2e run).
+  prevAuthSock = process.env.SSH_AUTH_SOCK;
+  const agentSock = join(dataDir, 'test-agent.sock');
+  const agent = spawnSync('ssh-agent', ['-a', agentSock], { encoding: 'utf8' });
+  const pidMatch = agent.stdout.match(/SSH_AGENT_PID=(\d+)/);
+  if (agent.status !== 0 || !pidMatch) throw new Error(`test ssh-agent failed to start: ${agent.stderr}`);
+  process.env.SSH_AUTH_SOCK = agentSock;
+  agentPid = Number(pidMatch[1]);
   git(root, ['init', '-q']);
   git(root, ['config', 'user.name', 'Original Name']);
   git(root, ['config', 'user.email', 'original@x.com']);
@@ -54,6 +67,15 @@ afterAll(async () => {
   else process.env.GIT_COLABOR_MAP = prevMap;
   if (prevAudit === undefined) delete process.env.GIT_COLABOR_AUDIT_FILE;
   else process.env.GIT_COLABOR_AUDIT_FILE = prevAudit;
+  if (prevAuthSock === undefined) delete process.env.SSH_AUTH_SOCK;
+  else process.env.SSH_AUTH_SOCK = prevAuthSock;
+  if (agentPid !== undefined) {
+    try {
+      process.kill(agentPid, 'SIGTERM'); // the private agent dies with the suite
+    } catch {
+      // already gone
+    }
+  }
   await rm(root, { recursive: true, force: true });
   await rm(home, { recursive: true, force: true });
   await rm(dataDir, { recursive: true, force: true });
