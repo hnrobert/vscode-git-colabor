@@ -68,7 +68,7 @@ git colabor identity revert               # restore pre-tool git config
 | `coauthor rm <email\|id>` | Remove a co-author from every scope it is active in. |
 | `coauthor ls [filter]` | Active co-authors + available candidates (identities minus the active one); optional substring filter. |
 | `coauthor print` | Print the `Co-authored-by:` trailer blob for the current selection. |
-| `coauthor suggest [filter]` | Suggest co-authors from `git shortlog` history; interactive pick without `--json`. |
+| `coauthor suggest [filter]` | Suggest co-authors from history — `git shortlog` committers **plus every `Co-authored-by:` trailer author**; interactive pick without `--json`. |
 
 Selecting co-authors rewrites the commit template (`commit.template` / `~/.gitmessage`): all existing `Co-authored-by:` trailers are stripped and the current selection re-appended — the same behavior as git-mob's message formatter.
 

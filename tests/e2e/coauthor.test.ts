@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as coauthor from '../../src/cli/coauthor.js';
 import { getAllConfig } from '../../src/core/git/config.js';
+import { historyCommitters } from '../../src/core/git/committers.js';
+import { repoAuthors } from '../../src/core/git/shortlog.js';
+import { dispatch as dispatchIdentity } from '../../src/cli/identity.js';
+import type { GlobalFlags } from '../../src/cli/parse-args.js';
 
 function git(cwd: string, args: string[]): string {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -86,5 +90,16 @@ describe('coauthor e2e (add/rm/ls, identity-based)', () => {
   it('add of unknown email fails', async () => {
     const r = await coauthor.add(['nope@nowhere.com'], {}, root).catch((e) => e);
     expect(r).toBeInstanceOf(Error);
+  });
+
+  it('Co-authored-by trailer authors appear in history scan, suggest, and identity import', async () => {
+    // a commit authored by the configured identity, crediting a trailer-only partner
+    git(root, ['commit', '-q', '--allow-empty', '-m', 'pair work\n\nCo-authored-by: Trailer Pal <pal@x.io>']);
+    const committers = await historyCommitters(root);
+    expect(committers.some((c) => c.email === 'pal@x.io')).toBe(true); // trailer author counted
+    const authors = await repoAuthors(undefined, root);
+    expect(authors.some((a) => a.email === 'pal@x.io')).toBe(true); // suggest candidate too
+    const r = await dispatchIdentity('import', ['--json'], { cwd: root, flags: {} as GlobalFlags });
+    expect((r.data as { added: { email: string }[] }).added.some((a) => a.email === 'pal@x.io')).toBe(true);
   });
 });
