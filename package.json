@@ -203,6 +203,16 @@
         "category": "Git Colabor"
       },
       {
+        "command": "gitColabor._alwaysCoAuthor",
+        "title": "Always Include (Every Commit)",
+        "category": "Git Colabor"
+      },
+      {
+        "command": "gitColabor._unalwaysCoAuthor",
+        "title": "Stop Always Including",
+        "category": "Git Colabor"
+      },
+      {
         "command": "gitColabor.showAudit",
         "title": "Show Audit Log",
         "category": "Git Colabor"
@@ -448,6 +458,16 @@
           "command": "gitColabor._unsetGlobalConfig",
           "when": "view == 'gitColabor.identitiesView' && viewItem =~ /-cg/",
           "group": "0_apply@5"
+        },
+        {
+          "command": "gitColabor._alwaysCoAuthor",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^coauthor-item(?!.*-aw)/",
+          "group": "0_coauthor@1"
+        },
+        {
+          "command": "gitColabor._unalwaysCoAuthor",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /-aw/",
+          "group": "0_coauthor@2"
         }
       ],
       "commandPalette": [
@@ -509,6 +529,14 @@
         },
         {
           "command": "gitColabor._unsetGlobalConfig",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._alwaysCoAuthor",
+          "when": "false"
+        },
+        {
+          "command": "gitColabor._unalwaysCoAuthor",
           "when": "false"
         }
       ]

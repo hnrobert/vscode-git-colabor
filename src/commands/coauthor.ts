@@ -37,6 +37,42 @@ export async function toggleCoAuthor(deps: CommandDeps, name: string, email: str
   deps.provider?.refresh();
 }
 
+/**
+ * Right-click → "Always Include" / "Stop Always Including" on a co-author
+ * row: the SOLO semantics — the author joins the persistent repo selection
+ * (colabor.selected + commit template), landing in EVERY commit message
+ * until Solo (or this toggle) clears them. Uses the same CLI the terminal
+ * would: `coauthor add --always` / `coauthor rm`.
+ */
+export async function toggleAlwaysCoAuthor(deps: CommandDeps, item: unknown, force?: 'on' | 'off'): Promise<void> {
+  const payload = (item as { payload?: { name?: string; email?: string } } | undefined)?.payload;
+  const email = payload?.email;
+  if (!email) {
+    deps.log.warn('always-coauthor command invoked without an author payload');
+    return;
+  }
+  const cwd = deps.git.selectedRepoRoot();
+  if (!cwd) {
+    vscode.window.showWarningMessage('Git Colabor: no git repository in the current workspace.');
+    return;
+  }
+  // current persistent selection decides the direction (unless the menu
+  // entry already pinned it — separate on/off entries)
+  const status = deps.provider?.current;
+  const isAlways = (status?.selected ?? []).some((a) => a.email.toLowerCase() === email.toLowerCase());
+  const turnOn = force ?? !isAlways;
+  const r = await run(deps, turnOn ? ['coauthor', 'add', email, '--always'] : ['coauthor', 'rm', email], { cwd });
+  if (r === undefined) return;
+  if (payload.name) {
+    vscode.window.showInformationMessage(
+      turnOn
+        ? `Git Colabor: ${payload.name} is now a co-author on every commit in this repo (Solo clears).`
+        : `Git Colabor: ${payload.name} removed from the selection.`,
+    );
+  }
+  await deps.provider?.reload();
+}
+
 /** List hidden identities and let the user restore one to auto-import. */
 export async function showHiddenIdentities(deps: CommandDeps): Promise<void> {
   const data = await run<{ hidden: string[] }>(deps, ['identity', 'hidden', '--json']);

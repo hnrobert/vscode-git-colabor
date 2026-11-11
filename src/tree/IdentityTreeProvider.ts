@@ -419,14 +419,20 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       ];
     }
     const present = this.inputBoxEmails();
+    // the persistent repo selection (colabor.selected — what Solo clears):
+    // these authors are in EVERY commit message until soloed
+    const always = new Set((this.status?.selected ?? []).map((a) => a.email.toLowerCase()));
     const items: ColaborItem[] = [];
     for (const a of candidates) {
       const id = a.email.toLowerCase();
       const isInMessage = present.has(id);
+      const isAlways = always.has(id);
       const item = new ColaborItem(a.name, 'coauthor-item', {
-        description: a.email,
-        tooltip: `${a.name} <${a.email}>\nclick to ${isInMessage ? 'remove' : 'append'} in the commit message`,
+        description: `${a.email}${isAlways ? ' · always' : ''}`,
+        tooltip: `${a.name} <${a.email}>\nclick to ${isInMessage ? 'remove' : 'append'} in the commit message${isAlways ? '\nalways included — Solo clears' : ''}`,
         icon: isInMessage ? 'diff-remove' : 'diff-insert',
+        contextValue: `coauthor-item${isAlways ? '-aw' : ''}`,
+        payload: { name: a.name, email: a.email },
       });
       item.command = {
         command: 'gitColabor._toggleCoAuthor',

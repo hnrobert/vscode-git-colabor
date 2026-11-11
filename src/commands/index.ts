@@ -17,7 +17,7 @@ import {
   unsetRepoConfig,
   unsetGlobalConfig,
 } from './identity.js';
-import { showHiddenIdentities, soloCoAuthors, toggleCoAuthor } from './coauthor.js';
+import { showHiddenIdentities, soloCoAuthors, toggleAlwaysCoAuthor, toggleCoAuthor } from './coauthor.js';
 import { doctor, showAudit } from './misc.js';
 import { startCommitSigning, stopCommitSigning } from './signing.js';
 
@@ -66,6 +66,8 @@ export function registerCommands(context: vscode.ExtensionContext, deps: Command
   // Tree-item click targets (invoked with arguments from the TreeItem command).
   reg('gitColabor._useIdentityById', (id) => useIdentityById(deps, String(id)));
   reg('gitColabor._toggleCoAuthor', (name, email) => toggleCoAuthor(deps, String(name), String(email)));
+  reg('gitColabor._alwaysCoAuthor', (item) => toggleAlwaysCoAuthor(deps, item, 'on'));
+  reg('gitColabor._unalwaysCoAuthor', (item) => toggleAlwaysCoAuthor(deps, item, 'off'));
 
   // Right-click remember/forget in vscode user settings (the sole quick action).
   reg('gitColabor._rememberOnUser', (item) => rememberIdentity(deps, item, 'vscode'));

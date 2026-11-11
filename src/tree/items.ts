@@ -19,6 +19,8 @@ export type ItemOpts = {
   command?: vscode.Command;
   /** Data for context-menu commands (menus pass the TreeItem, not command arguments). */
   payload?: { id?: string; name: string; email: string };
+  /** full contextValue override (kind + bits) for view/item/context menu gating */
+  contextValue?: string;
 };
 
 /** A TreeItem whose contextValue is the ItemKind (drives the view/item/context menus). */
@@ -28,7 +30,7 @@ export class ColaborItem extends vscode.TreeItem {
   constructor(label: string, kind: ItemKind, opts: ItemOpts = {}) {
     super(label, opts.collapsible ?? vscode.TreeItemCollapsibleState.None);
     this.kind = kind;
-    this.contextValue = kind;
+    this.contextValue = opts.contextValue ?? kind;
     this.description = opts.description;
     this.tooltip = opts.tooltip;
     if (opts.icon) this.iconPath = new vscode.ThemeIcon(opts.icon, opts.iconColor ? new vscode.ThemeColor(opts.iconColor) : undefined);
