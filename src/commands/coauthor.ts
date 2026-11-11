@@ -33,7 +33,18 @@ export async function toggleCoAuthor(deps: CommandDeps, name: string, email: str
   deps.log.info(`${present ? 'removed' : 'appended'} co-author trailer for ${name} <${email}>`);
 
   const cwd = deps.git.selectedRepoRoot();
-  if (cwd) await run(deps, ['coauthor', present ? 'rm' : 'add', email], { cwd });
+  if (cwd) {
+    // `coauthor rm` clears EVERY scope — including the persistent selection.
+    // For an always-included author the click is a one-message removal only
+    // (the next reload re-seeds the trailer; right-click Stop is the way
+    // out), so the CLI is not called. One-shot authors keep the full rm.
+    const isAlways = (deps.provider?.current?.selected ?? []).some(
+      (a) => a.email.toLowerCase() === email.toLowerCase(),
+    );
+    if (!(present && isAlways)) {
+      await run(deps, ['coauthor', present ? 'rm' : 'add', email], { cwd });
+    }
+  }
   deps.provider?.refresh();
 }
 

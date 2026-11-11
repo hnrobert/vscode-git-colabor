@@ -376,12 +376,12 @@
         },
         {
           "command": "gitColabor._loadKeyIntoAgent",
-          "when": "viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-a)/",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity)(?=.*-k)(?!.*-a)/",
           "group": "3_key@2"
         },
         {
           "command": "gitColabor._removeKeyFromAgent",
-          "when": "viewItem =~ /-a/",
+          "when": "view == 'gitColabor.identitiesView' && viewItem =~ /^(identity|active-identity).*-a/",
           "group": "3_key@3"
         },
         {
