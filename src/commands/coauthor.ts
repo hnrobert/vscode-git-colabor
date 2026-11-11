@@ -38,9 +38,7 @@ export async function toggleCoAuthor(deps: CommandDeps, name: string, email: str
     // For an always-included author the click is a one-message removal only
     // (the next reload re-seeds the trailer; right-click Stop is the way
     // out), so the CLI is not called. One-shot authors keep the full rm.
-    const isAlways = (deps.provider?.current?.selected ?? []).some(
-      (a) => a.email.toLowerCase() === email.toLowerCase(),
-    );
+    const isAlways = deps.windowAlways.isPinned(email);
     if (!(present && isAlways)) {
       await run(deps, ['coauthor', present ? 'rm' : 'add', email], { cwd });
     }
@@ -50,37 +48,30 @@ export async function toggleCoAuthor(deps: CommandDeps, name: string, email: str
 
 /**
  * Right-click → "Always Include" / "Stop Always Including" on a co-author
- * row: the SOLO semantics — the author joins the persistent repo selection
- * (colabor.selected + commit template), landing in EVERY commit message
- * until Solo (or this toggle) clears them. Uses the same CLI the terminal
- * would: `coauthor add --always` / `coauthor rm`.
+ * row — git-mob style, WINDOW-scoped: the author is pinned for EVERY repo
+ * open in this window (each repo's persistent selection is written and kept
+ * in sync; a repo opened later is caught up on the next refresh). Solo
+ * clears repo selections; this toggle is the pin's own off-switch.
  */
 export async function toggleAlwaysCoAuthor(deps: CommandDeps, item: unknown, force?: 'on' | 'off'): Promise<void> {
   const payload = (item as { payload?: { name?: string; email?: string } } | undefined)?.payload;
+  const name = payload?.name ?? '';
   const email = payload?.email;
   if (!email) {
     deps.log.warn('always-coauthor command invoked without an author payload');
     return;
   }
-  const cwd = deps.git.selectedRepoRoot();
-  if (!cwd) {
+  if (deps.git.repoRoots.length === 0) {
     vscode.window.showWarningMessage('Git Colabor: no git repository in the current workspace.');
     return;
   }
-  // current persistent selection decides the direction (unless the menu
-  // entry already pinned it — separate on/off entries)
-  const status = deps.provider?.current;
-  const isAlways = (status?.selected ?? []).some((a) => a.email.toLowerCase() === email.toLowerCase());
-  const turnOn = force ?? !isAlways;
-  const r = await run(deps, turnOn ? ['coauthor', 'add', email, '--always'] : ['coauthor', 'rm', email], { cwd });
-  if (r === undefined) return;
-  if (payload.name) {
-    vscode.window.showInformationMessage(
-      turnOn
-        ? `Git Colabor: ${payload.name} is now a co-author on every commit in this repo (Solo clears).`
-        : `Git Colabor: ${payload.name} removed from the selection.`,
-    );
-  }
+  const turnOn = force === undefined ? !deps.windowAlways.isPinned(email) : force === 'on';
+  await deps.windowAlways.toggle(deps.cli, deps.git, { name, email }, turnOn);
+  vscode.window.showInformationMessage(
+    turnOn
+      ? `Git Colabor: ${name || email} co-authors every commit in every repo of this window (Solo clears).`
+      : `Git Colabor: ${name || email} removed from the selection.`,
+  );
   await deps.provider?.reload();
 }
 

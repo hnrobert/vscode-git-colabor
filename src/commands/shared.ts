@@ -16,6 +16,8 @@ export type CommandDeps = {
   provider?: IdentityTreeProvider;
   /** session-scoped key passphrases (fingerprint → passphrase); in-memory only */
   sessionPassphrases: Map<string, string>;
+  /** window-scoped always-co-authors (git-mob style, every repo in this window) */
+  windowAlways: import('../coauthor/WindowAlwaysCoAuthors.js').WindowAlwaysCoAuthors;
 };
 
 /**

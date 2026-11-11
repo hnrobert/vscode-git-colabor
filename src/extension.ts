@@ -14,6 +14,7 @@ import { ScmSync, pickRepository } from './scm/Sync.js';
 import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 import { SessionIdentityController } from './session/SessionIdentity.js';
+import { WindowAlwaysCoAuthors } from './coauthor/WindowAlwaysCoAuthors.js';
 
 let askpass: AskpassServer | undefined;
 let stateWatchers: FSWatcher[] = [];
@@ -68,7 +69,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     log: logger,
   });
 
+  // git-mob style window always-co-authors: pinned for EVERY repo in this
+  // window; repos opened later are caught up on each refresh
+  const windowAlways = new WindowAlwaysCoAuthors(context.workspaceState, logger);
+
   const provider = new IdentityTreeProvider(cli, git);
+  provider.windowAlways = windowAlways;
   context.subscriptions.push(vscode.window.createTreeView('gitColabor.identitiesView', { treeDataProvider: provider }));
 
   // per-window identity: env-injected git config, repo untouched (the
@@ -152,7 +158,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, 2000);
   context.subscriptions.push({ dispose() { clearInterval(reloadPoll); } });
 
-  registerCommands(context, { cli, git, session: sessionCtl, log: logger, provider, sessionPassphrases });
+  registerCommands(context, { cli, git, session: sessionCtl, log: logger, provider, sessionPassphrases, windowAlways });
 
   // refresh = re-seed state watchers (one per open repo) + reload the tree.
   // The watch-set key includes the postCommitSolo flag so toggling that
@@ -245,6 +251,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   const refresh = (): void => {
+    // window pin catch-up (new repos opened since the last refresh)
+    void windowAlways.sync(cli, git).catch(() => {});
     setupStateWatchers();
     provider.reload().catch((e) => logger.warn(`reload: ${e instanceof Error ? e.message : String(e)}`));
   };

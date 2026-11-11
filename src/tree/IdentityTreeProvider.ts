@@ -41,6 +41,8 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   /** startup gate: hold the FIRST paint until the repo set is known (see reload) */
   private firstPaintDone = false;
   private startupTimer: NodeJS.Timeout | undefined;
+  /** window-scoped always-co-authors (set at activation); drives the -aw row bit */
+  windowAlways?: { isPinned(email: string): boolean };
   /** fired after each reload with the latest status (for status bar / SCM sync) */
   readonly onDidReload = new vscode.EventEmitter<StatusJson | undefined>();
   /** most recent status (for the status bar) */
@@ -421,7 +423,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     const present = this.inputBoxEmails();
     // the persistent repo selection (colabor.selected — what Solo clears):
     // these authors are in EVERY commit message until soloed
-    const always = new Set((this.status?.selected ?? []).map((a) => a.email.toLowerCase()));
+    const always = new Set(candidates.filter((a) => this.windowAlways?.isPinned(a.email)).map((a) => a.email.toLowerCase()));
     const items: ColaborItem[] = [];
     for (const a of candidates) {
       const id = a.email.toLowerCase();
