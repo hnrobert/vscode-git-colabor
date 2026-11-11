@@ -26,7 +26,10 @@ export class ScmSync {
   sync(selected: CoAuthorBriefJson[]): void {
     const repo = this.selectedRepo();
     if (!repo) return;
-    const key = selected.map((a) => a.email).sort().join(',');
+    // the key includes WHICH repo's input box is seeded: switching focus to
+    // another repo gives a FRESH (empty) box even when the selection is
+    // identical, and it must be seeded — an emails-only key would skip it
+    const key = `${repo.rootUri.path}#${selected.map((a) => a.email).sort().join(',')}`;
     if (key === this.prevKey) return; // unchanged — don't clobber a user typing
     this.prevKey = key;
     repo.inputBox.value = reseedInput(repo.inputBox.value, selected);

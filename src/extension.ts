@@ -69,8 +69,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     log: logger,
   });
 
-  // git-mob style window always-co-authors: pinned for EVERY repo in this
-  // window; repos opened later are caught up on each refresh
+  // window always-co-authors: pinned for EVERY repo in this window;
+  // repos opened later are caught up on each refresh
   const windowAlways = new WindowAlwaysCoAuthors(context.workspaceState, logger);
 
   const provider = new IdentityTreeProvider(cli, git);
@@ -251,10 +251,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   const refresh = (): void => {
-    // window pin catch-up (new repos opened since the last refresh)
-    void windowAlways.sync(cli, git).catch(() => {});
-    setupStateWatchers();
-    provider.reload().catch((e) => logger.warn(`reload: ${e instanceof Error ? e.message : String(e)}`));
+    // window pin catch-up FIRST and AWAITED: the reload's status must see the
+    // patched colabor.selected, otherwise ScmSync receives a stale selection
+    // and never seeds the switched-to repo's message box
+    void (async () => {
+      await windowAlways.sync(cli, git).catch(() => {});
+      setupStateWatchers();
+      await provider.reload().catch((e) => logger.warn(`reload: ${e instanceof Error ? e.message : String(e)}`));
+    })();
   };
   let reconcileSkippedForSession = false;
   const runReconcile = (): void => {

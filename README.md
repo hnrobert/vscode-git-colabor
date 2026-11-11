@@ -138,3 +138,7 @@ F5 launches an Extension Development Host. Full guide: [docs/DEVELOPMENT.md](doc
 ## License
 
 [Apache-2.0](LICENSE)
+
+## Acknowledgements
+
+Inspired by [git-mob](https://github.com/rkotze/git-mob) — the co-author selection model (pick your pairing partners once, every commit carries the trailers until you go solo) and the commit-template rewrite semantics come from it.

@@ -3,7 +3,7 @@ import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
 
 /**
- * WINDOW-scoped always-co-authors (git-mob style): the window remembers its
+ * WINDOW-scoped always-co-authors: the window remembers its
  * pinned authors (workspaceState) and keeps EVERY open repo's local
  * `colabor.selected` in sync — switching repos in the window keeps the
  * trailers coming, and a repo opened later is caught up on the next refresh.

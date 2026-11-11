@@ -48,7 +48,7 @@ export async function toggleCoAuthor(deps: CommandDeps, name: string, email: str
 
 /**
  * Right-click → "Always Include" / "Stop Always Including" on a co-author
- * row — git-mob style, WINDOW-scoped: the author is pinned for EVERY repo
+ * row — WINDOW-scoped: the author is pinned for EVERY repo
  * open in this window (each repo's persistent selection is written and kept
  * in sync; a repo opened later is caught up on the next refresh). Solo
  * clears repo selections; this toggle is the pin's own off-switch.
