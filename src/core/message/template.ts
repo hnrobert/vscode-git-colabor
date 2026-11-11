@@ -11,7 +11,7 @@ export function gitMessagePath(): string {
 }
 
 /**
- * Resolve the commit-message template path (mirrors git-mob):
+ * Resolve the commit-message template path:
  *   env GIT_COLABOR_MESSAGE_PATH > local/global commit.template (against repo root) > ~/.gitmessage
  */
 export async function resolveTemplatePath(templatePath?: string, cwd?: string): Promise<string> {
@@ -46,7 +46,7 @@ async function applyToTemplate(authors: Author[], cwd?: string): Promise<void> {
   ]);
   const primaryPath = await resolveTemplatePath(firstTpl ?? undefined, cwd);
   await writeMsg(primaryPath, formatMessage(await readMsg(primaryPath), authors));
-  // when a repo uses a local template, keep the global one in sync too (mirror git-mob)
+  // when a repo uses a local template, keep the global one in sync too
   if (localTpl) {
     const globalTpl = (await getConfig('commit.template', 'global', cwd)) ?? gitMessagePath();
     const globalPath = await resolveTemplatePath(globalTpl, cwd);

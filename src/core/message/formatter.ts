@@ -3,7 +3,7 @@ import type { Author } from '../authors/types.js';
 import { CO_AUTHOR_TRAILER } from '../authors/types.js';
 
 /**
- * Mirror of git-mob's messageFormatter: strip every existing `Co-authored-by:` trailer
+ * Message formatter: strip every existing `Co-authored-by:` trailer
  * (tolerant of CRLF/CR/LF), then re-append `\n\n` + trailers joined by os.EOL.
  */
 export function formatMessage(txt: string, authors: Author[]): string {

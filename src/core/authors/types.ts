@@ -20,7 +20,7 @@ export class Author {
 }
 
 /**
- * Generate a catalogue key (initials + first 2 chars of email), mirroring git-mob's `genKey`.
+ * Generate a catalogue key (initials + first 2 chars of email).
  * e.g. "Richard Kotze" + "rkotze@x.com" → "rkrk"
  */
 export function genKey(name: string, email: string): string {
