@@ -1,0 +1,76 @@
+name: CI
+
+# Checks for the git-colabor CLI package. This repository is mounted as a
+# submodule of hnrobert/vscode-git-colabor, but CI here runs standalone.
+# Documentation-only changes never trigger a run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.json"
+      - "tsup.config.ts"
+      - "vitest.config.ts"
+      - "vitest.e2e.config.ts"
+      - "eslint.config.js"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.json"
+      - "tsup.config.ts"
+      - "vitest.config.ts"
+      - "vitest.e2e.config.ts"
+      - "eslint.config.js"
+      - ".github/workflows/**"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # cancel stale PR runs, never main
+
+jobs:
+  test:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # pnpm version comes from package.json `packageManager` — don't pass a
+      # `version` input, it conflicts and throws ERR_PNPM_BAD_PM_VERSION.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      # e2e drives real git + ssh-keygen inside isolated temp dirs.
+      - name: E2E tests
+        run: pnpm test:e2e
+
+      - name: Build
+        run: pnpm build

@@ -1,0 +1,47 @@
+{
+  "name": "git-colabor",
+  "version": "0.1.11",
+  "description": "Git co-author + multi-identity + SSH key management CLI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hnrobert/git-colabor.git"
+  },
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "git-colabor": "bin/git-colabor.cjs"
+  },
+  "main": "dist/index.cjs",
+  "exports": {
+    ".": {
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "prepublishOnly": "pnpm run build"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "hook-examples",
+    ".pre-commit-hooks.yaml"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "packageManager": "pnpm@10.13.1"
+}

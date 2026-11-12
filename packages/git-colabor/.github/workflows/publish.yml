@@ -1,0 +1,113 @@
+name: Publish
+
+# Manual npm release for the git-colabor CLI.
+# Actions tab → "Run workflow" → enter a version (e.g. 0.2.0, leading "v" is
+# optional; a prerelease like 0.2.0-beta.1 publishes under the `beta` dist-tag).
+#
+# The run: gate on checks → bump package.json → commit + tag + push →
+# `npm publish --provenance`.
+#
+# Auth is npm OIDC trusted publishing — NO token secret:
+#   - id-token: write lets GitHub mint the OIDC token npm verifies.
+#   - One-time setup (Phase 1): publish the first version locally
+#     (`npm publish --access public`), then on npmjs.com → package →
+#     Settings → Trusted publishers, bind: repository hnrobert/git-colabor,
+#     workflow publish.yml, environment (leave empty).
+# After that, CI publishes are tokenless and provenance-attested.
+#
+# A tag pushed by this workflow's own GITHUB_TOKEN does NOT re-trigger
+# workflows (GitHub suppresses GITHUB_TOKEN-generated events) — no double runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0; prereleases get the `beta` dist-tag)"
+        required: true
+        type: string
+
+permissions:
+  contents: write # release commit + tag
+  id-token: write # npm OIDC trusted publishing + provenance
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false # never interrupt a publish mid-flight
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # pnpm version comes from package.json `packageManager` — don't pass a
+      # `version` input, it conflicts and throws ERR_PNPM_BAD_PM_VERSION.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: E2E tests
+        run: pnpm test:e2e
+
+      # Invalid semver fails the bump step below (npm version validates).
+      - name: Resolve version inputs
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          SEMVER="${INPUT_VERSION#v}" # tolerate "v0.2.0"
+          echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$SEMVER" >> "$GITHUB_OUTPUT"
+          if [[ "$SEMVER" == *-* ]]; then
+            echo "dist_tag=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Runs after checks pass so we never tag a broken tree.
+      - name: Bump, commit, tag, push
+        env:
+          SEMVER: ${{ steps.version.outputs.semver }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG already exists — pick a new version"
+            exit 1
+          fi
+          npm version "$SEMVER" --no-git-tag-version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          git add package.json
+          git commit -m "chore(release): $TAG"
+          git tag "$TAG"
+          git push origin "HEAD:$BRANCH" "$TAG"
+
+      # `prepublishOnly` runs `pnpm build`, so the shipped tarball
+      # (bin + dist + README) is always fresh.
+      - name: Publish
+        env:
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
+        run: npm publish --access public --provenance --tag "$DIST_TAG"
