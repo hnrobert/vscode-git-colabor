@@ -4,7 +4,8 @@
   "description": "Git co-author + multi-identity + SSH key management CLI",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hnrobert/git-colabor.git"
+    "url": "git+https://github.com/hnrobert/vscode-git-colabor.git",
+    "directory": "packages/git-colabor"
   },
   "type": "module",
   "license": "Apache-2.0",
