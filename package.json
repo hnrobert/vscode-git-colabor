@@ -5,7 +5,7 @@
   "version": "0.1.11",
   "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with better co-authors managing experience.",
   "license": "Apache-2.0",
-  "icon": "packages/git-colabor/assets/images/git-co-author-enhanced.png",
+  "icon": "assets/images/git-co-author-enhanced.png",
   "type": "module",
   "categories": [
     "SCM Providers",
@@ -314,7 +314,7 @@
         {
           "id": "gitColabor.identitiesView",
           "name": "Git Colabor: Identity & Co-authors",
-          "icon": "packages/git-colabor/assets/images/git-co-author-enhanced-outline.png"
+          "icon": "assets/images/git-co-author-enhanced-outline.png"
         }
       ]
     },

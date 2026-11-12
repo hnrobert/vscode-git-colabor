@@ -1,7 +1,7 @@
 # git-colabor
 
 <p align="center">
-  <img src="assets/images/git-co-author-enhanced.png" width="140" alt="Git Colabor logo" />
+  <img src="https://raw.githubusercontent.com/hnrobert/vscode-git-colabor/main/assets/images/git-co-author-enhanced.png" width="140" alt="Git Colabor logo" />
 </p>
 
 **`git colabor`** — switch the Git **committer + pusher identity** and **SSH key** per repository, and manage **co-authors** with a better experience, from one CLI.
