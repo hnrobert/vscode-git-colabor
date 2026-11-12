@@ -5,21 +5,21 @@ name: Release
 # optional) and optionally check "beta" for a pre-release.
 #
 # The run: gate on checks → bump BOTH package.json files → one release
-# commit → two tags (v<semver> for the extension, cli-v<semver> for the npm
-# CLI) → push → package the .vsix → GitHub Release (vsix + CLI tarball) →
-# publish to the Visual Studio Marketplace, OpenVSX, and npm.
+# commit + ONE tag (v<semver>) covering both packages → push → package the
+# .vsix → GitHub Release (vsix + CLI tarball) → publish to the Visual Studio
+# Marketplace, OpenVSX, and npm.
 #
 # Required secrets (repo → Settings → Secrets and variables → Actions):
 #   VSCE_PAT — Marketplace personal access token with the "Manage" scope
 #              (https://code.visualstudio.com/api/working-with-extensions/publishing)
 #   OVSX_PAT — OpenVSX access token (https://open-vsx.org → create token)
 #
-# npm auth is OIDC trusted publishing — NO token secret. NOTE: the npm package
-# `git-colabor`'s trusted publisher must point at THIS repository
-# (hnrobert/vscode-git-colabor, workflow release.yml, environment release).
-# It was originally bound to the standalone hnrobert/git-colabor repo — if
-# publishing fails with an OIDC/origin error, rebind it at
-# https://www.npmjs.com/package/git-colabor/access.
+# npm auth is OIDC trusted publishing — NO token secret. The trusted
+# publisher binding on npmjs.com must point at THIS repository
+# (hnrobert/vscode-git-colabor, workflow release.yml, NO environment — leave
+# the environment field EMPTY when configuring it). It was originally bound
+# to the standalone hnrobert/git-colabor repo; if publishing fails with an
+# OIDC/origin error, rebind at https://www.npmjs.com/package/git-colabor/access.
 
 on:
   workflow_dispatch:
@@ -46,7 +46,6 @@ jobs:
   release:
     name: Build and publish both packages
     runs-on: ubuntu-latest
-    environment: release # npm OIDC trusted-publishing environment
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -98,8 +97,8 @@ jobs:
           SEMVER="${INPUT_VERSION#v}" # tolerate "v0.2.0"
           echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
           echo "ext_tag=v$SEMVER" >> "$GITHUB_OUTPUT"
-          echo "cli_tag=cli-v$SEMVER" >> "$GITHUB_OUTPUT"
-          if [ "$INPUT_BETA" = "true" ] || [[ "$SEMVER" == *-* ]]; then
+          # pre-release-ness is the BETA CHECKBOX ONLY
+          if [ "$INPUT_BETA" = "true" ]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
             echo "npm_tag=beta" >> "$GITHUB_OUTPUT"
           else
@@ -107,32 +106,28 @@ jobs:
             echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
-      # One commit carries both bumps; two tags so extension and CLI releases
-      # stay independently addressable (v0.2.0 / cli-v0.2.0).
+      # One commit carries both bumps; ONE tag — the release covers both
+      # packages at the same version by design.
       - name: Bump both packages, commit, tag, push
         env:
           SEMVER: ${{ steps.version.outputs.semver }}
           EXT_TAG: ${{ steps.version.outputs.ext_tag }}
-          CLI_TAG: ${{ steps.version.outputs.cli_tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for T in "$EXT_TAG" "$CLI_TAG"; do
-            if git rev-parse "$T" >/dev/null 2>&1; then
-              echo "::error::tag $T already exists — pick a new version"
-              exit 1
-            fi
-          done
+          if git rev-parse "$EXT_TAG" >/dev/null 2>&1; then
+            echo "::error::tag $EXT_TAG already exists — pick a new version"
+            exit 1
+          fi
           pnpm version "$SEMVER" --no-git-tag-version
           pnpm -C packages/git-colabor version "$SEMVER" --no-git-tag-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           BRANCH="${GITHUB_REF#refs/heads/}"
           git add package.json packages/git-colabor/package.json pnpm-lock.yaml
-          git commit -m "chore(release): $EXT_TAG (extension) + $CLI_TAG (CLI)"
+          git commit -m "chore(release): $EXT_TAG (extension + CLI)"
           git tag "$EXT_TAG"
-          git tag "$CLI_TAG"
-          git push origin "HEAD:$BRANCH" "$EXT_TAG" "$CLI_TAG"
+          git push origin "HEAD:$BRANCH" "$EXT_TAG"
 
       - name: Package the extension
         env:
@@ -146,10 +141,10 @@ jobs:
           fi
 
       # npm pack of the CLI package: the tarball rides the GitHub Release so
-      # the exact published bits are downloadable without npm.
+      # the exact published bits are downloadable without npm. NOTE: pnpm pack
+      # names it git-colabor-<semver>.tgz (no "v") — the Release files entry
+      # below uses the semver output to match.
       - name: Pack the CLI
-        env:
-          CLI_TAG: ${{ steps.version.outputs.cli_tag }}
         run: |
           pnpm -C packages/git-colabor build
           pnpm -C packages/git-colabor pack --pack-destination ../../
@@ -161,7 +156,7 @@ jobs:
           name: ${{ steps.version.outputs.ext_tag }}
           files: |
             git-colabor-${{ steps.version.outputs.ext_tag }}.vsix
-            git-colabor-${{ steps.version.outputs.cli_tag }}.tgz
+            git-colabor-${{ steps.version.outputs.semver }}.tgz
           prerelease: ${{ steps.version.outputs.prerelease }}
           generate_release_notes: true
         env:
@@ -186,10 +181,13 @@ jobs:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: pnpm dlx ovsx publish "git-colabor-${EXT_TAG}.vsix" -p "$OVSX_PAT"
 
-      # npm OIDC trusted publishing — id-token: write + registry-url above;
-      # NO_NODE_FLUSH etc. not needed. Beta runs publish under the `beta` dist-tag.
+      # npm OIDC trusted publishing — same shape as the CLI's original
+      # standalone publish.yml (id-token: write + registry-url, NO token
+      # secret, NO job environment). `npm publish` from the package dir;
+      # prepublishOnly rebuilds so the tarball is always fresh. Prereleases
+      # ride the `beta` dist-tag.
       - name: Publish CLI to npm
+        working-directory: packages/git-colabor
         env:
-          NODE_AUTH_TOKEN: "" # explicit: auth comes from OIDC, not a token
           NPM_TAG: ${{ steps.version.outputs.npm_tag }}
-        run: pnpm -C packages/git-colabor publish --access public --tag "$NPM_TAG" --no-git-checks
+        run: npm publish --access public --provenance --tag "$NPM_TAG"
