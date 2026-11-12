@@ -16,7 +16,6 @@ How to build, test, package, and release Git Colabor. For how the pieces fit tog
   - [Packaging the extension](#packaging-the-extension)
   - [Continuous integration](#continuous-integration)
   - [Publishing](#publishing)
-  - [Submodule workflow](#submodule-workflow)
 
 ## Repository layout
 
@@ -48,17 +47,17 @@ The two packages are **independent pnpm projects** — there is no workspace rel
 | --- | --- | --- |
 | Node.js | **>= 24** | Both `tsup` configs target `node24` |
 | pnpm | 10.x | `packageManager: pnpm@10.13.1`; use `corepack enable` |
-| Git | any recent | submodule support required |
+| Git | any recent | |
 | VS Code | >= 1.83 | matches `engines.vscode` |
 
 ## Setup
 
 ```bash
-git clone --recurse-submodules git@github.com:hnrobert/vscode-git-colabor.git
+git clone git@github.com:hnrobert/vscode-git-colabor.git
 cd vscode-git-colabor
 
 pnpm install                  # extension dependencies (root)
-pnpm -C git-colabor install   # CLI dependencies (submodule, standalone)
+pnpm install                            # workspace: root + packages/*
 
 pnpm build                    # one-shot build (see below)
 ```
@@ -71,9 +70,9 @@ pnpm build
 
 runs three stages in order:
 
-1. **`build:cli`** — `pnpm -C git-colabor build` → `tsup` bundles the CLI submodule to `git-colabor/dist/{cli,index,askpass}.cjs` (CJS, zero runtime dependencies, everything inlined via `noExternal`).
+1. **`build:cli`** — `pnpm -C packages/git-colabor build` → `tsup` bundles the CLI submodule to `git-colabor/dist/{cli,index,askpass}.cjs` (CJS, zero runtime dependencies, everything inlined via `noExternal`).
 2. **`tsup`** (root) — bundles `src/extension.ts` to `dist/extension.cjs` (CJS, `vscode` marked external, tree-shaken).
-3. **`copy-cli`** — `node build-scripts/copy-cli.mjs` copies `git-colabor/dist/cli.cjs` and `askpass.cjs` into `resources/`, which is what the extension actually spawns at runtime.
+3. **`copy-cli`** — `node build-scripts/copy-cli.mjs` copies `packages/git-colabor/dist/cli.cjs` and `askpass.cjs` into `resources/`, which is what the extension actually spawns at runtime.
 
 `resources/*.cjs` and `dist/` are gitignored build artifacts — always run `pnpm build` after pulling or changing CLI code.
 
@@ -81,16 +80,16 @@ runs three stages in order:
 
 | Suite | Where | Command | What it covers |
 | --- | --- | --- | --- |
-| CLI unit | `git-colabor/tests/unit` | `pnpm -C git-colabor test` | co-author store, identity apply/revert, paths, redaction |
-| CLI e2e | `git-colabor/tests/e2e` | `pnpm -C git-colabor test:e2e` | real `git` repos in temp dirs; audit-never-contains-secrets assertion |
+| CLI unit | `git-colabor/tests/unit` | `pnpm -C packages/git-colabor test` | co-author store, identity apply/revert, paths, redaction |
+| CLI e2e | `git-colabor/tests/e2e` | `pnpm -C packages/git-colabor test:e2e` | real `git` repos in temp dirs; audit-never-contains-secrets assertion |
 | Extension unit | `tests/unit` | `pnpm test` | AskpassServer protocol, CliClient spawn/parse |
 
 Quality gates before every commit / PR:
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm test          # root
-pnpm -C git-colabor typecheck && pnpm -C git-colabor lint \
-  && pnpm -C git-colabor test && pnpm -C git-colabor test:e2e
+pnpm -C packages/git-colabor typecheck && pnpm -C packages/git-colabor lint \
+  && pnpm -C packages/git-colabor test && pnpm -C packages/git-colabor test:e2e
 ```
 
 ## Debugging in VS Code
@@ -147,7 +146,7 @@ The run gates on typecheck/lint/test (root + submodule), bumps `package.json`, c
 
 **CLI** (`git-colabor` repo → npm, via OIDC trusted publishing — no token secret):
 
-1. One-time setup (already done): the first version was published locally (`cd git-colabor && pnpm build && npm publish --access public`), then on npmjs.com → package → Settings → **Trusted publishers**, repository `hnrobert/git-colabor` was bound with workflow `publish.yml`.
+1. One-time setup (already done): the first version was published locally (`cd packages/git-colabor && pnpm build && npm publish --access public`), then on npmjs.com → package → Settings → **Trusted publishers**, repository `hnrobert/git-colabor` was bound with workflow `publish.yml`.
 2. Actions → **Publish** → *Run workflow* → enter a version. Prerelease versions (e.g. `0.2.0-beta.1`) publish under the `beta` dist-tag.
 
 The run gates on typecheck/lint/unit/e2e, bumps and tags in the submodule repository, then runs `npm publish --provenance` authenticated by GitHub's OIDC token.

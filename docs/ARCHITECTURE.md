@@ -15,7 +15,7 @@ flowchart LR
         APS ["AskpassServer<br/>(UNIX socket)"]
         CC ["CliClient"]
     end
-    subgraph cli ["git-colabor CLI (submodule, bundled)"]
+    subgraph cli ["git-colabor CLI (packages/git-colabor, bundled)"]
         CLIC ["cli.cjs<br/>coauthor / identity"]
         CORE ["core: identity, coauthors,<br/>repo state, audit, git"]
         APH ["askpass.cjs<br/>(SSH_ASKPASS helper)"]
@@ -35,7 +35,7 @@ flowchart LR
 Key decisions:
 
 - **The CLI owns all git/SSH logic.** The extension is a UI and bridge; it never shells out to git itself. Everything runs **workspace-side** (where the repo and `ssh-agent` live), so Remote-SSH / Codespaces behave like local.
-- **The extension consumes built output, not source.** `git-colabor/` is a git submodule and standalone npm package; `build-scripts/copy-cli.mjs` copies its `dist/{cli,askpass}.cjs` into the extension's `resources/` at build time. The vsix therefore ships with **zero runtime `node_modules`**.
+- **The extension consumes built output, not source.** `packages/git-colabor/` is a workspace package (also published to npm standalone); `build-scripts/copy-cli.mjs` copies its `dist/{cli,askpass}.cjs` into the extension's `resources/` at build time. The vsix therefore ships with **zero runtime `node_modules`**.
 - **One process boundary, one protocol.** Extension ↔ CLI speaks a stable `--json` envelope (§3). Passphrases cross a *second*, separate channel — the askpass socket (§4) — never argv.
 
 ## 2. Extension module map (`src/`)
@@ -166,7 +166,7 @@ Atomicity rule: every JSON store is written via write-tmp-then-rename, so a cras
 
 ```mermaid
 flowchart LR
-    A["git-colabor/src<br/>(TS)"] -->|"pnpm -C git-colabor build<br/>tsup, node24, noExternal:*"| B["git-colabor/dist/<br/>cli.cjs · index.cjs · askpass.cjs"]
+    A["git-colabor/src<br/>(TS)"] -->|"pnpm -C packages/git-colabor build<br/>tsup, node24, noExternal:*"| B["git-colabor/dist/<br/>cli.cjs · index.cjs · askpass.cjs"]
     C["src/ (extension TS)"] -->|"tsup → dist/extension.cjs<br/>(external: vscode)"| D["dist/extension.cjs"]
     B -->|"build-scripts/copy-cli.mjs"| E["resources/cli.cjs<br/>resources/askpass.cjs"]
     D & E -->|"vsce package --no-dependencies"| F["vsix<br/>(no runtime node_modules)"]

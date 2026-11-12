@@ -21,11 +21,11 @@ Requirements:
 
 ```bash
 # clone with the CLI submodule
-git clone --recurse-submodules git@github.com:hnrobert/vscode-git-colabor.git
+git clone git@github.com:hnrobert/vscode-git-colabor.git
 cd vscode-git-colabor
 
 pnpm install            # extension deps (repo root)
-pnpm -C git-colabor install   # CLI deps (submodule, standalone)
+pnpm -C packages/git-colabor install   # CLI deps (submodule, standalone)
 
 pnpm build              # build:cli → tsup → copy bundled CLI into resources/
 pnpm typecheck && pnpm lint && pnpm test

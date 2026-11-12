@@ -1,8 +1,8 @@
 name: CI
 
-# Checks for the extension package (repo root) and the bundled git-colabor
-# submodule in one run — the extension build compiles the submodule, so both
-# must pass together. Documentation-only changes never trigger a run.
+# Checks for BOTH packages of the monorepo — the extension (repo root) and
+# the bundled CLI (packages/git-colabor) — in one run. Documentation-only
+# changes never trigger a run.
 
 on:
   push:
@@ -11,9 +11,10 @@ on:
       - "src/**"
       - "tests/**"
       - "build-scripts/**"
-      - "git-colabor/**"
+      - "packages/**"
       - "package.json"
       - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "tsconfig.json"
       - "tsconfig.base.json"
       - "tsup.config.ts"
@@ -26,9 +27,10 @@ on:
       - "src/**"
       - "tests/**"
       - "build-scripts/**"
-      - "git-colabor/**"
+      - "packages/**"
       - "package.json"
       - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "tsconfig.json"
       - "tsconfig.base.json"
       - "tsup.config.ts"
@@ -46,15 +48,8 @@ jobs:
     name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
     steps:
-      # .gitmodules points at git@github.com:; CI has no SSH key, so route it
-      # through HTTPS before checkout fetches the submodule.
-      - name: Rewrite submodule URLs to HTTPS
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
       - name: Checkout code
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       # pnpm version comes from package.json `packageManager` — don't pass a
       # `version` input, it conflicts and throws ERR_PNPM_BAD_PM_VERSION.
@@ -67,27 +62,25 @@ jobs:
           node-version: "24"
           cache: pnpm
 
-      # The repo and the CLI submodule are independent pnpm projects.
+      # One workspace install covers the root and packages/* (single lockfile).
       - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm -C git-colabor install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
         run: |
           pnpm typecheck
-          pnpm -C git-colabor typecheck
+          pnpm -C packages/git-colabor typecheck
 
       - name: Lint
         run: |
           pnpm lint
-          pnpm -C git-colabor lint
+          pnpm -C packages/git-colabor lint
 
       - name: Test
         run: |
           pnpm test
-          pnpm -C git-colabor test
-          pnpm -C git-colabor test:e2e
+          pnpm -C packages/git-colabor test
+          pnpm -C packages/git-colabor test:e2e
 
       - name: Build
         run: pnpm build # build:cli → tsup → copy bundled CLI into resources/

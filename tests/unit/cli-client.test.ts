@@ -8,7 +8,7 @@ import { CliClient } from '../../src/cli/CliClient.js';
 
 // Path to the built CLI bundle (the git-colabor submodule, built separately).
 const here = fileURLToPath(new URL('.', import.meta.url));
-const cliBundle = resolve(here, '../../git-colabor/dist/cli.cjs');
+const cliBundle = resolve(here, '../../packages/git-colabor/dist/cli.cjs');
 const bundleReady = existsSync(cliBundle);
 
 const fakeLog = { info(_m: string) {}, warn(_m: string) {}, error(_m: string) {} };

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const extRoot = resolve(here, '..');
-const cliDist = resolve(extRoot, 'git-colabor/dist');
+const cliDist = resolve(extRoot, 'packages/git-colabor/dist');
 const dest = resolve(extRoot, 'resources');
 const files = ['cli.cjs', 'askpass.cjs'];
 
@@ -25,6 +25,6 @@ for (const f of files) {
   console.log(`[copy-cli] resources/${f}  ←  ${from}`);
 }
 if (missing.length > 0) {
-  console.error(`[copy-cli] CLI bundle missing — run \`pnpm -C git-colabor build\` first: ${missing.join(', ')}`);
+  console.error(`[copy-cli] CLI bundle missing — run \`pnpm -C packages/git-colabor build\` first: ${missing.join(', ')}`);
   process.exit(1);
 }

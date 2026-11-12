@@ -1,7 +1,7 @@
-# Exclude sources, configs, tooling, and the CLI submodule from the vsix.
+packages/**
+# Exclude sources, configs, tooling, and the CLI package from the vsix.
 # The shipped CLI is pre-bundled under resources/ — no runtime node_modules needed.
 .gitignore
-.gitmodules
 .vscodeignore
 .markdownlint.jsonc
 .editorconfig
@@ -25,9 +25,9 @@ node_modules/**
 .github/**
 docs/**
 assets/**
-git-colabor/**
-# exception: the extension/view icons live in the submodule (single source)
-!git-colabor/assets/images/git-co-author-enhanced-outline.png
-!git-colabor/assets/images/git-co-author-enhanced.png
+packages/**
+# exception: the extension/view icons live in the CLI package (single source)
+!packages/git-colabor/assets/images/git-co-author-enhanced-outline.png
+!packages/git-colabor/assets/images/git-co-author-enhanced.png
 **/*.ts
 **/*.map

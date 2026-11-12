@@ -1,26 +1,31 @@
 name: Release
 
-# Manual release for the VS Code extension (this repo is the extension package).
+# ONE dispatch releases BOTH packages at the same version.
 # Actions tab → "Run workflow" → enter a version (e.g. 0.2.0, leading "v" is
 # optional) and optionally check "beta" for a pre-release.
 #
-# The run: gate on checks → bump package.json → commit + tag + push → package
-# the .vsix → create a GitHub Release with the .vsix attached → publish to the
-# Visual Studio Marketplace and OpenVSX.
+# The run: gate on checks → bump BOTH package.json files → one release
+# commit → two tags (v<semver> for the extension, cli-v<semver> for the npm
+# CLI) → push → package the .vsix → GitHub Release (vsix + CLI tarball) →
+# publish to the Visual Studio Marketplace, OpenVSX, and npm.
 #
 # Required secrets (repo → Settings → Secrets and variables → Actions):
 #   VSCE_PAT — Marketplace personal access token with the "Manage" scope
 #              (https://code.visualstudio.com/api/working-with-extensions/publishing)
 #   OVSX_PAT — OpenVSX access token (https://open-vsx.org → create token)
 #
-# The bundled CLI (git-colabor submodule) releases separately from its own
-# repository — this workflow publishes whatever submodule commit is checked out.
+# npm auth is OIDC trusted publishing — NO token secret. NOTE: the npm package
+# `git-colabor`'s trusted publisher must point at THIS repository
+# (hnrobert/vscode-git-colabor, workflow release.yml, environment release).
+# It was originally bound to the standalone hnrobert/git-colabor repo — if
+# publishing fails with an OIDC/origin error, rebind it at
+# https://www.npmjs.com/package/git-colabor/access.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 0.2.0)"
+        description: "Release version (e.g. 0.2.0) — applied to BOTH packages"
         required: true
         type: string
       beta:
@@ -30,7 +35,8 @@ on:
         type: boolean
 
 permissions:
-  contents: write # release commit + tag + GitHub Release
+  contents: write # release commit + tags + GitHub Release
+  id-token: write # npm OIDC trusted publishing
 
 concurrency:
   group: release
@@ -38,19 +44,14 @@ concurrency:
 
 jobs:
   release:
-    name: Build and publish extension
+    name: Build and publish both packages
     runs-on: ubuntu-latest
+    environment: release # npm OIDC trusted-publishing environment
     steps:
-      # .gitmodules points at git@github.com:; CI has no SSH key, so route it
-      # through HTTPS before checkout fetches the submodule.
-      - name: Rewrite submodule URLs to HTTPS
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # full history for the release tag
-          submodules: recursive
+          fetch-depth: 0 # full history for the release tags
 
       # pnpm version comes from package.json `packageManager` — don't pass a
       # `version` input, it conflicts and throws ERR_PNPM_BAD_PM_VERSION.
@@ -62,28 +63,27 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
+          registry-url: https://registry.npmjs.org # npm OIDC audience
 
-      # The repo and the CLI submodule are independent pnpm projects.
+      # One workspace install covers the root and packages/* (single lockfile).
       - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm -C git-colabor install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
         run: |
           pnpm typecheck
-          pnpm -C git-colabor typecheck
+          pnpm -C packages/git-colabor typecheck
 
       - name: Lint
         run: |
           pnpm lint
-          pnpm -C git-colabor lint
+          pnpm -C packages/git-colabor lint
 
       - name: Test
         run: |
           pnpm test
-          pnpm -C git-colabor test
-          pnpm -C git-colabor test:e2e
+          pnpm -C packages/git-colabor test
+          pnpm -C packages/git-colabor test:e2e
 
       - name: Build
         run: pnpm build # build:cli → tsup → copy bundled CLI into resources/
@@ -97,50 +97,71 @@ jobs:
         run: |
           SEMVER="${INPUT_VERSION#v}" # tolerate "v0.2.0"
           echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
-          echo "tag=v$SEMVER" >> "$GITHUB_OUTPUT"
+          echo "ext_tag=v$SEMVER" >> "$GITHUB_OUTPUT"
+          echo "cli_tag=cli-v$SEMVER" >> "$GITHUB_OUTPUT"
           if [ "$INPUT_BETA" = "true" ] || [[ "$SEMVER" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=beta" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump package version, commit, tag, push
+      # One commit carries both bumps; two tags so extension and CLI releases
+      # stay independently addressable (v0.2.0 / cli-v0.2.0).
+      - name: Bump both packages, commit, tag, push
         env:
           SEMVER: ${{ steps.version.outputs.semver }}
-          TAG: ${{ steps.version.outputs.tag }}
+          EXT_TAG: ${{ steps.version.outputs.ext_tag }}
+          CLI_TAG: ${{ steps.version.outputs.cli_tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error::tag $TAG already exists — pick a new version"
-            exit 1
-          fi
+          for T in "$EXT_TAG" "$CLI_TAG"; do
+            if git rev-parse "$T" >/dev/null 2>&1; then
+              echo "::error::tag $T already exists — pick a new version"
+              exit 1
+            fi
+          done
           pnpm version "$SEMVER" --no-git-tag-version
+          pnpm -C packages/git-colabor version "$SEMVER" --no-git-tag-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           BRANCH="${GITHUB_REF#refs/heads/}"
-          git add package.json
-          git commit -m "chore(release): $TAG"
-          git tag "$TAG"
-          git push origin "HEAD:$BRANCH" "$TAG"
+          git add package.json packages/git-colabor/package.json pnpm-lock.yaml
+          git commit -m "chore(release): $EXT_TAG (extension) + $CLI_TAG (CLI)"
+          git tag "$EXT_TAG"
+          git tag "$CLI_TAG"
+          git push origin "HEAD:$BRANCH" "$EXT_TAG" "$CLI_TAG"
 
       - name: Package the extension
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          EXT_TAG: ${{ steps.version.outputs.ext_tag }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
           if [ "$PRERELEASE" = "true" ]; then
-            pnpm exec vsce package --no-dependencies --pre-release -o "git-colabor-${TAG}.vsix"
+            pnpm exec vsce package --no-dependencies --pre-release -o "git-colabor-${EXT_TAG}.vsix"
           else
-            pnpm exec vsce package --no-dependencies -o "git-colabor-${TAG}.vsix"
+            pnpm exec vsce package --no-dependencies -o "git-colabor-${EXT_TAG}.vsix"
           fi
+
+      # npm pack of the CLI package: the tarball rides the GitHub Release so
+      # the exact published bits are downloadable without npm.
+      - name: Pack the CLI
+        env:
+          CLI_TAG: ${{ steps.version.outputs.cli_tag }}
+        run: |
+          pnpm -C packages/git-colabor build
+          pnpm -C packages/git-colabor pack --pack-destination ../../
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          files: git-colabor-${{ steps.version.outputs.tag }}.vsix
+          tag_name: ${{ steps.version.outputs.ext_tag }}
+          name: ${{ steps.version.outputs.ext_tag }}
+          files: |
+            git-colabor-${{ steps.version.outputs.ext_tag }}.vsix
+            git-colabor-${{ steps.version.outputs.cli_tag }}.tgz
           prerelease: ${{ steps.version.outputs.prerelease }}
           generate_release_notes: true
         env:
@@ -161,6 +182,14 @@ jobs:
       # (pre-release-ness is baked in by `vsce package --pre-release`).
       - name: Publish to OpenVSX
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          EXT_TAG: ${{ steps.version.outputs.ext_tag }}
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: pnpm dlx ovsx publish "git-colabor-${TAG}.vsix" -p "$OVSX_PAT"
+        run: pnpm dlx ovsx publish "git-colabor-${EXT_TAG}.vsix" -p "$OVSX_PAT"
+
+      # npm OIDC trusted publishing — id-token: write + registry-url above;
+      # NO_NODE_FLUSH etc. not needed. Beta runs publish under the `beta` dist-tag.
+      - name: Publish CLI to npm
+        env:
+          NODE_AUTH_TOKEN: "" # explicit: auth comes from OIDC, not a token
+          NPM_TAG: ${{ steps.version.outputs.npm_tag }}
+        run: pnpm -C packages/git-colabor publish --access public --tag "$NPM_TAG" --no-git-checks

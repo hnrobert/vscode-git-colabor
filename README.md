@@ -42,7 +42,7 @@ Git Colabor treats identity as explicit, per-repo, **reversible and auditable** 
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
 - **Audit trail** — every identity change logged locally (fingerprint only) with repo / host / user / source.
 - **Truly remote-friendly** — the extension spawns the bundled CLI with the VS Code Server's own Node; nothing depends on remote `$PATH`.
-- **The CLI is the engine** — everything the UI does is scriptable via `git colabor …` ([CLI reference](git-colabor/README.md)), including `--json` output and stable exit codes.
+- **The CLI is the engine** — everything the UI does is scriptable via `git colabor …` ([CLI reference](packages/git-colabor/README.md)), including `--json` output and stable exit codes.
 
 ## Install
 
@@ -55,9 +55,9 @@ code --install-extension HNRobert.vscode-git-colabor
 Or build the latest from source:
 
 ```bash
-git clone --recurse-submodules git@github.com:hnrobert/vscode-git-colabor.git
+git clone git@github.com:hnrobert/vscode-git-colabor.git
 cd vscode-git-colabor
-pnpm install && pnpm -C git-colabor install && pnpm build
+pnpm install && pnpm build   # workspace installs both packages
 pnpm package          # → git-colabor-<version>.vsix
 ```
 
@@ -129,7 +129,7 @@ Threat model, protocol details, and explicit non-guarantees: [docs/SECURITY.md](
 ## Development
 
 ```bash
-pnpm install && pnpm -C git-colabor install
+pnpm install && pnpm -C packages/git-colabor install
 pnpm build && pnpm typecheck && pnpm lint && pnpm test
 ```
 

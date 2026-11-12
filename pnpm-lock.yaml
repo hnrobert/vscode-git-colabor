@@ -39,6 +39,30 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@24.13.3)
 
+  packages/git-colabor:
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.0.0
+        version: 9.39.4
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      eslint:
+        specifier: ^9.0.0
+        version: 9.39.4
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(postcss@8.5.16)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.0.0
+        version: 8.62.1(eslint@9.39.4)(typescript@5.9.3)
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@24.13.3)
+
 packages:
 
   '@azu/format-text@1.0.2':
