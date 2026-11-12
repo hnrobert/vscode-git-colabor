@@ -267,6 +267,10 @@ function needsPassphrase(r: UseResult): string | undefined {
  */
 async function applyUse(deps: CommandDeps, id: string, opts: { scope: 'local' | 'global'; cwd?: string }): Promise<void> {
   const global = opts.scope === 'global';
+  // an explicit config write makes the FILE the carrier: drop the window's
+  // env injection (same identity or not) — otherwise the stale overlay keeps
+  // branding the row "session only" and env outranks the config silently
+  if (deps.session.active()) deps.session.clear();
   // one session, one identity configuration: apply to EVERY open repository
   const roots = global ? [undefined] : deps.git.repoRoots.length > 0 ? deps.git.repoRoots : [opts.cwd!];
   const conflicts: string[] = [];
