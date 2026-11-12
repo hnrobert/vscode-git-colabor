@@ -136,6 +136,12 @@ async function pickSshKey(deps: CommandDeps, identity: IdentityJson): Promise<st
 
 /** Turn signing on with the identity's effective key at the identity's layer. */
 async function signWithIdentityKey(deps: CommandDeps, identity: IdentityJson): Promise<void> {
+  // LAYER: a session identity owns this window (env injection); otherwise
+  // the repo's config is the carrier — and `identity sign <B>` may point the
+  // repo at ANY identity's key (it writes only the signing keys, never
+  // user.name/email), so "sign with B's key" must not silently fall back to
+  // a window layer that the terminal and other windows never see
+
   const signing = identitySigningKey(identity);
   if (!signing) {
     vscode.window.showWarningMessage(`Git Colabor: "${identity.name}" has no usable key to sign with.`);
@@ -146,19 +152,20 @@ async function signWithIdentityKey(deps: CommandDeps, identity: IdentityJson): P
   const whose = identity.signKey && identity.signKey.format === 'ssh' && signing.format === 'ssh'
     ? `${identity.name}'s sign key`
     : `"${identity.name}"'s ${keyKind} key`;
-  if (repoLayerIdentity(deps) === identity.id) {
-    if (!(await inEveryRepo(deps, ['identity', 'sign', identity.id]))) return;
-    vscode.window.showInformationMessage(`Git Colabor: commits sign with ${whose} (repo config — every window).`);
-  } else {
-    // signing implies the window identity (the injection lives on it);
+  if (deps.session.active()) {
+    // signing rides the window identity (the injection lives on it);
     // re-applying also refreshes its key binding. Persist the preference so
-    // switching away and back re-enables signing (repo AND session applies).
+    // switching away and back re-enables signing.
     await deps.session.apply(identity);
     await deps.session.setSigning(true);
     await run(deps, ['identity', 'set', identity.id, '--sign-commits'], { cwd: deps.git.selectedRepoRoot() });
     vscode.window.showInformationMessage(
       `Git Colabor: commits in THIS WINDOW sign with ${whose} — repo config untouched.`,
     );
+  } else {
+    if (!(await inEveryRepo(deps, ['identity', 'sign', identity.id]))) return;
+    await run(deps, ['identity', 'set', identity.id, '--sign-commits'], { cwd: deps.git.selectedRepoRoot() });
+    vscode.window.showInformationMessage(`Git Colabor: commits sign with ${whose} (repo config — every window and terminal).`);
   }
   await deps.provider?.reload();
 }
