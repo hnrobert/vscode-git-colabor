@@ -1,0 +1,87 @@
+name: Sync Develop Branch
+
+# Fast-forward develop from main on every push to main (and manually).
+# Creates develop if missing; fails loudly with the diverged-commit list
+# when develop has commits main lacks. Deliberately NO path filter — it
+# must track every push to main. The Release workflow's main commits flow
+# into develop here; release-preview.yml skips them by message prefix.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-develop
+  cancel-in-progress: false
+
+jobs:
+  sync-develop:
+    name: Sync develop with main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # branch operations need full history
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch branches
+        run: git fetch origin main develop
+
+      - name: Does develop exist?
+        id: check
+        run: |
+          if git show-ref --verify --quiet refs/remotes/origin/develop; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create develop from main
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git checkout -b develop
+          git push origin develop
+
+      - name: Fast-forward develop to main
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          git checkout develop
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+            echo "develop already up to date with main"
+            exit 0
+          fi
+          if git merge --ff-only origin/main; then
+            git push origin develop
+          else
+            {
+              echo "## ⚠ develop has diverged from main"
+              echo ""
+              echo "develop-only commits (need a PR to main, or a manual reset):"
+              echo '```'
+              git log --oneline origin/main..develop
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::fast-forward failed — develop has commits main lacks (see summary)"
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Develop Branch Sync"
+            echo ""
+            echo "- main: \`$(git rev-parse --short origin/main)\`"
+            echo "- develop: ${{ steps.check.outputs.exists == 'true' && 'synced (or already current)' || 'created from main' }}"
+            echo "- status: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

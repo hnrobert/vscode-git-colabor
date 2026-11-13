@@ -1,0 +1,205 @@
+name: Release Preview
+
+# AUTO pre-release from develop. Every real push to develop (path-filtered,
+# and not a release-sync commit) → gate on checks → compute the next
+# X.Y.(Z+1)-beta.N that no tag claims → bump BOTH packages into a
+# BRANCHLESS commit (only the tag is pushed — develop itself never moves)
+# → GitHub prerelease with both artifacts → publish the vsix pre-release to
+# the Marketplace + the CLI to npm under the `beta` dist-tag.
+#
+# npm OIDC note: trusted publisher bindings are PER WORKFLOW FILE. This
+# workflow needs its own binding on npmjs.com → git-colabor → Access:
+# repository hnrobert/vscode-git-colabor, workflow release-preview.yml,
+# environment empty — in ADDITION to the release.yml binding.
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "packages/git-colabor/src/**"
+      - "packages/git-colabor/tests/**"
+      - "packages/git-colabor/bin/**"
+      - "build-scripts/**"
+      - "package.json"
+      - "packages/git-colabor/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/release-preview.yml"
+
+permissions:
+  contents: write # branchless release commit + tag + GitHub prerelease
+  id-token: write # npm OIDC trusted publishing
+
+# Serialize previews: never cancel an in-flight publish
+concurrency:
+  group: release-preview
+  cancel-in-progress: false
+
+jobs:
+  preview-release:
+    # Skip the release-sync commits the manual Release workflow on main
+    # propagates to develop via sync-develop
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release)') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history: tag math needs every existing tag
+
+      # pnpm version comes from package.json `packageManager` — don't pass a
+      # `version` input, it conflicts and throws ERR_PNPM_BAD_PM_VERSION.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          registry-url: https://registry.npmjs.org # npm OIDC audience
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: |
+          pnpm typecheck
+          pnpm -C packages/git-colabor typecheck
+
+      - name: Lint
+        run: |
+          pnpm lint
+          pnpm -C packages/git-colabor lint
+
+      - name: Test
+        run: |
+          pnpm test
+          pnpm -C packages/git-colabor test
+          pnpm -C packages/git-colabor test:e2e
+
+      - name: Build
+        run: pnpm build
+
+      # Next prerelease semver: latest STABLE tag +1 patch, then -beta.N
+      # with N bumped past any tag a concurrent run already claimed. Stable
+      # numbers are never consumed by previews (npm forbids republishing a
+      # version), so 0.1.13-beta.1 still allows a later stable 0.1.13.
+      - name: Compute next version
+        id: version
+        run: |
+          git fetch --tags --force origin
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          LATEST=$( { echo "$PKG_VERSION"; git tag --list 'v*' | sed 's/^v//'; } \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+          BASE="$MAJOR.$MINOR.$((PATCH + 1))"
+          N=1
+          while git rev-parse -q --verify "refs/tags/v$BASE-beta.$N" >/dev/null 2>&1; do
+            N=$((N + 1))
+          done
+          VERSION="$BASE-beta.$N"
+          PREV_TAG="v$LATEST"
+          if git rev-parse -q --verify "$PREV_TAG" >/dev/null 2>&1; then
+            RANGE="$PREV_TAG..HEAD"
+          else
+            RANGE=""
+          fi
+          {
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "range=$RANGE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bump both packages, branchless commit, tag, push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG already exists — a concurrent preview won the race"
+            exit 1
+          fi
+          pnpm version "$VERSION" --no-git-tag-version
+          # npm version inside the package dir: `pnpm -C <pkg> version` gets
+          # misparsed at the workspace root (ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL)
+          (cd packages/git-colabor && npm version "$VERSION" --no-git-tag-version)
+          pnpm install --lockfile-only --ignore-scripts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json packages/git-colabor/package.json pnpm-lock.yaml
+          git commit -m "chore(release): $TAG [skip ci]"
+          # HEAD is detached on push events — this commit belongs to no
+          # branch. Push only the tag; develop stays where it is, and
+          # GITHUB_TOKEN tag pushes never re-trigger workflows.
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+
+      - name: Generate release notes
+        id: notes
+        env:
+          RANGE: ${{ steps.version.outputs.range }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ -n "$RANGE" ]; then
+            COMMITS=$(git log "$RANGE" --pretty=format:"- %s" --no-merges | grep -v "^- chore(release)" || true)
+            COMPARE_LINK="https://github.com/${{ github.repository }}/compare/$RANGE"
+          else
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -v "^- chore(release)" || true)
+            COMPARE_LINK="https://github.com/${{ github.repository }}/commits/$TAG"
+          fi
+          {
+            echo "NOTES<<EOF"
+            echo "## Preview release $TAG"
+            echo ""
+            echo "Auto release from develop ($(echo "$GITHUB_SHA" | cut -c1-7))."
+            echo ""
+            echo "$COMMITS"
+            echo ""
+            echo "---"
+            echo "See full changelogs: [$TAG]($COMPARE_LINK)"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Package the extension
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: pnpm exec vsce package --no-dependencies --pre-release -o "git-colabor-${TAG}.vsix"
+
+      # npm pack of the CLI package: the tarball rides the GitHub prerelease
+      # so the exact published bits are downloadable without npm. pnpm pack
+      # names it git-colabor-<version>.tgz (no "v").
+      - name: Pack the CLI
+        run: pnpm -C packages/git-colabor pack --pack-destination ../..
+
+      - name: Create GitHub prerelease
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: |
+            git-colabor-${{ steps.version.outputs.tag }}.vsix
+            git-colabor-${{ steps.version.outputs.version }}.tgz
+          prerelease: true
+          generate_release_notes: false
+          body: ${{ steps.notes.outputs.NOTES }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish extension pre-release to Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: pnpm exec vsce publish --no-dependencies --pre-release -p "$VSCE_PAT"
+
+      # OpenVSX has no pre-release concept — skip it for previews; the next
+      # stable release publishes there as usual.
+
+      # npm OIDC trusted publishing (own binding — see the header comment);
+      # `beta` dist-tag keeps previews out of `npm i -g git-colabor`'s way.
+      - name: Publish CLI to npm (beta)
+        working-directory: packages/git-colabor
+        run: npm publish --access public --provenance --tag beta
