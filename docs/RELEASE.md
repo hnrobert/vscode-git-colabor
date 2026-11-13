@@ -25,11 +25,17 @@ ONE manual dispatch releases BOTH packages at the same version.
 
 `release-preview.yml` fires on every REAL push to `develop` (path-filtered;
 release-sync commits are skipped). One run = gate on checks → compute the
-next `X.Y.(Z+1)-beta.N` no tag claims → bump BOTH packages into a
-branchless commit (only the tag is pushed, develop never moves) → GitHub
-prerelease with the vsix + CLI tarball → Marketplace **pre-release** +
-npm **`beta` dist-tag**. OpenVSX is skipped (no pre-release concept there);
-stable releases publish to it as usual.
+next version → bump BOTH packages into a branchless commit (only the tag is
+pushed, develop never moves) → GitHub prerelease with the vsix + CLI tarball
+→ Marketplace **pre-release** + npm **`beta` dist-tag**. OpenVSX is skipped
+(no pre-release concept there); stable releases publish to it as usual.
+
+Both packages get the SAME bare `X.Y.(Z+1)`
+(the Marketplace rejects semver prerelease suffixes, and npm forbids
+republishing a version). A preview CONSUMES the number: the next preview or
+stable release takes the following version (enforced against existing tags).
+On npm, previews ride the `beta` **dist-tag** — a channel label, not part of
+the version — so `npm i -g git-colabor` never sees them.
 
 `sync-develop.yml` fast-forwards develop from main on every push to main —
 stable-release commits flow into develop automatically without triggering a

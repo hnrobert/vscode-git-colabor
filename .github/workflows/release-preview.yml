@@ -1,11 +1,19 @@
 name: Release Preview
 
 # AUTO pre-release from develop. Every real push to develop (path-filtered,
-# and not a release-sync commit) → gate on checks → compute the next
-# X.Y.(Z+1)-beta.N that no tag claims → bump BOTH packages into a
-# BRANCHLESS commit (only the tag is pushed — develop itself never moves)
-# → GitHub prerelease with both artifacts → publish the vsix pre-release to
-# the Marketplace + the CLI to npm under the `beta` dist-tag.
+# and not a release-sync commit) → gate on checks → compute the next version
+# → bump BOTH packages into a BRANCHLESS commit (only the tag is pushed —
+# develop itself never moves) → GitHub prerelease with both artifacts →
+# publish the vsix pre-release to the Marketplace + the CLI to npm under
+# the `beta` dist-tag.
+#
+# BOTH packages get the SAME bare X.Y.(Z+1): the Marketplace REJECTS semver
+# prerelease suffixes for --pre-release, and npm forbids republishing a
+# version — so one number for both, and a preview CONSUMES it (the next
+# preview / stable release takes the following number; the version loop
+# below enforces it against existing tags). npm previews ride the `beta`
+# DIST-TAG (a channel label, not part of the version) so `npm i -g
+# git-colabor` never sees them.
 #
 # npm OIDC note: trusted publisher bindings are PER WORKFLOW FILE. This
 # workflow needs its own binding on npmjs.com → git-colabor → Access:
@@ -83,10 +91,9 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # Next prerelease semver: latest STABLE tag +1 patch, then -beta.N
-      # with N bumped past any tag a concurrent run already claimed. Stable
-      # numbers are never consumed by previews (npm forbids republishing a
-      # version), so 0.1.13-beta.1 still allows a later stable 0.1.13.
+      # Next BARE version: latest stable tag +1 patch, bumped further while
+      # any tag claims the number (a concurrent preview, or a previous
+      # preview of the same number). One number, both packages.
       - name: Compute next version
         id: version
         run: |
@@ -95,12 +102,11 @@ jobs:
           LATEST=$( { echo "$PKG_VERSION"; git tag --list 'v*' | sed 's/^v//'; } \
             | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
-          BASE="$MAJOR.$MINOR.$((PATCH + 1))"
-          N=1
-          while git rev-parse -q --verify "refs/tags/v$BASE-beta.$N" >/dev/null 2>&1; do
-            N=$((N + 1))
+          NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
+          while git rev-parse -q --verify "refs/tags/v$NEXT" >/dev/null 2>&1; do
+            PATCH=$((PATCH + 1))
+            NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
           done
-          VERSION="$BASE-beta.$N"
           PREV_TAG="v$LATEST"
           if git rev-parse -q --verify "$PREV_TAG" >/dev/null 2>&1; then
             RANGE="$PREV_TAG..HEAD"
@@ -108,8 +114,8 @@ jobs:
             RANGE=""
           fi
           {
-            echo "version=$VERSION"
-            echo "tag=v$VERSION"
+            echo "version=$NEXT"
+            echo "tag=v$NEXT"
             echo "range=$RANGE"
           } >> "$GITHUB_OUTPUT"
 
@@ -198,8 +204,9 @@ jobs:
       # OpenVSX has no pre-release concept — skip it for previews; the next
       # stable release publishes there as usual.
 
-      # npm OIDC trusted publishing (own binding — see the header comment);
-      # `beta` dist-tag keeps previews out of `npm i -g git-colabor`'s way.
-      - name: Publish CLI to npm (beta)
+      # npm OIDC trusted publishing (own binding — see the header comment).
+      # `--tag beta` is a DIST-TAG (channel label), not part of the version —
+      # previews never reach `npm i -g git-colabor`'s latest.
+      - name: Publish CLI to npm (beta dist-tag)
         working-directory: packages/git-colabor
         run: npm publish --access public --provenance --tag beta
