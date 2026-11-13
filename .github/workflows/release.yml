@@ -120,7 +120,12 @@ jobs:
             exit 1
           fi
           pnpm version "$SEMVER" --no-git-tag-version
-          pnpm -C packages/git-colabor version "$SEMVER" --no-git-tag-version
+          # npm version inside the package dir: `pnpm -C <pkg> version` gets
+          # misparsed at the workspace root (ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL)
+          (cd packages/git-colabor && npm version "$SEMVER" --no-git-tag-version)
+          # refresh the lockfile's importer versions so the next CI's
+          # --frozen-lockfile install stays consistent
+          pnpm install --lockfile-only --ignore-scripts
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           BRANCH="${GITHUB_REF#refs/heads/}"
