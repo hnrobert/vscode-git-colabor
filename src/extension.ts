@@ -103,7 +103,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sessionCtl = new SessionIdentityController(
     context.asAbsolutePath('resources/askpass.cjs'),
     logger,
+    // terminal mirror: a session identity must cover terminal git too, not
+    // just SCM-view spawns; stale values from a previous window are dropped
+    context.environmentVariableCollection,
   );
+  context.environmentVariableCollection.clear();
   sessionCtl.onChange = () => {
     provider.setSessionOverride(sessionCtl.get(), sessionCtl.signing());
     void provider.reload();

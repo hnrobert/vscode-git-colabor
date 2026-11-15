@@ -1,5 +1,6 @@
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import * as vscode from 'vscode';
 import { colaborDir } from '../askpass/AskpassServer.js';
 import { identitySigningKey, type SigningKey, type WindowSigning } from './signing.js';
 
@@ -65,6 +66,10 @@ export class SessionIdentityController {
   constructor(
     private readonly askpassScriptPath: string | undefined,
     private readonly log: { info(msg: string): void; warn(msg: string): void },
+    /** mirrors the injection into INTEGRATED TERMINALS (new shells don't
+     *  inherit the extension host's env — a terminal `git push` used to fall
+     *  back to ~/.ssh.config / the agent and push with the wrong key) */
+    private readonly terminalEnv?: vscode.EnvironmentVariableCollection,
   ) {}
 
   get(): SessionIdentity | undefined {
@@ -135,6 +140,9 @@ export class SessionIdentityController {
     this.current = undefined;
     this.signingMode = undefined;
     injectConfig([]);
+    for (const k of ['GIT_SSH_COMMAND', 'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL'])
+      delete process.env[k];
+    this.mirrorToTerminals([]);
     this.onChange?.();
   }
 
@@ -155,6 +163,64 @@ export class SessionIdentityController {
       if (sign.format === 'ssh') pairs.push(['gpg.ssh.program', await this.ensureSignWrapper()]);
     }
     injectConfig(pairs);
+    // Belt-and-braces: the same state as PLAIN env vars. GIT_CONFIG_* needs
+    // git ≥ 2.31 (older hosts silently ignore the whole layer — wrong key on
+    // push, wrong committer), while these have worked since forever and
+    // outrank every config file:
+    //   GIT_SSH_COMMAND > core.sshCommand
+    //   GIT_AUTHOR_/GIT_COMMITTER_* > user.name / user.email
+    // Signing stays on GIT_CONFIG_* only (no plain env var exists for it).
+    const setOrDelete = (k: string, v: string | undefined): void => {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    };
+    setOrDelete('GIT_SSH_COMMAND', s?.sshCommand);
+    setOrDelete('GIT_AUTHOR_NAME', s?.name);
+    setOrDelete('GIT_AUTHOR_EMAIL', s?.email);
+    setOrDelete('GIT_COMMITTER_NAME', s?.name);
+    setOrDelete('GIT_COMMITTER_EMAIL', s?.email);
+    this.mirrorToTerminals(pairs);
+  }
+
+  /**
+   * Same GIT_CONFIG_* pairs into this window's INTEGRATED TERMINALS via the
+   * environment variable collection. The collection is per-extension and
+   * sticky across reloads, so it is rebuilt wholesale each time (and cleared
+   * on session clear) — applied to terminals created after the change;
+   * already-open terminals keep their original environment.
+   */
+  private mirrorToTerminals(pairs: Array<[string, string]>): void {
+    const c = this.terminalEnv;
+    if (!c) return;
+    try {
+      // plain env vars first — they work on any git version
+      const s = this.current;
+      const direct: Array<[string, string | undefined]> = [
+        ['GIT_SSH_COMMAND', s?.sshCommand],
+        ['GIT_AUTHOR_NAME', s?.name],
+        ['GIT_AUTHOR_EMAIL', s?.email],
+        ['GIT_COMMITTER_NAME', s?.name],
+        ['GIT_COMMITTER_EMAIL', s?.email],
+      ];
+      for (const [k, v] of direct) {
+        if (v === undefined) c.delete(k);
+        else c.replace(k, v);
+      }
+      // GIT_CONFIG_* pairs (signing + config parity) on top
+      c.delete('GIT_CONFIG_COUNT');
+      for (let i = 0; i < 32; i++) {
+        c.delete(`GIT_CONFIG_KEY_${i}`);
+        c.delete(`GIT_CONFIG_VALUE_${i}`);
+      }
+      if (pairs.length === 0) return;
+      c.replace('GIT_CONFIG_COUNT', String(pairs.length));
+      pairs.forEach(([k, v], i) => {
+        c.replace(`GIT_CONFIG_KEY_${i}`, k);
+        c.replace(`GIT_CONFIG_VALUE_${i}`, v);
+      });
+    } catch (e) {
+      this.log.warn(`terminal env mirror failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   /**
