@@ -4,7 +4,7 @@ import { readFileSync, watch, statSync, type FSWatcher } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { initLog } from './log.js';
-import { cliPath, ensureRememberedIdentitiesInStore, migrateRememberedIdentities, postCommitSolo } from './config.js';
+import { cliPath, autoApplyOnRepoOpen, ensureRememberedIdentitiesInStore, migrateRememberedIdentities, postCommitSolo } from './config.js';
 import { CliClient } from './cli/CliClient.js';
 import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
 import { GitApi } from './git-ext/GitApi.js';
@@ -86,8 +86,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the store is per-machine, so a fresh Remote-SSH host has none of them,
   // which used to leave the remembered list empty and the default-identity
   // fallback with no row to apply (remote, brand-new repo: nothing shown,
-  // nothing auto-selected)
-  void ensureRememberedIdentitiesInStore(cli)
+  // nothing auto-selected). The bootstrap reconcile WAITS for this: it reads
+  // the store to resolve defaultIdentity, and racing it against enrollment
+  // made it evaluate an empty store and decide "nothing to apply".
+  const enrollmentDone = ensureRememberedIdentitiesInStore(cli)
     .then((added: string[]) => {
       if (added.length > 0) {
         logger.info(`enrolled remembered identit${added.length === 1 ? 'y' : 'ies'} into the local store: ${added.join(', ')}`);
@@ -280,6 +282,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })();
   };
   let reconcileSkippedForSession = false;
+  // the one-shot bootstrap stays PENDING until reconcile evaluated with at
+  // least one repository known — the vscode.git API frequently populates
+  // `repositories` AFTER activation, and the first pass used to consume the
+  // one shot with zero repos, leaving the window with no session identity
+  let bootstrapPending = true;
   const runReconcile = (): void => {
     // a session identity owns this window — reconcile writing repo config
     // would fight the env overlay, so it stands down until the session ends
@@ -288,12 +295,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logger.info('reconcile: session identity active — standing down (repo config untouched)');
         reconcileSkippedForSession = true;
       }
+      bootstrapPending = false;
       return;
     }
     reconcileSkippedForSession = false;
-    reconcile(cli, git, sessionCtl, logger).catch((e) =>
-      logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
-    );
+    reconcile(cli, git, sessionCtl, logger)
+      .then((consumed) => {
+        if (consumed) bootstrapPending = false;
+      })
+      .catch((e) => logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`));
   };
 
   // repo open/close/selection: debounced reconcile (auto-apply) + refresh.
@@ -308,7 +318,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     gitSub = git.subscribe(() => {
       if (gitTimer) clearTimeout(gitTimer);
       gitTimer = setTimeout(() => {
-        refresh(); // ONE-SHOT bootstrap: repo events never re-apply the session identity
+        refresh(); // ONE-SHOT bootstrap: repo events never re-apply the session identity…
+        if (bootstrapPending) runReconcile(); // …unless the first pass saw zero repos
       }, 400);
     });
   };
@@ -392,8 +403,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  runReconcile();
-  refresh();
+  // store enrollment FIRST (bounded), then the one-shot bootstrap — the
+  // default-identity resolution reads the store, so an empty race would
+  // consume the bootstrap with nothing to apply
+  void enrollmentDone.finally(() => {
+    runReconcile();
+    refresh();
+  });
 
   // After the first status paints, check the active identity: if it has an
   // encrypted key that is NOT in ssh-agent and we hold no passphrase in this
@@ -452,6 +468,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const verify = await cli.run(['identity', 'agent', active.id, '--verify']);
     const verified = verify.ok ? (verify.data as { verified?: boolean }).verified === true : false;
     void provider.reload();
+    if (verified && !sessionCtl.active() && autoApplyOnRepoOpen()) {
+      // bootstrap catch-up: the passphrase prompt can fire (config-derived
+      // active identity) before the one-shot reconcile applied anything —
+      // without this, entering the CORRECT passphrase still left every repo
+      // in the window with no identity selected
+      const row = status?.identities.find((i) => i.id === active.id) ?? active;
+      logger.info(`passphrase verified — session-applying ${row.name} <${row.email}> (bootstrap catch-up)`);
+      await sessionCtl.apply(row).catch((e: unknown) =>
+        logger.warn(`session apply: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    }
     if (!verified) {
       sessionPassphrases.delete(fp); // wrong passphrase
       promptedKeys.delete(fp); // allow a retry on the next check

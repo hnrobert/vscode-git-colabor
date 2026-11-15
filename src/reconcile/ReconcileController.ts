@@ -9,34 +9,41 @@ import type { StatusJson } from '../types.js';
 /**
  * ONE-SHOT bootstrap at window start — SESSION-scoped: the identity is
  * injected into THIS WINDOW's environment and repo config stays untouched.
- * Runs ONCE per window (activation); repo events never re-apply — the
- * session identity changes only by an explicit Use afterwards, and a repo
- * explicitly configured via "Use & write git repo config" keeps working
- * through its own config (resolve.ts reads it).
+ * Runs at window start; repo events never re-apply — the session identity
+ * changes only by an explicit Use afterwards, and a repo explicitly
+ * configured via "Use & write git repo config" keeps working through its
+ * own config (resolve.ts reads it).
+ *
+ * @returns whether the bootstrap was CONSUMED (a decision was made, or it is
+ *   deliberately disabled). `false` = no repositories were known yet — the
+ *   caller must retry on the next repo event; the vscode.git API often
+ *   populates `repositories` a moment AFTER activation, and treating that
+ *   pass as the one shot left the window with no session identity at all.
  */
 export async function reconcile(
   cli: CliClient,
   git: GitApi,
   session: SessionIdentityController,
   logger: vscode.LogOutputChannel,
-): Promise<void> {
+): Promise<boolean> {
   if (!autoApplyOnRepoOpen()) {
     logger.info('reconcile: autoApplyOnRepoOpen is off — skipping (explicit Use still works)');
-    return;
+    return true;
   }
   if (session.active()) {
     logger.info('reconcile: a session identity is already active — not overriding an explicit choice');
-    return;
+    return true;
   }
   const roots = git.repoRoots;
   if (roots.length === 0) {
-    logger.info('reconcile: no git repository');
-    return;
+    logger.info('reconcile: no git repository yet — retrying when one appears');
+    return false;
   }
   for (const root of roots) {
     const applied = await reconcileRepo(cli, root, session, logger);
     if (applied) break; // one window, one session identity — first repo wins
   }
+  return true;
 }
 
 async function reconcileRepo(
