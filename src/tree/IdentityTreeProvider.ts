@@ -195,7 +195,19 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     if (!s.inRepo) {
       items.push(new ColaborItem('Open a git repository to begin', 'no-identity', { icon: 'info' }));
     } else if (!s.activeIdentity) {
-      items.push(new ColaborItem('No identity active — pick one above', 'no-identity', { icon: 'warning' }));
+      const empty = this.filterByPriority(s.identities).length === 0;
+      if (empty) {
+        // nothing to pick — the row itself is the way in (same command as
+        // the view-title + button)
+        const add = new ColaborItem('No identity active — click to add an identity', 'no-identity', {
+          icon: 'warning',
+          tooltip: 'Open the Add Identity wizard',
+        });
+        add.command = { command: 'gitColabor.addIdentity', title: 'Add Identity' };
+        items.push(add);
+      } else {
+        items.push(new ColaborItem('No identity active — pick one above', 'no-identity', { icon: 'warning' }));
+      }
     }
 
     if (s.inRepo) {
