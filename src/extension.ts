@@ -4,7 +4,7 @@ import { readFileSync, watch, statSync, type FSWatcher } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { initLog } from './log.js';
-import { cliPath, postCommitSolo } from './config.js';
+import { cliPath, ensureRememberedIdentitiesInStore, migrateRememberedIdentities, postCommitSolo } from './config.js';
 import { CliClient } from './cli/CliClient.js';
 import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
 import { GitApi } from './git-ext/GitApi.js';
@@ -76,6 +76,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const provider = new IdentityTreeProvider(cli, git);
   provider.windowAlways = windowAlways;
   context.subscriptions.push(vscode.window.createTreeView('gitColabor.identitiesView', { treeDataProvider: provider }));
+
+  // setting rename (coAuthorIdentities → rememberedIdentities), once per
+  // activation: carry old-key entries into the new key and drop the old one
+  void migrateRememberedIdentities().catch((e: unknown) =>
+    logger.warn(`rememberedIdentities migration: ${e instanceof Error ? e.message : String(e)}`),
+  );
+  // remembered identities must also exist as ROWS in THIS machine's store —
+  // the store is per-machine, so a fresh Remote-SSH host has none of them,
+  // which used to leave the remembered list empty and the default-identity
+  // fallback with no row to apply (remote, brand-new repo: nothing shown,
+  // nothing auto-selected)
+  void ensureRememberedIdentitiesInStore(cli)
+    .then((added: string[]) => {
+      if (added.length > 0) {
+        logger.info(`enrolled remembered identit${added.length === 1 ? 'y' : 'ies'} into the local store: ${added.join(', ')}`);
+        void provider.reload();
+      }
+    })
+    .catch((e: unknown) => logger.warn(`remembered enroll: ${e instanceof Error ? e.message : String(e)}`));
 
   // per-window identity: env-injected git config, repo untouched (the
   // default Use flow); dies with this extension host — no cleanup needed
