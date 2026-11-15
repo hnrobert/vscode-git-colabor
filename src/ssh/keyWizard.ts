@@ -95,13 +95,32 @@ export async function generateKeyWizard(): Promise<GeneratedKey | undefined> {
   });
   if (comment === undefined) return undefined;
 
-  // 5. optional passphrase (empty = unencrypted)
-  const passphrase = await vscode.window.showInputBox({
-    prompt: 'Passphrase (optional)',
-    password: true,
-    placeHolder: 'leave empty for no passphrase',
-    ignoreFocusOut: true,
-  });
+  // 5. optional passphrase (empty = unencrypted) — entered TWICE like
+  // ssh-keygen itself: a mismatch restarts the pair from the first entry;
+  // cancelling either box (or leaving the first empty, i.e. no passphrase)
+  // exits the loop
+  let passphrase: string | undefined;
+  for (;;) {
+    passphrase = await vscode.window.showInputBox({
+      prompt: 'Passphrase (optional)',
+      password: true,
+      placeHolder: 'leave empty for no passphrase',
+      ignoreFocusOut: true,
+    });
+    if (passphrase === undefined || passphrase === '') break;
+    const confirm = await vscode.window.showInputBox({
+      prompt: 'Repeat the passphrase',
+      password: true,
+      placeHolder: 'type it again to confirm',
+      ignoreFocusOut: true,
+    });
+    if (confirm === undefined) {
+      passphrase = undefined; // cancelled the confirm — abort the key, not just the loop
+      break;
+    }
+    if (confirm === passphrase) break;
+    vscode.window.showWarningMessage('Git Colabor: passphrases do not match — enter it again.');
+  }
   if (passphrase === undefined) return undefined;
 
   const path = join(dir, name);
