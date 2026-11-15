@@ -33,6 +33,9 @@ type ApplyInput = {
   gpgKey?: string;
   /** per-identity signing preference — identities that signed before sign again */
   signCommits?: boolean;
+  /** override the injected committer fields (keys/signing still follow the identity) */
+  asName?: string;
+  asEmail?: string;
 };
 
 /** Inject config pairs (empty = strip everything). */
@@ -92,7 +95,15 @@ export class SessionIdentityController {
       sshCommand = `SSH_ASKPASS="${wrapper}" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh -i ${identity.sshKeyPath} -o IdentitiesOnly=yes`;
     }
     const signingKey = identitySigningKey(identity);
-    this.current = { id: identity.id, name: identity.name, email: identity.email, sshCommand, signingKey };
+    // asName/asEmail override the COMMITTER fields only; the key binding
+    // and signing preference still follow the identity itself
+    this.current = {
+      id: identity.id,
+      name: identity.asName ?? identity.name,
+      email: identity.asEmail ?? identity.email,
+      sshCommand,
+      signingKey,
+    };
     // signing follows the identity: a stored preference re-enables it, and a
     // key-less identity can never keep it on
     if (identity.signCommits && signingKey) this.signingMode = 'identity';

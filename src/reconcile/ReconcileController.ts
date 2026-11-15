@@ -2,22 +2,36 @@ import * as vscode from 'vscode';
 import type { CliClient } from '../cli/CliClient.js';
 import type { GitApi } from '../git-ext/GitApi.js';
 import { autoApplyOnRepoOpen, defaultIdentity } from '../config.js';
+import type { SessionIdentityController } from '../session/SessionIdentity.js';
+import type { StatusIdentityJson } from '../types.js';
 import type { StatusJson } from '../types.js';
 
 /**
- * Materialize the config-derived active identity into every open repo's
- * local config on repo events (auto-apply). The active identity comes from
- * git config itself (resolve.ts); no session locks — last writer wins.
+ * AUTO-APPLY on repo events — SESSION-scoped by design: the identity is
+ * injected into THIS WINDOW's environment and repo config stays untouched
+ * (a repo explicitly configured via "Use & write git repo config" keeps
+ * working through its own config, which resolve.ts reads). One window
+ * carries one session identity, so with several repos open the first
+ * resolved identity wins; an already-active session identity (the user's
+ * explicit choice) is never overridden.
  *
  * Repos the user explicitly stripped ("Unset in git repo config" /
- * `identity logout`) are standing down (stored in identities.json — shared
- * with every window and terminal): reconcile must not re-materialize what
- * was deliberately removed; any explicit local apply re-arms it (core
- * apply.ts clears the marker on every local-scope write).
+ * `identity logout`) are standing down (identities.json): reconcile leaves
+ * them alone too — injecting an identity over an unset repo would
+ * resurrect what was deliberately removed.
  */
-export async function reconcile(cli: CliClient, git: GitApi, logger: vscode.LogOutputChannel): Promise<void> {
+export async function reconcile(
+  cli: CliClient,
+  git: GitApi,
+  session: SessionIdentityController,
+  logger: vscode.LogOutputChannel,
+): Promise<void> {
   if (!autoApplyOnRepoOpen()) {
     logger.info('reconcile: autoApplyOnRepoOpen is off — skipping (explicit Use still works)');
+    return;
+  }
+  if (session.active()) {
+    logger.info('reconcile: a session identity is already active — not overriding an explicit choice');
     return;
   }
   const roots = git.repoRoots;
@@ -26,16 +40,22 @@ export async function reconcile(cli: CliClient, git: GitApi, logger: vscode.LogO
     return;
   }
   for (const root of roots) {
-    await reconcileRepo(cli, root, logger);
+    const applied = await reconcileRepo(cli, root, session, logger);
+    if (applied) break; // one window, one session identity — first repo wins
   }
 }
 
-async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOutputChannel): Promise<void> {
+async function reconcileRepo(
+  cli: CliClient,
+  root: string,
+  session: SessionIdentityController,
+  logger: vscode.LogOutputChannel,
+): Promise<boolean> {
   const statusRes = await cli.run(['identity', 'status'], { cwd: root });
   const status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
   if (status?.standingDown) {
     logger.info(`reconcile[${root}]: standing down (identity config was explicitly unset here)`);
-    return;
+    return false;
   }
 
   // active = config-derived; defaultIdentity only fills on repos where config
@@ -70,9 +90,13 @@ async function reconcileRepo(cli: CliClient, root: string, logger: vscode.LogOut
   const activeId = status?.activeIdentity?.id ?? fallback;
 
   if (activeId) {
-    logger.info(`reconcile[${root}]: applying identity ${activeId}`);
-    await cli.run(['identity', 'use', activeId, '--source', 'ext'], { cwd: root });
-    return;
+    const row =
+      status?.identities.find((i) => i.id === activeId) ??
+      status?.activeIdentity ?? { id: activeId, name: activeId, email: activeId, hasKey: false, isDefault: false };
+    logger.info(`reconcile[${root}]: session-applying identity ${row.name} <${row.email}> (repo config untouched)`);
+    await session.apply(row as StatusIdentityJson);
+    return true;
   }
   logger.info(`reconcile[${root}]: no identity active and no default — nothing to apply`);
+  return false;
 }

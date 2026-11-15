@@ -291,7 +291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     reconcileSkippedForSession = false;
-    reconcile(cli, git, logger).catch((e) =>
+    reconcile(cli, git, sessionCtl, logger).catch((e) =>
       logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
     );
   };
