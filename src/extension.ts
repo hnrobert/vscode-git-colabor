@@ -282,11 +282,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })();
   };
   let reconcileSkippedForSession = false;
-  // the one-shot bootstrap stays PENDING until reconcile evaluated with at
-  // least one repository known — the vscode.git API frequently populates
-  // `repositories` AFTER activation, and the first pass used to consume the
-  // one shot with zero repos, leaving the window with no session identity
-  let bootstrapPending = true;
+  // EVERY repo appearance gets a session-apply pass (not one-shot): while no
+  // session identity is active, each repo event re-runs the bootstrap — a
+  // repo whose config names an identity may open after the first pass, and
+  // the earlier one-shot-at-activation model never saw it
   const runReconcile = (): void => {
     // a session identity owns this window — reconcile writing repo config
     // would fight the env overlay, so it stands down until the session ends
@@ -295,15 +294,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logger.info('reconcile: session identity active — standing down (repo config untouched)');
         reconcileSkippedForSession = true;
       }
-      bootstrapPending = false;
       return;
     }
     reconcileSkippedForSession = false;
-    reconcile(cli, git, sessionCtl, logger)
-      .then((consumed) => {
-        if (consumed) bootstrapPending = false;
-      })
-      .catch((e) => logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`));
+    reconcile(cli, git, sessionCtl, logger).catch((e) =>
+      logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
+    );
   };
 
   // repo open/close/selection: debounced reconcile (auto-apply) + refresh.
@@ -318,8 +314,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     gitSub = git.subscribe(() => {
       if (gitTimer) clearTimeout(gitTimer);
       gitTimer = setTimeout(() => {
-        refresh(); // ONE-SHOT bootstrap: repo events never re-apply the session identity…
-        if (bootstrapPending) runReconcile(); // …unless the first pass saw zero repos
+        refresh();
+        // every repo appearance re-runs the bootstrap while no session
+        // identity is active — later-opening repos count too
+        runReconcile();
       }, 400);
     });
   };
@@ -354,6 +352,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       lastFocusedRoot = root;
       logger.info(`focused repo changed → ${root ?? '(none)'}`);
       refresh();
+      runReconcile(); // a focused repo is a repo that appeared — bootstrap it too
     }
   }, 1000);
   context.subscriptions.push({ dispose() { clearInterval(focusPoll); } });
