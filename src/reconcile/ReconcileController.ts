@@ -46,6 +46,31 @@ export async function reconcile(
   return true;
 }
 
+/** Resolve a user setting value (alias > unique email > picker on shared email). */
+async function resolveConfiguredRef(
+  configured: string,
+  rows: StatusIdentityJson[],
+): Promise<StatusIdentityJson | undefined> {
+  const want = configured.trim().toLowerCase();
+  const byAlias = rows.filter((i) => (i.alias ?? '').toLowerCase() === want && want !== '');
+  const byEmail = rows.filter((i) => i.email.toLowerCase() === want);
+  if (byAlias[0]) return byAlias[0];
+  if (byEmail.length === 1) return byEmail[0];
+  if (byEmail.length > 1) {
+    const picked = await vscode.window.showQuickPick(
+      byEmail.map((i) => ({
+        label: `${i.name} <${i.email}>`,
+        description: i.alias ?? undefined,
+        detail: i.scope === 'machine' ? 'found in machine memory' : 'found in repo history',
+        id: i.id,
+      })),
+      { placeHolder: `"${configured}" matches ${byEmail.length} identities — pick the default` },
+    );
+    return picked ? (byEmail.find((i) => i.id === (picked as { id: string }).id) ?? undefined) : undefined;
+  }
+  return undefined;
+}
+
 async function reconcileRepo(
   cli: CliClient,
   root: string,
@@ -54,46 +79,41 @@ async function reconcileRepo(
 ): Promise<boolean> {
   const statusRes = await cli.run(['identity', 'status'], { cwd: root });
   const status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
+  const rows = status?.identities ?? [];
 
-  // active = config-derived; defaultIdentity only fills on repos where config
-  // carries nothing (fresh — no user.name/email anywhere). The setting's value
-  // resolves EXACTLY like `identity use`: alias first (aliases may contain @,
-  // so shape cannot distinguish), then email. An email several identities
-  // share pops a picker; a value matching nothing leaves the repo untouched.
-  // (The `Name <email>` author form is internal plumbing, not a user ref.)
+  // Priority for the window bootstrap:
+  // 1. gitColabor.defaultIdentity — an EXPLICIT user choice for this window.
+  //    It wins over any config-derived identity: a stale ~/.gitconfig (or a
+  //    sibling repo's config leaking in as the first evaluated repo) naming
+  //    someone else must not hijack the bootstrap.
+  // 2. The repo's OWN config identity — "Use & write git repo config" is a
+  //    deliberate per-repo decision and keeps outranking the default.
+  // 3. Any other config-derived active identity (typically ~/.gitconfig) —
+  //    same behavior as before for setups without a defaultIdentity.
   const configured = defaultIdentity();
-  let fallback: string | undefined;
-  if (configured && status?.inRepo && !status.activeIdentity) {
-    const want = configured.trim().toLowerCase();
-    const rows = status.identities;
-    const byAlias = rows.filter((i) => (i.alias ?? '').toLowerCase() === want && want !== '');
-    const byEmail = rows.filter((i) => i.email.toLowerCase() === want);
-    const chosen = byAlias[0] ?? (byEmail.length === 1 ? byEmail[0] : undefined);
-    if (!chosen && byEmail.length > 1) {
-      const picked = await vscode.window.showQuickPick(
-        byEmail.map((i) => ({
-          label: `${i.name} <${i.email}>`,
-          description: i.alias ?? undefined,
-          detail: i.scope === 'machine' ? 'found in machine memory' : 'found in repo history',
-          id: i.id,
-        })),
-        { placeHolder: `"${configured}" matches ${byEmail.length} identities — pick the default` },
-      );
-      fallback = picked?.id;
-    } else {
-      fallback = chosen?.id;
+  if (configured && status?.inRepo) {
+    const chosen = await resolveConfiguredRef(configured, rows);
+    if (chosen) {
+      logger.info(`reconcile[${root}]: session-applying default identity ${chosen.name} <${chosen.email}> (repo config untouched)`);
+      await session.apply(chosen);
+      return true;
     }
   }
-  const activeId = status?.activeIdentity?.id ?? fallback;
-
-  if (activeId) {
-    const row =
-      status?.identities.find((i) => i.id === activeId) ??
-      status?.activeIdentity ?? { id: activeId, name: activeId, email: activeId, hasKey: false, isDefault: false };
-    logger.info(`reconcile[${root}]: session-applying identity ${row.name} <${row.email}> (repo config untouched)`);
-    await session.apply(row as StatusIdentityJson);
+  const repoCfgId = status?.configIdentities?.repo?.id;
+  if (repoCfgId) {
+    const row = rows.find((i) => i.id === repoCfgId) ?? status?.activeIdentity;
+    if (row) {
+      logger.info(`reconcile[${root}]: session-applying repo-config identity ${row.name} <${row.email}> (repo config untouched)`);
+      await session.apply(row);
+      return true;
+    }
+  }
+  if (status?.activeIdentity) {
+    const row = rows.find((i) => i.id === status.activeIdentity!.id) ?? status.activeIdentity;
+    logger.info(`reconcile[${root}]: session-applying config identity ${row.name} <${row.email}> (repo config untouched)`);
+    await session.apply(row);
     return true;
   }
-  logger.info(`reconcile[${root}]: no identity active and no default — nothing to apply`);
+  logger.info(`reconcile[${root}]: no identity to apply (no default match, no config identity)`);
   return false;
 }
