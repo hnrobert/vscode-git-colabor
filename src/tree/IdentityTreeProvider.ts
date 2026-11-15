@@ -288,12 +288,13 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         out.push(id);
         continue;
       }
-      // project-scope: strictly filtered to the current repo's committers —
-      // EXCEPT vscode-memory identities and config-derived rows (tier ≤ 2),
-      // which git config itself vouches for
+      // project-scope (history imports) show ONLY when the current repo's
+      // committers (or vscode memory / config tiers below) vouch for them —
+      // including when NO repo resolved yet: a repo that just opened on a
+      // remote host must not flash the machine's entire history import
       const isProject = id.scope === 'project';
       const email = id.email.toLowerCase();
-      if (isProject && tier(id) > 2 && inRepo && !repoEmails.has(email) && !remembered.has(email)) continue;
+      if (isProject && tier(id) > 2 && (!inRepo || !repoEmails.has(email)) && !remembered.has(email)) continue;
       const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : personKey;
       if (seen.has(key) || seen.has(personKey)) continue;
       seen.add(key);

@@ -299,7 +299,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // SCM view (multi-root) — poll the selected repo root as a belt-and-braces
   // detector so the tree always follows the focused repo
   let lastFocusedRoot: string | undefined = git.selectedRepoRoot();
+  // belt-and-braces #2: when the vscode.git API never arrived (late/failed
+  // activation — typical for a freshly-initialized remote workspace), the
+  // backoff retries above may already be exhausted; this poll keeps trying
+  // idempotently forever and wires the events the moment it lands
+  let pollWired = false;
   const focusPoll = setInterval(() => {
+    if (git.api === undefined) {
+      if (pollWired) return;
+      void git
+        .activate()
+        .then((reason) => {
+          if (reason !== '' || pollWired) return;
+          pollWired = true;
+          logger.info('vscode.git API acquired (via focus poll)');
+          wireGitEvents();
+          runReconcile();
+          refresh();
+        })
+        .catch(() => {});
+      return;
+    }
     const root = git.selectedRepoRoot();
     if (root !== lastFocusedRoot) {
       lastFocusedRoot = root;
@@ -313,12 +333,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if ((await git.activate()) === '') {
     logger.info('vscode.git API acquired');
     wireGitEvents();
+    pollWired = true;
   } else {
     // The git extension's activation can complete a moment after ours (it
     // started only ~0.5s before us under Remote-SSH). Retry with backoff —
     // extensions.onDidChange is useless here, it only fires on
     // install/uninstall, never on activation.
     const onAcquired = (): void => {
+      if (pollWired) return; // the focus poll got there first
+      pollWired = true;
       logger.info('vscode.git API acquired (late)');
       wireGitEvents();
       runReconcile();
