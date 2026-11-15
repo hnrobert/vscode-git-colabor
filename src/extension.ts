@@ -416,7 +416,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
     const fp = active.sshKeyFingerprint;
     if (promptedKeys.has(fp)) return;
-    const row = status?.identities.find((i) => i.id === active.id);
+    let row = status?.identities.find((i) => i.id === active.id);
+    // live re-check: the snapshot predates activation, and agent forwarding
+    // on a remote window may have landed since — an agent-held key must
+    // never prompt at init time
+    if (!row?.inAgent) {
+      const ls = await cli.run(['identity', 'ls']).catch(() => undefined);
+      const freshRow = ls?.ok
+        ? ((ls.data as { identities?: { id: string; inAgent?: boolean }[] }).identities ?? []).find((i) => i.id === active.id)
+        : undefined;
+      if (freshRow?.inAgent) row = freshRow as typeof row;
+    }
     if (sessionPassphrases.has(fp) || row?.inAgent) {
       promptedKeys.add(fp); // covered — remember the decision
       return;

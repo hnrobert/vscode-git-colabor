@@ -150,6 +150,15 @@ export async function unsetGlobalConfig(deps: CommandDeps, item?: unknown): Prom
   await deps.provider?.reload();
 }
 
+/** Live ssh-agent check for one identity — the ls snapshot can predate the
+ *  agent (agent forwarding on a remote window may land after activation),
+ *  so before prompting at init time we ask the agent again. */
+async function liveInAgent(deps: CommandDeps, id: string, snapshot: boolean): Promise<boolean> {
+  if (snapshot) return true;
+  const fresh = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
+  return fresh?.identities.find((i) => i.id === id)?.inAgent === true;
+}
+
 async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void> {
   const data = await run<{ identities: IdentityJson[] }>(deps, ['identity', 'ls']);
   const identity = data?.identities.find((i) => i.id === id);
@@ -167,7 +176,7 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
     identity.hasKey &&
     identity.keyEncrypted &&
     identity.sshKeyFingerprint &&
-    !identity.inAgent &&
+    !(await liveInAgent(deps, id, !!identity.inAgent)) &&
     !deps.sessionPassphrases.has(identity.sshKeyFingerprint)
   ) {
     const pass = await vscode.window.showInputBox({
