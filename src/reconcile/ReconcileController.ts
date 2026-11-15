@@ -7,18 +7,12 @@ import type { StatusIdentityJson } from '../types.js';
 import type { StatusJson } from '../types.js';
 
 /**
- * AUTO-APPLY on repo events — SESSION-scoped by design: the identity is
- * injected into THIS WINDOW's environment and repo config stays untouched
- * (a repo explicitly configured via "Use & write git repo config" keeps
- * working through its own config, which resolve.ts reads). One window
- * carries one session identity, so with several repos open the first
- * resolved identity wins; an already-active session identity (the user's
- * explicit choice) is never overridden.
- *
- * Repos the user explicitly stripped ("Unset in git repo config" /
- * `identity logout`) are standing down (identities.json): reconcile leaves
- * them alone too — injecting an identity over an unset repo would
- * resurrect what was deliberately removed.
+ * ONE-SHOT bootstrap at window start — SESSION-scoped: the identity is
+ * injected into THIS WINDOW's environment and repo config stays untouched.
+ * Runs ONCE per window (activation); repo events never re-apply — the
+ * session identity changes only by an explicit Use afterwards, and a repo
+ * explicitly configured via "Use & write git repo config" keeps working
+ * through its own config (resolve.ts reads it).
  */
 export async function reconcile(
   cli: CliClient,
@@ -53,10 +47,6 @@ async function reconcileRepo(
 ): Promise<boolean> {
   const statusRes = await cli.run(['identity', 'status'], { cwd: root });
   const status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
-  if (status?.standingDown) {
-    logger.info(`reconcile[${root}]: standing down (identity config was explicitly unset here)`);
-    return false;
-  }
 
   // active = config-derived; defaultIdentity only fills on repos where config
   // carries nothing (fresh — no user.name/email anywhere). The setting's value

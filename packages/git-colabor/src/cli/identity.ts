@@ -12,8 +12,6 @@ import {
   hideIdentityEmail,
   listHiddenEmails,
   listIdentities,
-  markStandingDown,
-  isStandingDown,
   readMap,
   removeIdentity,
   setDefault,
@@ -502,10 +500,6 @@ async function unsetConfigForIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonRes
     { name: identity.name, email: identity.email, pushKeyPath: binding.pushKey?.path, signKey: binding.signKey },
     { cwd: ctx.cwd, scope: scope === 'global' ? 'global' : 'local' },
   );
-  if (scope !== 'global' && (cleared.identityLayer || cleared.sshCommand || cleared.signing)) {
-    const tl = await (await import('../core/git/rev.js')).topLevel(ctx.cwd).catch(() => undefined);
-    if (tl) await markStandingDown(tl);
-  }
   await appendAudit({
     action: 'identity.logout',
     source: process.env.GIT_COLABOR_SOURCE === 'ext' ? 'ext' : 'cli',
@@ -623,9 +617,6 @@ async function status(ctx: IdCtx): Promise<JsonResult> {
     // which identity each git-config SCOPE names (repo-local / global) —
     // drives the "found in repo config" / "found in git global config" rows
     configIdentities,
-    // the user stripped this repo's config and auto-apply stands down here
-    // until an explicit local use (see map.ts standingDown)
-    standingDown: rs.repo ? await isStandingDown(rs.repo) : false,
     selected: rs.selected,
     available: rs.available,
   });

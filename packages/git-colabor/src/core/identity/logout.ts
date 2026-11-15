@@ -1,5 +1,5 @@
 import { topLevel } from '../git/rev.js';
-import { getIdentity, getKeyBinding, idOf, listIdentities, markStandingDown } from './map.js';
+import { getIdentity, getKeyBinding, idOf, listIdentities } from './map.js';
 import { resolveActive } from './resolve.js';
 import { removeKey } from './agent.js';
 import { appendAudit } from '../logging/audit.js';
@@ -72,12 +72,6 @@ export async function logoutIdentity(opts: {
     const { clearTemplate } = await import('../message/template.js');
     await unsetAllConfig('colabor.selected', 'local', opts.cwd);
     await clearTemplate(opts.cwd).catch(() => {});
-  }
-  // logout = leave clean: auto-apply must not re-materialize the identity
-  // into this repo on the next repo event
-  if (cleared.identityLayer || cleared.sshCommand || cleared.signing) {
-    const tl = await safeTopLevel(opts.cwd);
-    if (tl) await markStandingDown(tl);
   }
 
   await appendAudit({

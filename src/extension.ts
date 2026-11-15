@@ -308,8 +308,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     gitSub = git.subscribe(() => {
       if (gitTimer) clearTimeout(gitTimer);
       gitTimer = setTimeout(() => {
-        runReconcile();
-        refresh();
+        refresh(); // ONE-SHOT bootstrap: repo events never re-apply the session identity
       }, 400);
     });
   };
@@ -388,8 +387,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('gitColabor.postCommitSolo')) refresh();
       if (e.affectsConfiguration('gitColabor.defaultIdentity') || e.affectsConfiguration('gitColabor.useTarget')) {
-        runReconcile();
-        refresh();
+        refresh(); // defaultIdentity applies at window start only — changing it re-renders, never re-applies
       }
     }),
   );
