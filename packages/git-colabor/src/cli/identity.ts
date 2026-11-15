@@ -198,8 +198,18 @@ async function agentKey(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
 
   const askpassScriptPath = ctx.askpassScriptPath ? await (await import('../core/identity/apply.js')).ensureAskpassWrapper(ctx.askpassScriptPath) : undefined;
   if (verify) {
-    const verified = await verifyKey({ keyPath, fingerprint, askpassScriptPath, socketPath: ctx.socketPath, token: ctx.token });
-    return ok({ verified, inAgent: await keyInAgent(fingerprint) });
+    try {
+      const verified = await verifyKey({ keyPath, fingerprint, askpassScriptPath, socketPath: ctx.socketPath, token: ctx.token });
+      return ok({ verified, inAgent: await keyInAgent(fingerprint) });
+    } catch (e) {
+      // bridge wiring failure or ssh-level error — report it as a warning
+      // with the reason instead of a bare `verified: false` that reads as
+      // "wrong passphrase" even when the password was correct
+      return ok(
+        { verified: false, inAgent: await keyInAgent(fingerprint) },
+        [{ code: 'verify-error', message: e instanceof Error ? e.message : String(e) }],
+      );
+    }
   }
 
   const loaded = await loadKey({ keyPath, fingerprint, askpassScriptPath, socketPath: ctx.socketPath, token: ctx.token, useAppleKeychain: true });

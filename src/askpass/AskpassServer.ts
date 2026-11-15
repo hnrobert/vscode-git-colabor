@@ -84,7 +84,9 @@ export class AskpassServer {
           socket.end(); // forbidden → empty response → helper falls through
           return;
         }
-        const pass = (await this.deps.secretLookup(req.fingerprint))
+        const banked = await this.deps.secretLookup(req.fingerprint);
+        this.deps.log?.info(`askpass query fp=${req.fingerprint} → ${banked ? 'banked' : 'not banked, prompting'}`);
+        const pass = banked
           // push-time: ask the user instead of failing — a cancelled prompt
           // returns nothing and git's default flow / error pass through
           ?? (await this.promptSingleFlight(req.fingerprint));

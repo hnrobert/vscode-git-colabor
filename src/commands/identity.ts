@@ -183,10 +183,13 @@ async function applySessionIdentity(deps: CommandDeps, id: string): Promise<void
       const v = await deps.cli.run(['identity', 'agent', id, '--verify']);
       const verified = v.ok ? (v.data as { verified?: boolean }).verified === true : false;
       if (!verified) {
+        // a bridge/ssh failure is NOT a wrong password — show the real reason
+        const reason = v.ok ? (v.warnings?.find((w) => w.code === 'verify-error')?.message ?? '') : '';
+        if (reason) deps.log.warn(`key verify: ${reason}`);
         deps.sessionPassphrases.delete(identity.sshKeyFingerprint);
         // wrong passphrase re-prompts once; a second failure follows the setting
         const retry = await vscode.window.showInputBox({
-          prompt: `Wrong passphrase — retry for key ${identity.sshKeyFingerprint}`,
+          prompt: `Wrong passphrase${reason ? '' : ''} — retry for key ${identity.sshKeyFingerprint}${reason ? ` (${reason})` : ''}`,
           password: true,
         });
         if (retry === undefined || retry === '') {
