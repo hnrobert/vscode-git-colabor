@@ -53,7 +53,8 @@ function attempt(args: string[], timeoutMs: number): Promise<string | undefined>
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'ignore'] });
+      // GitHub's "Hi <username>!" greeting arrives on STDERR (exit is always 1)
+      child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     } catch {
       resolve(undefined);
       return;
@@ -67,9 +68,11 @@ function attempt(args: string[], timeoutMs: number): Promise<string | undefined>
       child.kill();
       done(undefined);
     }, timeoutMs);
-    child.stdout.on('data', (d: Buffer) => {
+    const feed = (d: Buffer): void => {
       out += d.toString('utf8');
-    });
+    };
+    child.stdout.on('data', feed);
+    child.stderr.on('data', feed);
     child.on('error', () => done(undefined));
     child.on('close', () => {
       const m = OWNER_RE.exec(out);
