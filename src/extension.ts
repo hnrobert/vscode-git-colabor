@@ -15,6 +15,7 @@ import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 import { SessionIdentityController } from './session/SessionIdentity.js';
 import { WindowAlwaysCoAuthors } from './coauthor/WindowAlwaysCoAuthors.js';
+import type { StatusJson } from './types.js';
 
 let askpass: AskpassServer | undefined;
 let stateWatchers: FSWatcher[] = [];
@@ -28,6 +29,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Session-scoped key passphrases (in-memory only — a Remote-SSH reconnect
   // restarts the extension host, so every new connection re-prompts).
   const sessionPassphrases = new Map<string, string>();
+  // the active identity's encrypted key is locked (not in the agent, no
+  // banked passphrase — e.g. the defaultIdentity prompt was skipped)
+  const activeKeyLocked = (s: StatusJson | undefined): boolean => {
+    const a = s?.activeIdentity;
+    if (!a?.hasKey || !a.keyEncrypted || !a.sshKeyFingerprint || a.inAgent) return false;
+    return !sessionPassphrases.has(a.sshKeyFingerprint);
+  };
 
   askpass = new AskpassServer({
     sessionId,
@@ -119,7 +127,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const scmSync = new ScmSync(git);
   context.subscriptions.push(
     provider.onDidReload.event((s) => {
-      statusbar.update(s);
+      statusbar.update(s, { keyLocked: activeKeyLocked(s) });
       scmSync.sync(s?.selected ?? []);
     }),
   );

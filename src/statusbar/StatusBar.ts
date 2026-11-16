@@ -12,17 +12,28 @@ export class StatusBar {
     this.item.show();
   }
 
-  update(status: StatusJson | undefined): void {
+  /** keyLocked: the active identity's encrypted key has no banked passphrase
+   *  (passphrase prompt skipped) — pushes/sign will not work until entered. */
+  update(status: StatusJson | undefined, opts?: { keyLocked?: boolean }): void {
     if (!status || !status.inRepo || !status.activeIdentity) {
+      this.item.color = undefined;
       this.item.text = '$(person) colabor';
       this.item.tooltip = status && !status.inRepo ? 'Git Colabor — open a git repo' : 'Git Colabor — no identity active';
       return;
     }
     const a = status.activeIdentity;
     const mob = status.selected.length > 0 ? ` · +${status.selected.length}` : '';
-    this.item.text = `$(person) ${a.name}${mob}`;
+    if (opts?.keyLocked) {
+      // green warning: identity IS active, but its encrypted key is locked
+      this.item.color = new vscode.ThemeColor('gitDecoration.addedResourceForeground');
+      this.item.text = `$(warning) ${a.name}${mob}`;
+    } else {
+      this.item.color = undefined;
+      this.item.text = `$(person) ${a.name}${mob}`;
+    }
     const lines = ['Git Colabor', `Identity: ${a.name} <${a.email}>`];
     if (a.sshKeyFingerprint) lines.push(`Key: ${a.sshKeyFingerprint}`);
+    if (opts?.keyLocked) lines.push('⚠ Key locked (passphrase not entered) — click and re-enter to enable push/sign');
     if (status.managedBy) lines.push(`Managed by: ${status.managedBy}`);
     this.item.tooltip = lines.join('\n');
   }
