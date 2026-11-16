@@ -1,6 +1,6 @@
 {
   "name": "git-colabor",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Git co-author + multi-identity + SSH key management CLI",
   "repository": {
     "type": "git",
