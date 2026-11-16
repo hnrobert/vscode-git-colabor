@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { githubFetch } from '../config.js';
+import { githubOwnerOfKey } from './githubOwners.js';
 import {
   expandTilde,
   isPrivateKeyFile,
@@ -91,20 +93,47 @@ export async function pickKeyFile(opts: {
   pick.placeholder = opts.placeHolder;
   pick.value = initial; // absolute ~/.ssh — path completion from the first keystroke
 
+  // GitHub-owner annotation: each listed private key is probed async
+  // (`ssh -T git@github.com` → "Hi <username>!"), and the row's detail
+  // gains "→ github.com/<login>" as results land. Cached per session, so
+  // reopening the picker is instant; disabled with gitColabor.githubFetch.
+  const owners = new Map<string, string>();
+  const probed = new Set<string>();
+  const annotate = (items: Item[]): Item[] =>
+    items.map((it) => {
+      const login = it.keyPath ? owners.get(it.keyPath) : undefined;
+      if (!login || it.detail?.includes('github.com/')) return it;
+      return { ...it, detail: `${it.detail ?? ''} · → github.com/${login}` };
+    });
+  const probeOwners = (items: Item[]): void => {
+    if (!githubFetch()) return;
+    for (const it of items) {
+      if (!it.keyPath || probed.has(it.keyPath)) continue;
+      probed.add(it.keyPath);
+      void githubOwnerOfKey(it.keyPath).then((login) => {
+        if (!login) return;
+        owners.set(it.keyPath!, login);
+        // re-annotate the CURRENT listing (the user may have drilled elsewhere)
+        pick.items = annotate([...pick.items]);
+      });
+    }
+  };
+
   const refresh = (value: string): void => {
     pick.busy = true;
     pathCompletions(value, home, cache, sshDir)
       .then((rows: CompletionRow[]) => {
-        const items = [
+        const items = annotate([
           ...pinned,
           ...rows.map((r) => ({ ...r, unverified: true })),
           ...(rows.length > 0
             ? extras
             : [{ label: `$(error) ${value} — no matches` } as Item, ...extras]),
-        ];
+        ]);
         pick.items = items;
         pick.activeItems = [rows.length > 0 ? items[pinned.length] : items[items.length - 1]];
         pick.busy = false;
+        probeOwners(items);
       })
       .catch((e: unknown) => {
         pick.busy = false;
