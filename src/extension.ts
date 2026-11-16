@@ -4,7 +4,7 @@ import { readFileSync, watch, statSync, type FSWatcher } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { initLog } from './log.js';
-import { cliPath, postCommitSolo } from './config.js';
+import { cliPath, autoApplyOnRepoOpen, ensureRememberedIdentitiesInStore, migrateRememberedIdentities, postCommitSolo } from './config.js';
 import { CliClient } from './cli/CliClient.js';
 import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
 import { GitApi } from './git-ext/GitApi.js';
@@ -77,12 +77,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   provider.windowAlways = windowAlways;
   context.subscriptions.push(vscode.window.createTreeView('gitColabor.identitiesView', { treeDataProvider: provider }));
 
+  // setting rename (coAuthorIdentities → rememberedIdentities), once per
+  // activation: carry old-key entries into the new key and drop the old one
+  void migrateRememberedIdentities().catch((e: unknown) =>
+    logger.warn(`rememberedIdentities migration: ${e instanceof Error ? e.message : String(e)}`),
+  );
+  // remembered identities must also exist as ROWS in THIS machine's store —
+  // the store is per-machine, so a fresh Remote-SSH host has none of them,
+  // which used to leave the remembered list empty and the default-identity
+  // fallback with no row to apply (remote, brand-new repo: nothing shown,
+  // nothing auto-selected). The bootstrap reconcile WAITS for this: it reads
+  // the store to resolve defaultIdentity, and racing it against enrollment
+  // made it evaluate an empty store and decide "nothing to apply".
+  const enrollmentDone = ensureRememberedIdentitiesInStore(cli)
+    .then((added: string[]) => {
+      if (added.length > 0) {
+        logger.info(`enrolled remembered identit${added.length === 1 ? 'y' : 'ies'} into the local store: ${added.join(', ')}`);
+        void provider.reload();
+      }
+    })
+    .catch((e: unknown) => logger.warn(`remembered enroll: ${e instanceof Error ? e.message : String(e)}`));
+
   // per-window identity: env-injected git config, repo untouched (the
   // default Use flow); dies with this extension host — no cleanup needed
   const sessionCtl = new SessionIdentityController(
     context.asAbsolutePath('resources/askpass.cjs'),
     logger,
+    // terminal mirror: a session identity must cover terminal git too, not
+    // just SCM-view spawns; stale values from a previous window are dropped
+    context.environmentVariableCollection,
   );
+  context.environmentVariableCollection.clear();
   sessionCtl.onChange = () => {
     provider.setSessionOverride(sessionCtl.get(), sessionCtl.signing());
     void provider.reload();
@@ -261,6 +286,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })();
   };
   let reconcileSkippedForSession = false;
+  // EVERY repo appearance gets a session-apply pass (not one-shot): while no
+  // session identity is active, each repo event re-runs the bootstrap — a
+  // repo whose config names an identity may open after the first pass, and
+  // the earlier one-shot-at-activation model never saw it
   const runReconcile = (): void => {
     // a session identity owns this window — reconcile writing repo config
     // would fight the env overlay, so it stands down until the session ends
@@ -272,7 +301,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     reconcileSkippedForSession = false;
-    reconcile(cli, git, logger).catch((e) =>
+    reconcile(cli, git, sessionCtl, logger).catch((e) =>
       logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
     );
   };
@@ -289,8 +318,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     gitSub = git.subscribe(() => {
       if (gitTimer) clearTimeout(gitTimer);
       gitTimer = setTimeout(() => {
-        runReconcile();
         refresh();
+        // every repo appearance re-runs the bootstrap while no session
+        // identity is active — later-opening repos count too
+        runReconcile();
       }, 400);
     });
   };
@@ -299,12 +330,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // SCM view (multi-root) — poll the selected repo root as a belt-and-braces
   // detector so the tree always follows the focused repo
   let lastFocusedRoot: string | undefined = git.selectedRepoRoot();
+  // belt-and-braces #2: when the vscode.git API never arrived (late/failed
+  // activation — typical for a freshly-initialized remote workspace), the
+  // backoff retries above may already be exhausted; this poll keeps trying
+  // idempotently forever and wires the events the moment it lands
+  let pollWired = false;
   const focusPoll = setInterval(() => {
+    if (git.api === undefined) {
+      if (pollWired) return;
+      void git
+        .activate()
+        .then((reason) => {
+          if (reason !== '' || pollWired) return;
+          pollWired = true;
+          logger.info('vscode.git API acquired (via focus poll)');
+          wireGitEvents();
+          runReconcile();
+          refresh();
+        })
+        .catch(() => {});
+      return;
+    }
     const root = git.selectedRepoRoot();
     if (root !== lastFocusedRoot) {
       lastFocusedRoot = root;
       logger.info(`focused repo changed → ${root ?? '(none)'}`);
       refresh();
+      runReconcile(); // a focused repo is a repo that appeared — bootstrap it too
     }
   }, 1000);
   context.subscriptions.push({ dispose() { clearInterval(focusPoll); } });
@@ -313,12 +365,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if ((await git.activate()) === '') {
     logger.info('vscode.git API acquired');
     wireGitEvents();
+    pollWired = true;
   } else {
     // The git extension's activation can complete a moment after ours (it
     // started only ~0.5s before us under Remote-SSH). Retry with backoff —
     // extensions.onDidChange is useless here, it only fires on
     // install/uninstall, never on activation.
     const onAcquired = (): void => {
+      if (pollWired) return; // the focus poll got there first
+      pollWired = true;
       logger.info('vscode.git API acquired (late)');
       wireGitEvents();
       runReconcile();
@@ -346,14 +401,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('gitColabor.postCommitSolo')) refresh();
       if (e.affectsConfiguration('gitColabor.defaultIdentity') || e.affectsConfiguration('gitColabor.useTarget')) {
-        runReconcile();
-        refresh();
+        refresh(); // defaultIdentity applies at window start only — changing it re-renders, never re-applies
       }
     }),
   );
 
-  runReconcile();
-  refresh();
+  // store enrollment FIRST (bounded), then the one-shot bootstrap — the
+  // default-identity resolution reads the store, so an empty race would
+  // consume the bootstrap with nothing to apply
+  void enrollmentDone.finally(() => {
+    runReconcile();
+    refresh();
+  });
 
   // After the first status paints, check the active identity: if it has an
   // encrypted key that is NOT in ssh-agent and we hold no passphrase in this
@@ -376,7 +435,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
     const fp = active.sshKeyFingerprint;
     if (promptedKeys.has(fp)) return;
-    const row = status?.identities.find((i) => i.id === active.id);
+    let row = status?.identities.find((i) => i.id === active.id);
+    // live re-check: the snapshot predates activation, and agent forwarding
+    // on a remote window may have landed since — an agent-held key must
+    // never prompt at init time
+    if (!row?.inAgent) {
+      const ls = await cli.run(['identity', 'ls']).catch(() => undefined);
+      const freshRow = ls?.ok
+        ? ((ls.data as { identities?: { id: string; inAgent?: boolean }[] }).identities ?? []).find((i) => i.id === active.id)
+        : undefined;
+      if (freshRow?.inAgent) row = freshRow as typeof row;
+    }
     if (sessionPassphrases.has(fp) || row?.inAgent) {
       promptedKeys.add(fp); // covered — remember the decision
       return;
@@ -402,6 +471,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const verify = await cli.run(['identity', 'agent', active.id, '--verify']);
     const verified = verify.ok ? (verify.data as { verified?: boolean }).verified === true : false;
     void provider.reload();
+    if (verified && !sessionCtl.active() && autoApplyOnRepoOpen()) {
+      // bootstrap catch-up: the passphrase prompt can fire (config-derived
+      // active identity) before the one-shot reconcile applied anything —
+      // without this, entering the CORRECT passphrase still left every repo
+      // in the window with no identity selected
+      const row = status?.identities.find((i) => i.id === active.id) ?? active;
+      logger.info(`passphrase verified — session-applying ${row.name} <${row.email}> (bootstrap catch-up)`);
+      await sessionCtl.apply(row).catch((e: unknown) =>
+        logger.warn(`session apply: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    }
     if (!verified) {
       sessionPassphrases.delete(fp); // wrong passphrase
       promptedKeys.delete(fp); // allow a retry on the next check

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readdir, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -49,6 +49,18 @@ describe('sweepSessionFiles', () => {
     expect(left.has(basename(liveSock))).toBe(true); // its socket survives
     expect(left.has(basename(deadSock))).toBe(false); // dead session's socket removed
     expect(left.has(basename(orphanSock))).toBe(false); // crash leftover removed
+  });
+
+  it('never treats the caller\'s OWN socket as an orphan (startup race)', async () => {
+    const own = join(dir, 'askpass-ext_mine.sock');
+    await writeFile(own, '');
+    // NO session file references it — but keep= protects it (the session
+    // file is written after the socket is created; the sweep must not race)
+    const removed = await sweepSessionFiles(dir, own);
+    expect(removed.sockets).toBe(0);
+    const left = new Set(await readdir(dir));
+    expect(left.has(basename(own))).toBe(true);
+    await unlink(own); // don't leak into the next test's sweep
   });
 
   it('never unlinks a socket path outside its own naming/dir (corrupted descriptor)', async () => {

@@ -132,12 +132,25 @@ do_install() {
     exit 1
   fi
 
+  # Decide BEFORE touching the reload marker: the marker reloads windows,
+  # and a reloading extension host tears its askpass session down before the
+  # new one lands — checking after would see zero live sessions and open a
+  # DUPLICATE window.
+  echo "==> check for a connected window"
+  if host_has_window; then
+    HAVE_WINDOW=1
+    echo "    a window is already connected — the reload marker will update it"
+  else
+    HAVE_WINDOW=0
+    echo "    no connected window found — will open one"
+  fi
+
   echo "==> ask open windows for a full reload"
   touch_reload_marker
 
   echo "==> open remote window"
-  if host_has_window; then
-    echo "    a window is already connected — the reload marker above updated it; not opening another"
+  if [ "$HAVE_WINDOW" = 1 ]; then
+    echo "    not opening another (existing window reloaded above)"
   else
     code --remote "ssh-remote+$HOST" "$REMOTE_DIR"
   fi
@@ -149,8 +162,10 @@ within ~2s (windows still running a pre-marker build need one last manual
 
 # Is a VS Code window with our extension already connected to this host?
 # A live askpass socket proves it (each window's extension host starts one;
-# dead hosts/windows leave stale files but the connect fails). Unknown
-# (no python3) counts as "no window" — the conservative default opens one.
+# dead hosts/windows leave stale files but the connect fails). When the
+# probe is silent (mid-reload, stale sweep, no python3), a running
+# vscode-server process still proves a connected window; only when BOTH are
+# silent do we open one.
 host_has_window() {
   ssh -o IdentitiesOnly=yes "$HOST" 'python3 - <<"PY" 2>/dev/null
 import glob, json, os, socket, sys
@@ -170,6 +185,9 @@ for f in files[:5]:
         continue
 sys.exit(1)
 PY'
+  # fallback: a running vscode-server means some window is connected — the
+  # session-file probe above can miss (mid-reload, stale sweep, no python3)
+  ssh -o IdentitiesOnly=yes "$HOST" 'pgrep -f "vscode-server.*server-main" >/dev/null 2>&1'
 }
 
 case "$COMMAND" in

@@ -12,8 +12,6 @@ import {
   hideIdentityEmail,
   listHiddenEmails,
   listIdentities,
-  markStandingDown,
-  isStandingDown,
   readMap,
   removeIdentity,
   setDefault,
@@ -200,8 +198,18 @@ async function agentKey(p: CmdParsed, ctx: IdCtx): Promise<JsonResult> {
 
   const askpassScriptPath = ctx.askpassScriptPath ? await (await import('../core/identity/apply.js')).ensureAskpassWrapper(ctx.askpassScriptPath) : undefined;
   if (verify) {
-    const verified = await verifyKey({ keyPath, fingerprint, askpassScriptPath, socketPath: ctx.socketPath, token: ctx.token });
-    return ok({ verified, inAgent: await keyInAgent(fingerprint) });
+    try {
+      const verified = await verifyKey({ keyPath, fingerprint, askpassScriptPath, socketPath: ctx.socketPath, token: ctx.token });
+      return ok({ verified, inAgent: await keyInAgent(fingerprint) });
+    } catch (e) {
+      // bridge wiring failure or ssh-level error — report it as a warning
+      // with the reason instead of a bare `verified: false` that reads as
+      // "wrong passphrase" even when the password was correct
+      return ok(
+        { verified: false, inAgent: await keyInAgent(fingerprint) },
+        [{ code: 'verify-error', message: e instanceof Error ? e.message : String(e) }],
+      );
+    }
   }
 
   const loaded = await loadKey({ keyPath, fingerprint, askpassScriptPath, socketPath: ctx.socketPath, token: ctx.token, useAppleKeychain: true });
@@ -502,10 +510,6 @@ async function unsetConfigForIdentity(p: CmdParsed, ctx: IdCtx): Promise<JsonRes
     { name: identity.name, email: identity.email, pushKeyPath: binding.pushKey?.path, signKey: binding.signKey },
     { cwd: ctx.cwd, scope: scope === 'global' ? 'global' : 'local' },
   );
-  if (scope !== 'global' && (cleared.identityLayer || cleared.sshCommand || cleared.signing)) {
-    const tl = await (await import('../core/git/rev.js')).topLevel(ctx.cwd).catch(() => undefined);
-    if (tl) await markStandingDown(tl);
-  }
   await appendAudit({
     action: 'identity.logout',
     source: process.env.GIT_COLABOR_SOURCE === 'ext' ? 'ext' : 'cli',
@@ -623,9 +627,6 @@ async function status(ctx: IdCtx): Promise<JsonResult> {
     // which identity each git-config SCOPE names (repo-local / global) —
     // drives the "found in repo config" / "found in git global config" rows
     configIdentities,
-    // the user stripped this repo's config and auto-apply stands down here
-    // until an explicit local use (see map.ts standingDown)
-    standingDown: rs.repo ? await isStandingDown(rs.repo) : false,
     selected: rs.selected,
     available: rs.available,
   });

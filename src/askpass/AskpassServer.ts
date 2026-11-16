@@ -84,7 +84,9 @@ export class AskpassServer {
           socket.end(); // forbidden → empty response → helper falls through
           return;
         }
-        const pass = (await this.deps.secretLookup(req.fingerprint))
+        const banked = await this.deps.secretLookup(req.fingerprint);
+        this.deps.log?.info(`askpass query fp=${req.fingerprint} → ${banked ? 'banked' : 'not banked, prompting'}`);
+        const pass = banked
           // push-time: ask the user instead of failing — a cancelled prompt
           // returns nothing and git's default flow / error pass through
           ?? (await this.promptSingleFlight(req.fingerprint));
@@ -144,7 +146,11 @@ const isOurSocket = (dir: string, path: unknown): path is string =>
  * self-cleans instead of accumulating one token-bearing file per exthost
  * lifetime.
  */
-export async function sweepSessionFiles(dir = colaborDir()): Promise<{ sessions: number; sockets: number }> {
+export async function sweepSessionFiles(
+  dir = colaborDir(),
+  /** this window's OWN socket — never an orphan, even before its session file lands */
+  keep?: string,
+): Promise<{ sessions: number; sockets: number }> {
   const removed = { sessions: 0, sockets: 0 };
   try {
     const entries = await readdir(dir);
@@ -169,6 +175,7 @@ export async function sweepSessionFiles(dir = colaborDir()): Promise<{ sessions:
     }
     for (const f of entries.filter((n) => /^askpass-[\w.-]+\.sock$/.test(n))) {
       if (liveSockets.has(f)) continue;
+      if (keep && basename(keep) === f) continue; // ours — created before our session file existed
       await unlink(join(dir, f)).catch(() => {});
       removed.sockets += 1;
     }
@@ -197,11 +204,16 @@ export function colaborDir(): string {
  * not in its env — terminal invocation path.)
  */
 export async function writeSessionFile(sessionId: string, socketPath: string, token: string): Promise<void> {
-  // every new session sweeps the corpses of previous ones (crash leftovers included)
-  void sweepSessionFiles().catch(() => {});
+  // Register OURSELVES first, THEN sweep: the askpass socket is created by
+  // start() before this file exists, so a sweep that runs in between sees
+  // our own socket as an "orphan" and deletes it — after which every
+  // askpass query for this window fails with "no Git Colabor session
+  // running" while the session file points at a socket that is gone.
   const file = join(colaborDir(), `session-${process.pid}.json`);
   await writeFile(file, JSON.stringify({ sessionId, socketPath, token, pid: process.pid }) + '\n', {
     encoding: 'utf8',
     mode: 0o600,
   });
+  // sweep AFTER the session file landed, and never touch our own socket
+  void sweepSessionFiles(colaborDir(), socketPath).catch(() => {});
 }

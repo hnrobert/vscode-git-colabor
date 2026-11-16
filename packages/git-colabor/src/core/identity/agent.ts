@@ -113,7 +113,13 @@ export async function loadKey(opts: LoadKeyOpts): Promise<LoadResult> {
     // reliable WRONG-passphrase detector on agent-less hosts. Output is
     // captured (not inherited): ssh-keygen -y prints the PUBLIC KEY, which
     // would corrupt the CLI's own --json stdout.
-    if (await verifyKey(opts)) {
+    let preverified = false;
+    try {
+      preverified = await verifyKey(opts);
+    } catch {
+      preverified = false; // load falls back to its own strategies below
+    }
+    if (preverified) {
       return {
         loaded: true,
         via: 'keygen-verify',
@@ -171,7 +177,12 @@ export async function verifyKey(opts: {
   socketPath?: string;
   token?: string;
 }): Promise<boolean> {
-  if (!opts.askpassScriptPath || !(opts.socketPath && opts.token)) return false;
+  // The askpass bridge must be fully wired — without it there is NO way to
+  // supply the passphrase and every verification would fail with a
+  // misleading "wrong passphrase". Surface the missing piece instead so the
+  // caller can tell a broken bridge from a wrong password.
+  if (!opts.askpassScriptPath) throw new Error('verify: askpass wrapper missing (resolveAskpass failed)');
+  if (!opts.socketPath || !opts.token) throw new Error('verify: askpass bridge env missing (GIT_COLABOR_ASKPASS_SOCK/TOKEN)');
   const env: NodeJS.ProcessEnv = { ...process.env };
   env.SSH_ASKPASS = opts.askpassScriptPath;
   env.SSH_ASKPASS_REQUIRE = 'force';
@@ -179,22 +190,30 @@ export async function verifyKey(opts: {
   env.GIT_COLABOR_ASKPASS_SOCK = opts.socketPath;
   env.GIT_COLABOR_ASKPASS_TOKEN = opts.token;
   env.GIT_COLABOR_FINGERPRINT = opts.fingerprint;
-  const verifyQuiet = (args: string[]): Promise<number> =>
+  const verifyQuiet = (args: string[]): Promise<{ code: number; stderr: string }> =>
     new Promise((resolve) => {
       const child = spawn('ssh-keygen', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let err = '';
+      child.stderr.on('data', (d) => (err += d.toString('utf8')));
       const killTimer = setTimeout(() => child.kill('SIGKILL'), 10_000);
       child.on('error', () => {
         clearTimeout(killTimer);
-        resolve(127);
+        resolve({ code: 127, stderr: 'ssh-keygen spawn failed' });
       });
       child.on('close', (c) => {
         clearTimeout(killTimer);
-        resolve(c ?? 127);
+        resolve({ code: c ?? 127, stderr: err });
       });
     });
-  // `-P ''` reads the passphrase via askpass; fall back to the classic prompt form
-  const verify = await verifyQuiet(['-y', '-P', '', '-f', opts.keyPath]).then((c) =>
-    c === 0 ? Promise.resolve(0) : verifyQuiet(['-y', '-f', opts.keyPath]),
-  );
-  return verify === 0;
+  // single classic form: ssh-keygen has no passphrase on argv, stdin is
+  // ignored and SSH_ASKPASS_REQUIRE=force routes the prompt to the bridge.
+  // (A `-P ''` preflight was tried here before — it ALWAYS fails on an
+  // encrypted key with "incorrect passphrase supplied" without ever calling
+  // askpass, and the misleading stderr is exactly what users saw.)
+  const r = await verifyQuiet(['-y', '-f', opts.keyPath]);
+  if (r.code === 0) return true;
+  // distinguish "the bridge had nothing" (wrong/absent passphrase in the
+  // session store) from an ssh-level failure — the helper prints its
+  // actionable line to stderr on an empty answer
+  throw new Error(`verify failed (exit ${r.code}): ${r.stderr.trim().split('\n')[0].slice(0, 160)}`);
 }

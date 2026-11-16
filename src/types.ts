@@ -95,8 +95,6 @@ export type StatusJson = {
   activeIdentity: IdentityJson | null;
   /** per-scope config identities: repo-local file / ~/.gitconfig (null = not set there) */
   configIdentities?: { repo: ConfigIdentityJson | null; global: ConfigIdentityJson | null };
-  /** this repo's config was explicitly stripped — auto-apply stands down here */
-  standingDown?: boolean;
   identities: StatusIdentityJson[];
   selected: CoAuthorBriefJson[];
   available: CoAuthorBriefJson[];

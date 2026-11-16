@@ -173,6 +173,67 @@ export function coAuthorMemoryScopeMap(emails: string[]): Map<string, Record<Mem
 }
 
 /** Save or remove an author in one memory scope. */
+/**
+ * One-shot migration for the setting rename: coAuthorIdentities →
+ * rememberedIdentities. Runs at activation; for each settings layer that
+ * still carries the OLD key, merges its entries into the new key (new key
+ * wins on email clash) and removes the old one — through the sanctioned
+ * configuration API. No-op (one cheap inspect) once migrated.
+ */
+export async function migrateRememberedIdentities(): Promise<void> {
+  const config = vscode.workspace.getConfiguration('gitColabor');
+  const inspectOld = config.inspect('coAuthorIdentities') as CoAuthorsInspection | undefined;
+  const inspectNew = config.inspect('rememberedIdentities') as CoAuthorsInspection | undefined;
+  const layers: Array<{ target: vscode.ConfigurationTarget; old: unknown; new: unknown }> = [
+    { target: vscode.ConfigurationTarget.Global, old: inspectOld?.globalValue, new: inspectNew?.globalValue },
+    { target: vscode.ConfigurationTarget.Workspace, old: inspectOld?.workspaceValue, new: inspectNew?.workspaceValue },
+  ];
+  for (const layer of layers) {
+    const oldList = asAuthorList(layer.old);
+    if (oldList.length === 0) continue; // nothing to migrate on this layer
+    const merged = asAuthorList(layer.new);
+    const seen = new Set(merged.map((a) => a.email.toLowerCase()));
+    for (const a of oldList) {
+      if (!seen.has(a.email.toLowerCase())) {
+        merged.push(a);
+        seen.add(a.email.toLowerCase());
+      }
+    }
+    await config.update('rememberedIdentities', merged.map((a) => `${a.name} <${a.email}>`), layer.target);
+    await config.update('coAuthorIdentities', undefined, layer.target);
+  }
+}
+
+/**
+ * Remembered identities travel with Settings Sync, but the identity ROWS
+ * live in each machine's own store (~/.config/git-colabor/identities.json).
+ * On a machine that never added the person (a fresh Remote-SSH host), the
+ * remembered flag had nothing to attach to — the row was missing entirely,
+ * and the default-identity fallback found no row to apply. Enroll every
+ * remembered author into the local store (machine scope) so the row exists
+ * everywhere the setting does. Idempotent: existing emails are skipped.
+ */
+export async function ensureRememberedIdentitiesInStore(
+  cli: { run(args: string[]): Promise<{ ok: boolean; data?: unknown }> },
+): Promise<string[]> {
+  const memories = coAuthorMemories();
+  if (memories.length === 0) return [];
+  const ls = await cli.run(['identity', 'ls']);
+  if (!ls.ok) return [];
+  const known = new Set(
+    ((ls.data as { identities?: { email?: string }[] }).identities ?? [])
+      .map((i) => (i.email ?? '').toLowerCase())
+      .filter(Boolean),
+  );
+  const added: string[] = [];
+  for (const a of memories) {
+    if (known.has(a.email.toLowerCase())) continue;
+    const add = await cli.run(['identity', 'add', '--name', a.name, '--email', a.email]);
+    if (add.ok) added.push(`${a.name} <${a.email}>`);
+  }
+  return added;
+}
+
 export async function setCoAuthorMemory(scope: MemoryScope, author: ParsedAuthor, save: boolean): Promise<void> {
   const target = scope === 'user' ? vscode.ConfigurationTarget.Global : vscode.ConfigurationTarget.Workspace;
   const e = author.email.toLowerCase();

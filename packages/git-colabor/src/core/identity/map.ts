@@ -136,7 +136,6 @@ export async function readMap(): Promise<IdentityMap> {
       identities,
       ...(defaultIdentity ? { defaultIdentity } : {}),
       ...(parsed.hidden ? { hidden: parsed.hidden } : {}),
-      ...(parsed.standingDown ? { standingDown: parsed.standingDown } : {}),
     };
     // persist the migration immediately so a read-only command (ls/status)
     // still lands the new shape on disk
@@ -244,34 +243,6 @@ export async function hideIdentityEmail(email: string): Promise<void> {
   await writeMap(map);
 }
 
-// --- standing-down roots (repos whose config the user explicitly stripped) ---
-// Shared machine-level state (identities.json): every window AND terminal
-// sees it, and any local-scope apply clears it — the CLI is the single
-// writer, so "leave this repo alone" survives window restarts and holds
-// across multi-root windows.
-
-/** Record that colabor should not auto-apply to this repo root ("Unset in git repo config"). */
-export async function markStandingDown(root: string): Promise<void> {
-  const map = await readMap();
-  const roots = new Set(map.standingDown ?? []);
-  roots.add(root);
-  map.standingDown = [...roots];
-  await writeMap(map);
-}
-
-/** An explicit local-scope apply re-arms auto-apply for this repo root. */
-export async function clearStandingDown(root: string): Promise<void> {
-  const map = await readMap();
-  if (!map.standingDown?.includes(root)) return;
-  map.standingDown = map.standingDown.filter((r) => r !== root);
-  await writeMap(map);
-}
-
-/** Is colabor standing down for this repo root? */
-export async function isStandingDown(root: string): Promise<boolean> {
-  const map = await readMap();
-  return (map.standingDown ?? []).includes(root);
-}
 
 /** Remove an email from the hidden list (unhide / restore). */
 export async function unhideIdentityEmail(email: string): Promise<boolean> {

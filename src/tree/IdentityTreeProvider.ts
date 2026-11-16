@@ -195,7 +195,19 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     if (!s.inRepo) {
       items.push(new ColaborItem('Open a git repository to begin', 'no-identity', { icon: 'info' }));
     } else if (!s.activeIdentity) {
-      items.push(new ColaborItem('No identity active — pick one above', 'no-identity', { icon: 'warning' }));
+      const empty = this.filterByPriority(s.identities).length === 0;
+      if (empty) {
+        // nothing to pick — the row itself is the way in (same command as
+        // the view-title + button)
+        const add = new ColaborItem('No identity active — click to add an identity', 'no-identity', {
+          icon: 'warning',
+          tooltip: 'Open the Add Identity wizard',
+        });
+        add.command = { command: 'gitColabor.addIdentity', title: 'Add Identity' };
+        items.push(add);
+      } else {
+        items.push(new ColaborItem('No identity active — pick one above', 'no-identity', { icon: 'warning' }));
+      }
     }
 
     if (s.inRepo) {
@@ -288,12 +300,13 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         out.push(id);
         continue;
       }
-      // project-scope: strictly filtered to the current repo's committers —
-      // EXCEPT vscode-memory identities and config-derived rows (tier ≤ 2),
-      // which git config itself vouches for
+      // project-scope (history imports) are repo-bound: WITHOUT a repo they
+      // never show at all; with one, only when the repo's committers (or
+      // vscode memory / config tiers below) vouch for them
       const isProject = id.scope === 'project';
       const email = id.email.toLowerCase();
-      if (isProject && tier(id) > 2 && inRepo && !repoEmails.has(email) && !remembered.has(email)) continue;
+      if (isProject && tier(id) > 2 && (!inRepo || !repoEmails.has(email)) && !remembered.has(email)) continue;
+      if (isProject && !inRepo) continue;
       const key = id.sshKeyPath ? `${id.name}|${id.sshKeyPath}|${id.host ?? ''}` : personKey;
       if (seen.has(key) || seen.has(personKey)) continue;
       seen.add(key);

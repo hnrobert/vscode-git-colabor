@@ -118,7 +118,7 @@ export function signingTooltip(s: SigningJson, match: SigningMatch, committer?: 
   }
   if (s.scope === 'window') {
     lines.push(
-      'Set for THIS WINDOW only (env-injected, no config file written). It covers commits made from the Source Control view; integrated-terminal commits follow repo / global config.',
+      'Set for THIS WINDOW only (env-injected, no config file written). It covers commits from the Source Control view AND integrated terminals (new ones); external terminals follow repo / global config.',
     );
   } else if (s.scope) {
     lines.push(`From ${s.scope} config: ${s.origin ?? '(unknown file)'}`);

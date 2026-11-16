@@ -243,7 +243,7 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     }
   });
 
-  it('a hidden email is never enrolled from config; unset-config + standing-down round-trip', async () => {
+  it('a hidden email is never enrolled from config; unset-config clears the layer (no standing-down marker anymore)', async () => {
     // hidden person named by config: reported, not enrolled
     await hideIdentityEmail('ghost@x.com');
     git(root, ['config', '--global', 'user.name', 'Ghost']);
@@ -259,7 +259,8 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     git(root, ['config', '--global', '--unset', 'user.email']);
     await unhideIdentityEmail('ghost@x.com');
 
-    // unset-config local: strips the layer and arms standing-down; a local use re-arms
+    // unset-config local: strips the layer (no standing-down marker — the
+    // one-shot bootstrap never auto-applies, so there is nothing to re-arm)
     const u = await addIdentity({ name: 'Unsetter', email: 'unsetter@x.com' });
     await applyIdentity(idOf(u.name, u.email), { source: 'cli', cwd: root });
     const uc = await dispatch('unset-config', [idOf(u.name, u.email), '--json'], { cwd: root, flags: {} as GlobalFlags });
@@ -267,14 +268,6 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     const cleared = (uc.data as { cleared: { identityLayer: boolean } }).cleared;
     expect(cleared.identityLayer).toBe(true);
     expect(await getConfig('user.name', 'local', root)).toBeUndefined();
-    r = await dispatch('status', ['--json'], { cwd: root, flags: {} as GlobalFlags });
-    if (!r.ok) throw new Error('status dispatch failed');
-    expect((r.data as { standingDown: boolean }).standingDown).toBe(true);
-    // an explicit local apply re-arms auto-apply
-    await applyIdentity(idOf(u.name, u.email), { source: 'cli', cwd: root });
-    r = await dispatch('status', ['--json'], { cwd: root, flags: {} as GlobalFlags });
-    if (!r.ok) throw new Error('status dispatch failed');
-    expect((r.data as { standingDown: boolean }).standingDown).toBe(false);
     git(root, ['config', '--local', 'user.name', 'Original Name']);
     git(root, ['config', '--local', 'user.email', 'original@x.com']);
   });

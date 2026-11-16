@@ -5,7 +5,7 @@ import { dataDir } from '../paths.js';
 import { topLevel } from '../git/rev.js';
 import { appendAudit } from '../logging/audit.js';
 import { keyInAgent } from './agent.js';
-import { clearStandingDown, getIdentity, getKeyBinding, idOf, setPushKey } from './map.js';
+import { getIdentity, getKeyBinding, idOf, setPushKey } from './map.js';
 import { keyUsable, fingerprintOfFile } from './keys.js';
 import { disableSigning, writeIdentitySigning } from './sign.js';
 import { discoverSessionBridge } from '../secrets/session-bridge.js';
@@ -82,13 +82,6 @@ export async function applyResolvedIdentity(args: {
   let agent: ApplyResult['agent'];
   if (binding?.pushKey) {
     agent = { inAgent: await keyInAgent(binding.pushKey.fingerprint) };
-  }
-
-  // an explicit LOCAL apply re-arms auto-apply for this repo (it may have
-  // been standing down since an "unset in git repo config")
-  if (scope === 'local') {
-    const tl = await safeTopLevel(opts.cwd);
-    if (tl) await clearStandingDown(tl);
   }
 
   await appendAudit({
