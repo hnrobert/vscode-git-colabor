@@ -134,6 +134,36 @@ jobs:
           git tag "$EXT_TAG"
           git push origin "HEAD:$BRANCH" "$EXT_TAG"
 
+      # THIS workflow's main push uses GITHUB_TOKEN, and GitHub never fires
+      # `push` events for GITHUB_TOKEN pushes — so sync-develop.yml stays
+      # asleep and develop lags behind every release. Sync it HERE with a
+      # direct git push (needs no event). Diverged develop is a warning, not
+      # a failure: everything is already published at this point.
+      - name: Fast-forward develop to main
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          git fetch origin develop
+          if ! git show-ref --verify --quiet refs/remotes/origin/develop; then
+            echo "develop does not exist — creating from main"
+            git push origin HEAD:develop
+            exit 0
+          fi
+          if git merge-base --is-ancestor origin/develop HEAD; then
+            git push origin HEAD:develop
+            echo "develop fast-forwarded to $(git rev-parse --short HEAD)"
+          else
+            {
+              echo "## ⚠ develop diverged from main — not synced"
+              echo ""
+              echo "develop-only commits:"
+              echo '```'
+              git log --oneline HEAD..origin/develop
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::develop has commits main lacks — sync manually (PR or reset)"
+          fi
+
       - name: Package the extension
         env:
           EXT_TAG: ${{ steps.version.outputs.ext_tag }}
