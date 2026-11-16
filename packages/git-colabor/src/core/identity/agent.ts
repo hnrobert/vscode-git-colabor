@@ -123,7 +123,7 @@ export async function loadKey(opts: LoadKeyOpts): Promise<LoadResult> {
       return {
         loaded: true,
         via: 'keygen-verify',
-        message: 'passphrase verified (no ssh-agent — the key unlocks at ssh time via SSH_ASKPASS)',
+        message: 'passphrase verified, but no ssh-agent is available — the key is not loaded into an agent; it will unlock at ssh time via SSH_ASKPASS',
       };
     }
     return { loaded: false, via: 'askpass', message: 'passphrase rejected' };
