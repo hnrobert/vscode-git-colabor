@@ -9,13 +9,11 @@ import { CliClient } from './cli/CliClient.js';
 import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
 import { GitApi } from './git-ext/GitApi.js';
 import { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
-import { StatusBar } from './statusbar/StatusBar.js';
 import { ScmSync, pickRepository } from './scm/Sync.js';
 import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 import { SessionIdentityController } from './session/SessionIdentity.js';
 import { WindowAlwaysCoAuthors } from './coauthor/WindowAlwaysCoAuthors.js';
-import type { StatusJson } from './types.js';
 
 let askpass: AskpassServer | undefined;
 let stateWatchers: FSWatcher[] = [];
@@ -29,13 +27,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Session-scoped key passphrases (in-memory only — a Remote-SSH reconnect
   // restarts the extension host, so every new connection re-prompts).
   const sessionPassphrases = new Map<string, string>();
-  // the active identity's encrypted key is locked (not in the agent, no
-  // banked passphrase — e.g. the defaultIdentity prompt was skipped)
-  const activeKeyLocked = (s: StatusJson | undefined): boolean => {
-    const a = s?.activeIdentity;
-    if (!a?.hasKey || !a.keyEncrypted || !a.sshKeyFingerprint || a.inAgent) return false;
-    return !sessionPassphrases.has(a.sshKeyFingerprint);
-  };
 
   askpass = new AskpassServer({
     sessionId,
@@ -83,6 +74,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const provider = new IdentityTreeProvider(cli, git);
   provider.windowAlways = windowAlways;
+  // the ACTIVE identity's encrypted key is locked (not in the agent, no
+  // banked passphrase — e.g. the defaultIdentity prompt was skipped): the
+  // tree row swaps its ✓ for a green warning until the key is usable
+  provider.keyLocked = (row) =>
+    !!row.hasKey &&
+    !!row.keyEncrypted &&
+    !!row.sshKeyFingerprint &&
+    !row.inAgent &&
+    !sessionPassphrases.has(row.sshKeyFingerprint);
   context.subscriptions.push(vscode.window.createTreeView('gitColabor.identitiesView', { treeDataProvider: provider }));
 
   // setting rename (coAuthorIdentities → rememberedIdentities), once per
@@ -122,12 +122,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   context.subscriptions.push({ dispose: () => sessionCtl.clear() });
 
-  const statusbar = new StatusBar();
-  context.subscriptions.push(statusbar);
   const scmSync = new ScmSync(git);
   context.subscriptions.push(
     provider.onDidReload.event((s) => {
-      statusbar.update(s, { keyLocked: activeKeyLocked(s) });
       scmSync.sync(s?.selected ?? []);
     }),
   );
