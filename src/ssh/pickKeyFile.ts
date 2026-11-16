@@ -103,7 +103,7 @@ export async function pickKeyFile(opts: {
     items.map((it) => {
       const login = it.keyPath ? owners.get(it.keyPath) : undefined;
       if (!login || it.detail?.includes('github.com/')) return it;
-      return { ...it, detail: `${it.detail ?? ''} · → github.com/${login}` };
+      return { ...it, detail: `${it.detail ?? ''} → github.com/${login}` };
     });
   const probeOwners = (items: Item[]): void => {
     if (!githubFetch()) return;

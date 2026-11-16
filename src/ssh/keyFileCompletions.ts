@@ -114,7 +114,7 @@ export async function listDirRows(dir: string, cache: DirCache): Promise<Complet
       keys.push({
         label: `${enc ? '$(lock)' : '$(key)'} ${e.name}`,
         description: dir,
-        detail: `${cls.kind} private key${enc ? ' · encrypted (passphrase needed)' : ''}`,
+        detail: `${cls.kind} private key${enc ? ' · encrypted' : ''}`,
         keyPath: full,
       });
     }
