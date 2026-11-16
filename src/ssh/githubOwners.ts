@@ -35,7 +35,7 @@ const cache = new Map<string, { mtimeMs: number; login: string | undefined }>();
 const active = new Map<string, Promise<string | undefined>>();
 let inFlight = 0;
 const waiters: Array<() => void> = [];
-const MAX_CONCURRENT = 4;
+const MAX_CONCURRENT = 8;
 
 function withSlot<T>(fn: () => Promise<T>): Promise<T | undefined> {
   return new Promise((resolve) => {
@@ -160,8 +160,37 @@ export async function githubOwnerOfKey(keyPath: string): Promise<string | undefi
       'PasswordAuthentication=no',
       '-T',
     ];
-    let result = await attempt([...common, 'git@github.com'], 12_000);
-    if (!result.login) result = await attempt([...common, '-p', '443', 'git@ssh.github.com'], 12_000);
+    // RACE both routes (direct 22 and ssh.github.com:443) — a proxy that
+    // black-holes port 22 makes the first attempt hang to its full timeout,
+    // and a SERIAL fallback then makes every key resolve at the same moment
+    // (12 s hang + 443 RTT each). First route to greet wins; if neither
+    // greets, resolve when both have finished.
+    const race = (a: Promise<Probe>, b: Promise<Probe>): Promise<Probe> =>
+      new Promise((resolve) => {
+        let done = false;
+        let remaining = 2;
+        const win = (p: Probe): void => {
+          if (!done && p.login) {
+            done = true;
+            resolve(p);
+          }
+        };
+        const oneDone = (): void => {
+          if (!done && --remaining === 0) resolve({ login: undefined, acceptedFp: undefined });
+        };
+        a.then((p) => {
+          win(p);
+          oneDone();
+        }).catch(oneDone);
+        b.then((p) => {
+          win(p);
+          oneDone();
+        }).catch(oneDone);
+      });
+    const result = await race(
+      attempt([...common, 'git@github.com'], 12_000),
+      attempt([...common, '-p', '443', 'git@ssh.github.com'], 12_000),
+    );
     let login = result.login;
     // verify GitHub authenticated THE PROBED KEY, not a config-borrowed one
     if (login && result.acceptedFp) {

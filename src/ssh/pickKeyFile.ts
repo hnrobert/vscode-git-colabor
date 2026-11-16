@@ -94,41 +94,59 @@ export async function pickKeyFile(opts: {
   pick.value = initial; // absolute ~/.ssh — path completion from the first keystroke
 
   // GitHub-owner annotation: each listed private key is probed async
-  // (`ssh -T git@github.com` → "Hi <username>!"), and the row's detail
-  // gains "→ github.com/<login>" as results land. Cached per session, so
-  // reopening the picker is instant; disabled with gitColabor.githubFetch.
-  const owners = new Map<string, string>();
-  const probed = new Set<string>();
+  // (`ssh -T git@github.com` → "Hi <username>!"). While probing, the row
+  // shows "detecting owner…"; the result replaces it (a key GitHub doesn't
+  // know just loses the placeholder). Cached per session, so reopening the
+  // picker is instant; disabled with gitColabor.githubFetch.
+  const ownerState = new Map<string, 'pending' | string | null>();
+  // strip a previous annotation suffix so results can REPLACE the placeholder
+  // (and a no-owner result REMOVES it — the state map, not the text, decides)
+  const stripOwner = (d: string | undefined): string | undefined =>
+    d?.replace(/\s*(→ github\.com\/[A-Za-z0-9-]+|· detecting owner…)\s*$/, '');
   const annotate = (items: Item[]): Item[] =>
     items.map((it) => {
-      const login = it.keyPath ? owners.get(it.keyPath) : undefined;
-      if (!login || it.detail?.includes('github.com/')) return it;
-      return { ...it, detail: `${it.detail ?? ''} → github.com/${login}` };
+      if (!it.keyPath) return it;
+      const state = ownerState.get(it.keyPath);
+      if (state === undefined) return it;
+      const base = stripOwner(it.detail) ?? '';
+      if (state === null) return it.detail === base ? it : { ...it, detail: base };
+      return {
+        ...it,
+        detail:
+          state !== 'pending' && typeof state === 'string'
+            ? `${base} → github.com/${state}`
+            : `${base} · detecting owner…`,
+      };
     });
+  // re-render the CURRENT listing, preserving the user's cursor:
+  // reassigning pick.items resets activeItems to the first row
+  const reannotate = (): void => {
+    const prev = pick.activeItems[0];
+    const next = annotate([...pick.items]);
+    pick.items = next;
+    if (prev) {
+      const same = (i: Item): boolean =>
+        i === prev ||
+        (!!prev.keyPath && i.keyPath === prev.keyPath) ||
+        (!!prev.dirPath && i.dirPath === prev.dirPath) ||
+        (!prev.keyPath && !prev.dirPath && i.label === prev.label);
+      const match = next.find(same);
+      if (match) pick.activeItems = [match];
+    }
+  };
   const probeOwners = (items: Item[]): void => {
     if (!githubFetch()) return;
+    let started = 0;
     for (const it of items) {
-      if (!it.keyPath || probed.has(it.keyPath)) continue;
-      probed.add(it.keyPath);
+      if (!it.keyPath || ownerState.has(it.keyPath)) continue;
+      ownerState.set(it.keyPath, 'pending');
+      started++;
       void githubOwnerOfKey(it.keyPath).then((login) => {
-        if (!login) return;
-        owners.set(it.keyPath!, login);
-        // re-annotate the CURRENT listing, preserving the user's cursor:
-        // reassigning pick.items resets activeItems to the first row
-        const prev = pick.activeItems[0];
-        const next = annotate([...pick.items]);
-        pick.items = next;
-        if (prev) {
-          const same = (i: Item): boolean =>
-            i === prev ||
-            (!!prev.keyPath && i.keyPath === prev.keyPath) ||
-            (!!prev.dirPath && i.dirPath === prev.dirPath) ||
-            (!prev.keyPath && !prev.dirPath && i.label === prev.label);
-          const match = next.find(same);
-          if (match) pick.activeItems = [match];
-        }
+        ownerState.set(it.keyPath!, login ?? null);
+        reannotate();
       });
     }
+    if (started > 0) reannotate(); // show the placeholders right away
   };
 
   const refresh = (value: string): void => {
