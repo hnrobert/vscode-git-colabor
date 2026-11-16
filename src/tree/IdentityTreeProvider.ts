@@ -393,7 +393,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         (signsAuthKey ? '-ss' : '') +
         (signsBoundKey ? '-sk' : '') +
         (signsGpg ? '-sg' : '');
-      if (!i.active) {
+      // clicking a non-active row applies it; the ACTIVE row is a no-op
+      // EXCEPT when its key is locked — re-applying the same identity
+      // re-runs the passphrase prompt (the row's tooltip promises exactly that)
+      if (!i.active || locked) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };
       }
       return item;
