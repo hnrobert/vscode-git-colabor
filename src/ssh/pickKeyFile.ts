@@ -113,8 +113,20 @@ export async function pickKeyFile(opts: {
       void githubOwnerOfKey(it.keyPath).then((login) => {
         if (!login) return;
         owners.set(it.keyPath!, login);
-        // re-annotate the CURRENT listing (the user may have drilled elsewhere)
-        pick.items = annotate([...pick.items]);
+        // re-annotate the CURRENT listing, preserving the user's cursor:
+        // reassigning pick.items resets activeItems to the first row
+        const prev = pick.activeItems[0];
+        const next = annotate([...pick.items]);
+        pick.items = next;
+        if (prev) {
+          const same = (i: Item): boolean =>
+            i === prev ||
+            (!!prev.keyPath && i.keyPath === prev.keyPath) ||
+            (!!prev.dirPath && i.dirPath === prev.dirPath) ||
+            (!prev.keyPath && !prev.dirPath && i.label === prev.label);
+          const match = next.find(same);
+          if (match) pick.activeItems = [match];
+        }
       });
     }
   };
