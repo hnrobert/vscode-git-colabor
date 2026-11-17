@@ -53,7 +53,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     return this.status;
   }
 
-  constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
+  constructor(private readonly cli: CliClient, private readonly git: GitApi) { }
 
   setSessionOverride(s: { id: string; name: string; email: string; sshCommand?: string } | undefined, signing: WindowSigning): void {
     this.sessionOverride = s;
@@ -126,9 +126,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     // always set (never leave stale data from a previous repo)
     this.historyCandidates = suggRes?.ok
       ? ((suggRes.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
-          name: a.name,
-          email: a.email,
-        }))
+        name: a.name,
+        email: a.email,
+      }))
       : [];
     // single paint with complete, correct data for the CURRENT repo
     this._onDidChange.fire(undefined);
@@ -143,7 +143,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
           const added = r.ok ? ((r.data as { added?: unknown[] }).added ?? []) : [];
           if (added.length > 0) void this.reload();
         })
-        .catch(() => {});
+        .catch(() => { });
     }
     return this.status;
   }
@@ -366,7 +366,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
               : 'found in repo history';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
         description: `${i.alias ? `${i.alias} · ` : ''}${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${locked ? ' · key locked' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.alias ? ` — ${i.alias}` : ''}${i.sshKeyPath ? `\n${i.sshKeyPath}${i.sshKeyFingerprint ? ` · ${i.sshKeyFingerprint}` : ''}` : i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}${locked ? '\n(⚠ key locked — click the row to enter its passphrase)' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.alias ? ` — ${i.alias}` : ''}${i.sshKeyPath ? `\n${i.sshKeyPath}${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}` : i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}${locked ? '\n(⚠ key locked — click the row to enter its passphrase)' : ''}`,
         icon,
         iconColor: locked || i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
