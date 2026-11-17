@@ -82,37 +82,49 @@ async function reconcileRepo(
   const rows = status?.identities ?? [];
 
   // Priority for the window bootstrap:
-  // 1. gitColabor.defaultIdentity — an EXPLICIT user choice for this window.
-  //    It wins over any config-derived identity: a stale ~/.gitconfig (or a
-  //    sibling repo's config leaking in as the first evaluated repo) naming
-  //    someone else must not hijack the bootstrap.
-  // 2. The repo's OWN config identity — "Use & write git repo config" is a
-  //    deliberate per-repo decision and keeps outranking the default.
+  // 1. A repo's OWN config identity — the deliberate per-repo choice
+  //    ("Use & write git repo config"). The file already carries it, so
+  //    NOTHING is applied: no env injection, no "session only" row label,
+  //    signing reads its real layer from the config file.
+  // 2. gitColabor.defaultIdentity — an EXPLICIT user choice; session-applied
+  //    (nothing in config names it, so the env layer is the only carrier).
+  //    It still outranks identities merely INHERITED from a (possibly
+  //    stale) ~/.gitconfig.
   // 3. Any other config-derived active identity (typically ~/.gitconfig) —
-  //    same behavior as before for setups without a defaultIdentity.
+  //    same as 1: follow the config, keep the window layer empty.
+  const repoCfgId = status?.configIdentities?.repo?.id;
+  if (repoCfgId) {
+    const row = rows.find((i) => i.id === repoCfgId) ?? status?.activeIdentity;
+    logger.info(
+      `reconcile[${root}]: repo config already names ${row?.name ?? repoCfgId} — following the config, no session layer`,
+    );
+    return true; // consumed: nothing to inject
+  }
   const configured = defaultIdentity();
   if (configured && status?.inRepo) {
     const chosen = await resolveConfiguredRef(configured, rows);
     if (chosen) {
+      // the config already carries the SAME identity → the env layer would be
+      // redundant: no session apply, the row keeps its "found in … config"
+      // label and signing reads the config layer (no "session only"/"this
+      // window" overlays)
+      if (status.activeIdentity?.id === chosen.id) {
+        logger.info(
+          `reconcile[${root}]: git config already carries ${chosen.name} <${chosen.email}> (same as default) — following the config, no session layer`,
+        );
+        return true;
+      }
       logger.info(`reconcile[${root}]: session-applying default identity ${chosen.name} <${chosen.email}> (repo config untouched)`);
       await session.apply(chosen);
       return true;
     }
   }
-  const repoCfgId = status?.configIdentities?.repo?.id;
-  if (repoCfgId) {
-    const row = rows.find((i) => i.id === repoCfgId) ?? status?.activeIdentity;
-    if (row) {
-      logger.info(`reconcile[${root}]: session-applying repo-config identity ${row.name} <${row.email}> (repo config untouched)`);
-      await session.apply(row);
-      return true;
-    }
-  }
   if (status?.activeIdentity) {
     const row = rows.find((i) => i.id === status.activeIdentity!.id) ?? status.activeIdentity;
-    logger.info(`reconcile[${root}]: session-applying config identity ${row.name} <${row.email}> (repo config untouched)`);
-    await session.apply(row);
-    return true;
+    logger.info(
+      `reconcile[${root}]: git config already carries ${row.name} <${row.email}> — following the config, no session layer`,
+    );
+    return true; // consumed: nothing to inject
   }
   logger.info(`reconcile[${root}]: no identity to apply (no default match, no config identity)`);
   return false;

@@ -126,8 +126,8 @@ Whether `git commit` signs is the result of layered git config — this window's
 
 1. Resolve **every open repository** of the window (`vscode.git`); none known yet → not consumed, retried when a repo appears.
 2. Wait for store enrollment (remembered identities are registered on first activation of a fresh host — resolving `defaultIdentity` against an empty store would wrongly conclude "nothing to apply").
-3. Pick the identity by priority: **`gitColabor.defaultIdentity`** (alias > unique email > picker on a shared email) > **the repo's own config identity** (*Use & write git repo config* is a deliberate per-repo choice) > **any other config-derived active identity** (typically `~/.gitconfig`).
-4. `session.apply(row)` — env injection for the whole window (one window, one session identity; the first repo that yields an identity wins).
+3. Pick by priority: a **repo-config identity** comes first — the file already carries it, so NOTHING is applied (row shows "found in repo config", signing reads its real layer from the config — no "session only" label, no window signing overlay). Otherwise **`gitColabor.defaultIdentity`** (alias > unique email > picker on a shared email) is **session-applied** — unless the config already carries the SAME identity (then the config is followed, no env layer). The default still outranks a DIFFERENT identity merely inherited from a (possibly stale) `~/.gitconfig`. A **global-config** identity follows its file like the repo tier.
+4. `session.apply(row)` only for the default tier — env injection for the whole window.
 
 It runs only while **no session identity is active** — an explicit Use (or an active session from a repo already bootstrapped) makes it stand down; after that the session identity changes only by explicit Use.
 
