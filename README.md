@@ -3,6 +3,7 @@
 [![Version](https://flat.badgen.net/vs-marketplace/v/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
 [![Visual Studio Marketplace](https://flat.badgen.net/vs-marketplace/i/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
 [![OpenVSX Downloads](https://img.shields.io/open-vsx/dt/HNRobert/vscode-git-colabor?style=flat-square&label=OpenVSX%20Downloads)](https://open-vsx.org/extension/HNRobert/vscode-git-colabor)
+[![npm](https://flat.badgen.net/npm/v/git-colabor?icon=npm)](https://www.npmjs.com/package/git-colabor)
 [![Apache License](https://flat.badgen.net/badge/license/Apache-2.0/blue)](LICENSE)
 [![Open Issues](https://flat.badgen.net/github/open-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues)
 [![Closed Issues](https://flat.badgen.net/github/closed-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues?q=is%3Aissue+is%3Aclosed)
@@ -43,7 +44,7 @@ Git Colabor treats identity as explicit, per-repo, **reversible and auditable** 
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
 - **Audit trail** — every identity change logged locally (fingerprint only) with repo / host / user / source.
 - **Truly remote-friendly** — the extension spawns the bundled CLI with the VS Code Server's own Node; nothing depends on remote `$PATH`.
-- **The CLI is the engine** — everything the UI does is scriptable via `git colabor …` ([CLI reference](packages/git-colabor/README.md)), including `--json` output and stable exit codes.
+- **CLI** — everything the UI does is scriptable via `git colabor …` ([CLI reference](packages/git-colabor/README.md) · [npm `git-colabor`](https://www.npmjs.com/package/git-colabor)), including `--json` output and stable exit codes.
 
 ## Install
 
@@ -65,6 +66,19 @@ pnpm package          # → git-colabor-<version>.vsix
 Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 
 **Requirements:** VS Code ≥ 1.83. For terminal use of the standalone CLI: Node.js ≥ 24 (the extension itself bundles everything).
+
+### The standalone CLI on npm
+
+The CLI half is published as **[`git-colabor`](https://www.npmjs.com/package/git-colabor)** — fully standalone and scriptable, no VS Code involved:
+
+```bash
+npm install -g git-colabor
+git colabor identity use "Alice <alice@example.com>"   # becomes `git colabor …` on your PATH
+```
+
+Same engine the extension drives: identities (`use` / `status` / `logout`), ssh-agent key loading through the askpass bridge, commit signing, co-author selection, audit log — every command with `--json` output and stable exit codes, so it fits scripts, hooks, and CI. Full reference: [packages/git-colabor/README.md](packages/git-colabor/README.md).
+
+The extension and a global install share the same `~/.config/git-colabor/` store, so identities added in either place show up in both (the extension bundles its own copy of the CLI and doesn't need the npm one).
 
 ## Quick start
 
