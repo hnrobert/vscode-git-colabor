@@ -7,7 +7,7 @@
 [![Open Issues](https://flat.badgen.net/github/open-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues)
 [![Closed Issues](https://flat.badgen.net/github/closed-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues?q=is%3Aissue+is%3Aclosed)
 
-<p align="center"><img src="assets/images/git-co-author-enhanced.png" alt="Git Colabor logo" width="128" /></p>
+<p align="center"><img src="assets/images/logo.png" alt="Git Colabor logo" width="128" /></p>
 
 > A VS Code extension + CLI that switches the Git **committer + pusher identity** and **SSH key** per repository, and manages **co-authors** with a better experience — built for shared machines, multiple accounts, Remote-SSH, Codespaces, and dev containers.
 
