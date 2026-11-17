@@ -87,7 +87,7 @@ Selecting co-authors rewrites the commit template (`commit.template` / `~/.gitme
 | `identity gpg-keys` | Secret GPG keys usable for signing (via `gpg.program`, default `gpg`): fingerprint + user ids. |
 | `identity unset-config <name-email>` | Strip an identity's name/email/keys from ONE git-config file (`--scope local\|global`, default local; content-matched — another person's config survives). Local scope also arms the standing-down guard: auto-apply (extension reconcile) will not re-materialize the identity into that repo until an explicit local `identity use`. |
 | `identity logout [id]` | Remove key from `ssh-agent` (`--no-agent` keeps it loaded) and clear the identity's git-config layer: `user.name`/`user.email` on match, plus any `core.sshCommand` / signing keys its previous `use` left in the repo — even after the config moved on to someone else. Another person's committer config always survives. |
-| `identity status` | Per-repo snapshot: active identity, per-scope config identities (`configIdentities.repo` / `.global` — which person each git-config file names), selected + available co-authors, and the **effective** commit signing (`signing`: `enabled`, `format`, `key`, the `scope`/`origin` file `commit.gpgsign` comes from, `managed` when colabor turned it on, and the GPG key's `keyEmails`). |
+| `identity status` | Per-repo snapshot: active identity, per-scope config identities (`configIdentities.repo` / `.global` — which person each git-config file names), selected + available co-authors, and the **effective** commit signing (`signing`: `enabled`, `format`, `key`, the `scope`/`origin` file `commit.gpgsign` comes from, and the GPG key's `keyEmails`). |
 | `identity audit` | `--repo <path>`, `--since <date>`, `--tail <n>` filters over the audit log. |
 | `identity doctor` | Self-check: binaries, identity map, key dir, agent, askpass bundle, repo markers. |
 
@@ -134,7 +134,7 @@ This is the contract the VS Code extension consumes.
 
 (Windows: the data dir is `%APPDATA%\git-colabor`.)
 
-Git config keys **written locally** per repo: `user.name`, `user.email`, `core.sshCommand` (only when the identity has a key: `ssh -i <key> -o IdentitiesOnly=yes`), and — after an explicit `identity sign` — commit signing (`commit.gpgsign=true`, `gpg.format=openpgp|ssh`, `user.signingKey=<GPG fingerprint | SSH key path>`; switching to a key-less identity or `--off` clears them and pins `commit.gpgsign=false` when global/system config would still sign), `colabor.managed=true`, `colabor.managed-by=cli|ext`, and multi-valued `colabor.selected` (`Name <email>` per co-author). `commit.template` is set **globally** only if unset in any scope.
+Git config keys **written locally** per repo: `user.name`, `user.email`, `core.sshCommand` (only when the identity has a key: `ssh -i <key> -o IdentitiesOnly=yes`), and — after an explicit `identity sign` — commit signing (`commit.gpgsign=true`, `gpg.format=openpgp|ssh`, `user.signingKey=<GPG fingerprint | SSH key path>`; switching to a key-less identity or `--off` clears them and pins `commit.gpgsign=false` when global/system config would still sign), plus multi-valued `colabor.selected` (`Name <email>` per co-author). `commit.template` is set **globally** only if unset in any scope.
 
 ## git-mob compatibility
 

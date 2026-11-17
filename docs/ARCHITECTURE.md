@@ -95,16 +95,15 @@ sequenceDiagram
 - **Discovery for terminal use:** the extension writes `<dataDir>/session-<pid>.json` (`0600`: sessionId, socketPath, token), so a user-invoked `git colabor` in the integrated terminal can find the bridge even though it wasn't spawned by the extension.
 - **Failure is silent by design:** on any protocol error the server closes without writing, and the caller falls through to the next strategy rather than blocking a commit.
 
-## 5. Identity apply (single-writer with backup)
+## 5. Identity apply (config write)
 
 `identity use <id>` (CLI core `identity/apply.ts`):
 
 1. Detect conflict — if per-repo `state.heldBy` names a *different, fresh* (< 5 min) session, warn (or refuse with exit 6 under `--no-override`).
-2. **First-touch backup** — when `colabor.managed != true` and no backup exists, snapshot local `user.name`, `user.email`, `core.sshCommand`, `commit.template` (including "unset") into `<git-dir>/colabor/state.json`.
-3. Write local config: `user.name`, `user.email`, `core.sshCommand` (only if the identity has a key), `colabor.managed=true`, `colabor.managed-by=cli|ext`; while the repo's opt-in signing is on (`identity sign`), re-bind it to this identity's key — its bound GPG key (`gpg.format=openpgp`), else its SSH key (`gpg.format=ssh`) — or turn it off when the identity has none (§5.1).
-4. Update state (`activeIdentity`, `heldBy=<this session>`), load the key (§4), append audit `identity.use`.
+2. Write local config: `user.name`, `user.email`, `core.sshCommand` (only if the identity has a key); while the repo's opt-in signing is on (`identity sign`), re-bind it to this identity's key — its bound GPG key (`gpg.format=openpgp`), else its SSH key (`gpg.format=ssh`) — or turn it off when the identity has none (§5.1). No `colabor.*` markers, no state backups — the repo reads as if a human configured it.
+3. Update state (`activeIdentity`, `heldBy=<this session>`), append audit `identity.use`.
 
-`identity revert` restores all four keys from the backup (unsetting those that were unset), removes the key from the agent, unsets the markers and `colabor.selected`, clears state. Keys are **referenced, never copied** — a broken reference (moved/deleted source) makes `identity use` degrade to a key-less apply (no `core.sshCommand`, no agent load, `key-missing` warning). `identity logout` only removes the key from the agent; repo config untouched.
+Removal is **content-matched** (`identity logout`, core `identity/configClear.ts`): only keys whose values match the identity being removed are unset — another person's config survives. Keys are **referenced, never copied** — a broken reference (moved/deleted source) makes `identity use` degrade to a key-less apply (no `core.sshCommand`, no agent load, `key-missing` warning).
 
 ### 5.1 Commit signing layers
 
@@ -117,7 +116,7 @@ Whether `git commit` signs is the result of layered git config — this window's
 
 - **Off means off.** Unsetting alone falls back to lower scopes — e.g. a personal GPG key in `~/.gitconfig` would keep signing every identity's commits — so Stop always writes an explicit `false` at its layer. Logout, disable and switching to a key-less identity turn repo signing off the same way.
 - **Key choice:** an identity signs with its bound GPG key (`identity set --gpg-key`, picked from `identity gpg-keys`), else its SSH key (`.pub` half when agent-held). OpenPGP keeps the user's own `gpg.program` and gpg-agent pinentry — no askpass involved. While signing is on, an identity switch re-binds to the new identity's key, or turns signing off when it has none.
-- **Effective state:** `identity status` reports `signing` as git resolves it (`enabled`, `format`, `key`, `scope` + `origin` file of `commit.gpgsign`, `managed`, and the GPG key's `keyEmails`); the CLI runs with `GIT_CONFIG_COUNT=0`, so the extension overlays the window layer itself (`session/signing.ts`). The **Signing** row shows the result and its layer, and warns when the key is not the active identity's (another identity's key, or a GPG key without their email); applying a window identity into that state prompts once.
+- **Effective state:** `identity status` reports `signing` as git resolves it (`enabled`, `format`, `key`, `scope` + `origin` file of `commit.gpgsign`, and the GPG key's `keyEmails`); the CLI runs with `GIT_CONFIG_COUNT=0`, so the extension overlays the window layer itself (`session/signing.ts`). The **Signing** row shows the result and its layer, and warns when the key is not the active identity's (another identity's key, or a GPG key without their email); applying a window identity into that state prompts once.
 - The window layer covers the Source Control view (extension-host env) **and integrated terminals**: new terminals via the `environmentVariableCollection` mirror, already-open ones by sourcing the written `session-env-<window>.sh` (`GIT_SSH_COMMAND` + `GIT_AUTHOR_/GIT_COMMITTER_*` plain vars work on any git version; `GIT_CONFIG_*` pairs need git ≥ 2.31). Signing stays on `GIT_CONFIG_*` only.
 
 ## 6. The reconcile bootstrap (auto-apply, session-scoped)
@@ -155,7 +154,7 @@ ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value
 | Per-repo state | `<git-dir>/colabor/state.json` | CLI | `0600`, atomic |
 | Commit template | `~/.gitmessage` or `commit.template` | CLI | — |
 | Passphrases | session-scoped in-memory map (extension host process) | extension | never on disk |
-| Git config (local) | `user.name`, `user.email`, `core.sshCommand`, `colabor.managed`, `colabor.managed-by`, `colabor.selected` (multi); opt-in `commit.gpgsign`, `gpg.format`, `user.signingKey`, `gpg.ssh.program` (§5.1) | CLI | — |
+| Git config (local) | `user.name`, `user.email`, `core.sshCommand`, `colabor.selected` (multi); opt-in `commit.gpgsign`, `gpg.format`, `user.signingKey`, `gpg.ssh.program` (§5.1) | CLI | — |
 
 Atomicity rule: every JSON store is written via write-tmp-then-rename, so a crash mid-write never corrupts state.
 

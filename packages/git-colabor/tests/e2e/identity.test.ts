@@ -441,7 +441,7 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
     git(root, ['config', '--global', 'commit.gpgsign', 'true']);
     try {
       const inherited = await signingStatus(root);
-      expect(inherited).toMatchObject({ enabled: true, scope: 'global', managed: false });
+      expect(inherited).toMatchObject({ enabled: true, scope: 'global' });
       expect(inherited.origin).toBe(join(home, '.gitconfig'));
 
       await applyIdentity(idOf(signer.name, signer.email), { source: 'cli', cwd: root });
@@ -498,7 +498,6 @@ describe('identity e2e (real git + real ssh-keygen)', () => {
       expect(await signingStatus(root)).toMatchObject({
         enabled: true,
         format: 'openpgp',
-        managed: true,
         keyEmails: ['gpg-user@x.com'],
       });
       await setCommitSigning({ source: 'cli', cwd: root, on: false });

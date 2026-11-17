@@ -1,4 +1,3 @@
-import { getConfig } from '../git/config.js';
 import { insideWorkTree, topLevel } from '../git/rev.js';
 import { getSelected } from '../coauthors/state.js';
 import { listIdentities } from '../identity/map.js';
@@ -11,8 +10,6 @@ export type CoAuthorBrief = { key: string; name: string; email: string };
 export type RepoStatus = {
   inRepo: boolean;
   repo: string | null;
-  managed: boolean;
-  managedBy: string | null;
   activeIdentityId: string | null;
   heldBy: HeldBy | null;
   selected: CoAuthorBrief[];
@@ -20,7 +17,7 @@ export type RepoStatus = {
 };
 
 /**
- * Snapshot of a repo's colabor state: managed markers, active identity, selected + available
+ * Snapshot of a repo's colabor state: active identity, selected + available
  * co-authors. Used by the CLI `identity status` command and (transitively) the extension TreeView.
  */
 export async function repoStatus(cwd?: string): Promise<RepoStatus> {
@@ -29,21 +26,13 @@ export async function repoStatus(cwd?: string): Promise<RepoStatus> {
     return {
       inRepo: false,
       repo: cwd ?? null,
-      managed: false,
-      managedBy: null,
       activeIdentityId: null,
       heldBy: null,
       selected: [],
       available: [],
     };
   }
-  const [managed, managedBy, state, selected, identityMap] = await Promise.all([
-    getConfig('colabor.managed', 'local', cwd),
-    getConfig('colabor.managed-by', 'local', cwd),
-    readState(cwd),
-    getSelected(cwd),
-    listIdentities(),
-  ]);
+  const [state, selected, identityMap] = await Promise.all([readState(cwd), getSelected(cwd), listIdentities()]);
   const selectedEmails = new Set(selected.map((a) => a.email));
   const available = identityMap.identities
     .filter((i) => !selectedEmails.has(i.email))
@@ -54,8 +43,6 @@ export async function repoStatus(cwd?: string): Promise<RepoStatus> {
     // /private/var on macOS) — the standing-down store and every per-repo
     // comparison key off this exact form
     repo: await topLevel(cwd),
-    managed: managed === 'true',
-    managedBy: managedBy ?? null,
     activeIdentityId: state.activeIdentity ?? null,
     heldBy: state.heldBy ?? null,
     selected: selected.map(toBrief),
