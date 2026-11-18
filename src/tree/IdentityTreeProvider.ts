@@ -43,6 +43,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   private startupTimer: NodeJS.Timeout | undefined;
   /** window-scoped always-co-authors (set at activation); drives the -aw row bit */
   windowAlways?: { isPinned(email: string): boolean };
+  /** set at activation: is this identity's encrypted key locked (no agent copy,
+   *  no banked passphrase)? The ACTIVE row swaps ✓ for a green warning. */
+  keyLocked?: (row: StatusIdentityJson) => boolean;
   /** fired after each reload with the latest status (for status bar / SCM sync) */
   readonly onDidReload = new vscode.EventEmitter<StatusJson | undefined>();
   /** most recent status (for the status bar) */
@@ -50,7 +53,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     return this.status;
   }
 
-  constructor(private readonly cli: CliClient, private readonly git: GitApi) {}
+  constructor(private readonly cli: CliClient, private readonly git: GitApi) { }
 
   setSessionOverride(s: { id: string; name: string; email: string; sshCommand?: string } | undefined, signing: WindowSigning): void {
     this.sessionOverride = s;
@@ -123,9 +126,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     // always set (never leave stale data from a previous repo)
     this.historyCandidates = suggRes?.ok
       ? ((suggRes.data as { candidates?: Candidate[] }).candidates ?? []).map((a) => ({
-          name: a.name,
-          email: a.email,
-        }))
+        name: a.name,
+        email: a.email,
+      }))
       : [];
     // single paint with complete, correct data for the CURRENT repo
     this._onDidChange.fire(undefined);
@@ -140,7 +143,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
           const added = r.ok ? ((r.data as { added?: unknown[] }).added ?? []) : [];
           if (added.length > 0) void this.reload();
         })
-        .catch(() => {});
+        .catch(() => { });
     }
     return this.status;
   }
@@ -340,10 +343,11 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       const signsGpg = s.signing.enabled && s.signing.format === 'openpgp'
         && (sameKey(s.signing.key, (i as { gpgKey?: string }).gpgKey) || (sk?.format === 'openpgp' && sameKey(s.signing.key, sk.key)));
       const signingWithThisKey = signsSsh || signsGpg;
-      // the active row is always a plain CHECK; green means ONLY "this
-      // identity has an SSH auth key" (active or not). Signing state lives
-      // on the Signing row — including its warnings
-      const icon = i.active ? 'check' : 'account';
+      // the active row is a plain CHECK; when its encrypted key is locked
+      // (passphrase skipped) it becomes a GREEN WARNING instead — click the
+      // row to re-enter. Green otherwise means ONLY "has an SSH auth key".
+      const locked = i.active && this.keyLocked?.(i) === true;
+      const icon = locked ? 'warning' : i.active ? 'check' : 'account';
       // source label reflects where this identity was found — git config
       // scopes outrank every memory: the config file itself vouches for the
       // person, and the row's Unset actions target exactly that file
@@ -361,10 +365,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
               ? 'found in machine memory'
               : 'found in repo history';
       const item = new ColaborItem(i.name, i.active ? 'active-identity' : 'identity', {
-        description: `${i.alias ? `${i.alias} · ` : ''}${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
-        tooltip: `${i.name} <${i.email}>${i.alias ? ` — ${i.alias}` : ''}${i.sshKeyPath ? `\n${i.sshKeyPath}${i.sshKeyFingerprint ? ` · ${i.sshKeyFingerprint}` : ''}` : i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}`,
+        description: `${i.alias ? `${i.alias} · ` : ''}${i.email} · ${sourceLabel}${i.isDefault ? ' · default' : ''}${i.disabled ? ' · disabled' : ''}${i.inAgent ? ' · in agent' : ''}${locked ? ' · key locked' : ''}${this.sessionOverride?.id === i.id ? ' · session only' : ''}`,
+        tooltip: `${i.name} <${i.email}>${i.alias ? ` — ${i.alias}` : ''}${i.sshKeyPath ? `\n${i.sshKeyPath}${i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}` : i.sshKeyFingerprint ? `\n${i.sshKeyFingerprint}` : ''}${i.active ? '\n(active)' : ''}${signingWithThisKey ? '\n(signing commits)' : ''}${i.inAgent ? '\n(key in ssh-agent)' : ''}\n(${sourceLabel})${isRepoCfg ? "\n(named by this repo's git config)" : ''}${isGlobalCfg ? '\n(named by the global git config)' : ''}${i.disabled ? '\n(disabled — click to retry with a passphrase)' : ''}${locked ? '\n(⚠ key locked — click the row to enter its passphrase)' : ''}`,
         icon,
-        iconColor: i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
+        iconColor: locked || i.hasKey ? 'gitDecoration.addedResourceForeground' : undefined,
         payload: { id: i.id, name: i.name, email: i.email },
       });
       // contextValue bits drive the right-click menus: -rv = remembered in
@@ -389,7 +393,10 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         (signsAuthKey ? '-ss' : '') +
         (signsBoundKey ? '-sk' : '') +
         (signsGpg ? '-sg' : '');
-      if (!i.active) {
+      // clicking a non-active row applies it; the ACTIVE row is a no-op
+      // EXCEPT when its key is locked — re-applying the same identity
+      // re-runs the passphrase prompt (the row's tooltip promises exactly that)
+      if (!i.active || locked) {
         item.command = { command: 'gitColabor._useIdentityById', title: 'Use Identity', arguments: [i.id] };
       }
       return item;

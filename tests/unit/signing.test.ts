@@ -8,14 +8,13 @@ import {
 } from '../../src/session/signing.js';
 import type { SigningJson } from '../../src/types.js';
 
-const off: SigningJson = { enabled: false, key: null, format: 'openpgp', scope: null, origin: null, managed: false };
+const off: SigningJson = { enabled: false, key: null, format: 'openpgp', scope: null, origin: null };
 const globalGpg: SigningJson = {
   enabled: true,
   key: '440D7FEC95663AF8',
   format: 'openpgp',
   scope: 'global',
   origin: '/home/me/.gitconfig',
-  managed: false,
   keyEmails: ['me@personal.dev'],
 };
 
@@ -102,8 +101,8 @@ describe('signingMatch', () => {
 describe('describeSigning', () => {
   it('names the format, key and the layer it comes from', () => {
     expect(describeSigning(globalGpg)).toBe('GPG 440D7FEC95663AF8 · global');
-    expect(describeSigning({ ...off, enabled: true, format: 'ssh', key: '/k/id_alice.pub', scope: 'local', managed: true })).toBe(
-      'SSH id_alice.pub · repo config (colabor)',
+    expect(describeSigning({ ...off, enabled: true, format: 'ssh', key: '/k/id_alice.pub', scope: 'local' })).toBe(
+      'SSH id_alice.pub · repo config',
     );
   });
 

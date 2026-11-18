@@ -5,7 +5,7 @@
   "version": "0.2.3",
   "description": "Git co-author + multi-identity + SSH key management. Switch committer/pusher identity and SSH key per repo, with better co-authors managing experience.",
   "license": "Apache-2.0",
-  "icon": "assets/images/git-co-author-enhanced.png",
+  "icon": "assets/images/logo.png",
   "type": "module",
   "categories": [
     "SCM Providers",
@@ -41,7 +41,7 @@
         "gitColabor.defaultIdentity": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Identity to auto-activate when a repo opens with none active (fresh repos only — a repo whose git config already names an identity always follows its config). Resolves exactly like `identity use`: **alias first** (`--alias`, aliases may contain `@` so shape cannot distinguish), then the email. An email shared by several identities pops a picker; a value matching nothing leaves the repo untouched."
+          "markdownDescription": "Identity session-applied to this window at bootstrap — on activation and again whenever a repo appears while no identity is active yet (an explicit Use always wins afterwards). Resolves exactly like `identity use`: **alias first** (aliases may contain `@` so shape cannot distinguish), then the email; a shared email pops a picker, a value matching nothing changes nothing. It outranks identities merely inherited from git config — only a repo's own config identity (*Use & write git repo config*) wins over it."
         },
         "gitColabor.rememberedIdentities": {
           "type": "array",
@@ -60,7 +60,7 @@
         "gitColabor.autoApplyOnRepoOpen": {
           "type": "boolean",
           "default": true,
-          "description": "Apply default/active identity when a repo opens."
+          "description": "Session-apply an identity to this window at bootstrap: at activation, and again whenever a repo appears while none is active yet (priority: defaultIdentity > the repo's own config identity > any config-inherited identity). Off = only explicit Use."
         },
         "gitColabor.conflictWarningStaleMinutes": {
           "type": "number",
@@ -138,7 +138,7 @@
             "global"
           ],
           "default": "session",
-          "markdownDescription": "Which git-config layer the **default Use action** writes (clicking an identity row, `Use Identity…`):\n- `session` — this window only (env injection, repo untouched)\n- `repo` — the repository's local git config (every window/terminal)\n- `global` — `~/.gitconfig` (machine-wide default)\n\nThe right-click items (`Use & write git repo config` / `Use & write git global config` / `Unset …`) always name their target explicitly. Auto-apply on repo open (`gitColabor.autoApplyOnRepoOpen`) keeps writing repo-local config regardless of this setting.",
+          "markdownDescription": "Which git-config layer the **default Use action** writes (clicking an identity row, `Use Identity…`):\n- `session` — this window only (env injection, repo untouched)\n- `repo` — the repository's local git config (every window/terminal)\n- `global` — `~/.gitconfig` (machine-wide default)\n\nThe right-click items (`Use & write git repo config` / `Use & write git global config` / `Unset …`) always name their target explicitly. The bootstrap auto-apply (`gitColabor.autoApplyOnRepoOpen`) is always session-scoped env injection — no config file is written regardless of this setting.",
           "enumDescriptions": [
             "This window only — identity injected via git environment config; the repo is untouched.",
             "Write the repository's local git config — every window and terminal sees it.",
@@ -314,7 +314,7 @@
         {
           "id": "gitColabor.identitiesView",
           "name": "Git Colabor: Identity & Co-authors",
-          "icon": "assets/images/git-co-author-enhanced-outline.png"
+          "icon": "assets/images/logo-outline.png"
         }
       ]
     },

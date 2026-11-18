@@ -3,11 +3,12 @@
 [![Version](https://flat.badgen.net/vs-marketplace/v/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
 [![Visual Studio Marketplace](https://flat.badgen.net/vs-marketplace/i/HNRobert.vscode-git-colabor?icon=visualstudio)](https://marketplace.visualstudio.com/items?itemName=HNRobert.vscode-git-colabor)
 [![OpenVSX Downloads](https://img.shields.io/open-vsx/dt/HNRobert/vscode-git-colabor?style=flat-square&label=OpenVSX%20Downloads)](https://open-vsx.org/extension/HNRobert/vscode-git-colabor)
+[![npm](https://flat.badgen.net/npm/v/git-colabor?icon=npm)](https://www.npmjs.com/package/git-colabor)
 [![Apache License](https://flat.badgen.net/badge/license/Apache-2.0/blue)](LICENSE)
 [![Open Issues](https://flat.badgen.net/github/open-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues)
 [![Closed Issues](https://flat.badgen.net/github/closed-issues/hnrobert/vscode-git-colabor?icon=github)](https://github.com/hnrobert/vscode-git-colabor/issues?q=is%3Aissue+is%3Aclosed)
 
-<p align="center"><img src="assets/images/git-co-author-enhanced.png" alt="Git Colabor logo" width="128" /></p>
+<p align="center"><img src="assets/images/logo.png" alt="Git Colabor logo" width="128" /></p>
 
 > A VS Code extension + CLI that switches the Git **committer + pusher identity** and **SSH key** per repository, and manages **co-authors** with a better experience — built for shared machines, multiple accounts, Remote-SSH, Codespaces, and dev containers.
 
@@ -26,8 +27,9 @@ Git Colabor treats identity as explicit, per-repo, **reversible and auditable** 
 
 ## Features
 
-- **Identities** — name / email / SSH key profiles; applying one writes `user.name`, `user.email`, `core.sshCommand` and snapshots prior config for one-command revert. Applies to **every repo open in the window**; keys enter `ssh-agent` only through the explicit right-click action.
+- **Identities** — name / email / SSH key profiles; the default Use applies one to **this window** via git env injection (every repo open in the window, repo config untouched — new and already-open integrated terminals included), while the explicit *Use & write git repo/global config* actions write `user.name`, `user.email`, `core.sshCommand` to the file and snapshot prior config for one-command revert; keys enter `ssh-agent` only through the explicit right-click action. The key picker browses `~/.ssh` as you type and labels every private key with its **GitHub owner** (probed via `ssh -T git@github.com`, fingerprint-verified — a key that belongs to no account simply stays unlabeled).
   - ![identity-context-menu-demo](docs/images/identity-context-menu-demo.png)
+  - ![key-selection-demo](docs/images/key-selection-demo.png)
 - **Layered use, explicitly** — the default Use action follows `gitColabor.useTarget` (this window via git env injection, repo config, or global config); the right-click menu always names its target: *Use in this session* / *Use & write git repo config* / *Use & write git global config*, and *Unset in git repo/global config* strips an identity from that file. Identities named by the repo or global git config show in the list as "found in repo config" / "found in git global config".
 - **Opt-in commit signing (SSH or GPG)** — right-click an identity → *Sign Commits with SSH Key…* (picker lists the identity's own auth key first, then store keys, `~/.ssh`, and global-config keys) / *Sign Commits with GPG Key…* (green account icon = has a key; the active identity shows a plain green check while commits sign with its key — the verified badge lives on the Signing row); never on by default — but it IS remembered per identity: once turned on for an identity, switching away and back re-enables signing automatically (Stop Signing drops the preference). The sign key is a per-identity preference stored separately from the push key, so signing with another SSH key never changes what you push with — and the picker lists keys from your store, `~/.ssh`, and even the global git config. Signing follows the identity's layer (this window, or the repo/global config it was written to); switching to a key-less identity turns signing off automatically (pinning `commit.gpgsign=false` over an inherited key) — or asks first via `gitColabor.signingMismatchAction: warn`, and *Stop Signing Commits* really stops — it overrides a `commit.gpgsign=true` inherited from `~/.gitconfig` instead of falling back to it. The **Signing** row shows what `git commit` will actually do and where it comes from (this window / repo config / global / system), and warns when the key is not the active identity's.
 - **History import** — every committer **and every `Co-authored-by:` trailer author** in the repo's history becomes an identity automatically ("found in repo history"); hide the ones you don't want on this machine.
@@ -42,7 +44,7 @@ Git Colabor treats identity as explicit, per-repo, **reversible and auditable** 
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
 - **Audit trail** — every identity change logged locally (fingerprint only) with repo / host / user / source.
 - **Truly remote-friendly** — the extension spawns the bundled CLI with the VS Code Server's own Node; nothing depends on remote `$PATH`.
-- **The CLI is the engine** — everything the UI does is scriptable via `git colabor …` ([CLI reference](packages/git-colabor/README.md)), including `--json` output and stable exit codes.
+- **CLI** — everything the UI does is scriptable via `git colabor …` ([CLI reference](packages/git-colabor/README.md) · [npm `git-colabor`](https://www.npmjs.com/package/git-colabor)), including `--json` output and stable exit codes.
 
 ## Install
 
@@ -64,6 +66,19 @@ pnpm package          # → git-colabor-<version>.vsix
 Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 
 **Requirements:** VS Code ≥ 1.83. For terminal use of the standalone CLI: Node.js ≥ 24 (the extension itself bundles everything).
+
+### The standalone CLI on npm
+
+The CLI half is published as **[`git-colabor`](https://www.npmjs.com/package/git-colabor)** — fully standalone and scriptable, no VS Code involved:
+
+```bash
+npm install -g git-colabor
+git colabor identity use "Alice <alice@example.com>"   # becomes `git colabor …` on your PATH
+```
+
+Same engine the extension drives: identities (`use` / `status` / `logout`), ssh-agent key loading through the askpass bridge, commit signing, co-author selection, audit log — every command with `--json` output and stable exit codes, so it fits scripts, hooks, and CI. Full reference: [packages/git-colabor/README.md](packages/git-colabor/README.md).
+
+The extension and a global install share the same `~/.config/git-colabor/` store, so identities added in either place show up in both (the extension bundles its own copy of the CLI and doesn't need the npm one).
 
 ## Quick start
 
@@ -90,7 +105,7 @@ Then in VS Code: *Extensions → ⋯ → Install from VSIX…*
 | `gitColabor.defaultIdentity` | `""` | Identity session-applied at window bootstrap (and whenever a repo appears before any explicit Use). Resolves like `identity use` — **alias first**, then email; a shared email pops a picker, no match = no change. Wins over identities merely inherited from git config; only a repo's own config identity (`Use & write git repo config`) outranks it |
 | `gitColabor.cliPath` | `""` | Override the bundled CLI path (`resources/cli.cjs`) |
 | `gitColabor.rememberedIdentities` | `[]` | **Remembered identities** — `"Name <email>"` entries in your VS Code settings (right-click an identity → *Remember on VS Code User Settings*); remembered rows show in every repo and feed the Co-authors list. |
-| `gitColabor.autoApplyOnRepoOpen` | `true` | Auto-apply the config-derived active identity (or `gitColabor.defaultIdentity` on a fresh repo) to THIS WINDOW (session) when a repo opens; off = only explicit *Use* |
+| `gitColabor.autoApplyOnRepoOpen` | `true` | Session-apply an identity to this window at bootstrap — at activation and whenever a repo appears while none is active yet (priority: `gitColabor.defaultIdentity` > the repo's own config identity > any config-inherited identity); off = only explicit *Use* |
 | `gitColabor.conflictWarningStaleMinutes` | *unset* | Advisory `heldBy` staleness threshold (minutes); **unset = a session lock never goes stale** |
 | `gitColabor.githubFetch` | `true` | Offer the GitHub user search (*Add Identity → From GitHub…*); hits `api.github.com` unauthenticated (60 req/h) |
 | `gitColabor.postCommitSolo` | `false` | Clear the selected co-authors after each commit (dual watch on `COMMIT_EDITMSG` + the reflog — aborted editor saves and checkouts never trigger it) |

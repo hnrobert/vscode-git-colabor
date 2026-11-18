@@ -27,7 +27,7 @@ docs/**
 assets/**
 packages/**
 # exception: the extension/view icons live in the CLI package (single source)
-!assets/images/git-co-author-enhanced.png
-!assets/images/git-co-author-enhanced-outline.png
+!assets/images/logo.png
+!assets/images/logo-outline.png
 **/*.ts
 **/*.map

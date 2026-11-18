@@ -9,7 +9,6 @@ import { CliClient } from './cli/CliClient.js';
 import { AskpassServer, writeSessionFile, colaborDir } from './askpass/AskpassServer.js';
 import { GitApi } from './git-ext/GitApi.js';
 import { IdentityTreeProvider } from './tree/IdentityTreeProvider.js';
-import { StatusBar } from './statusbar/StatusBar.js';
 import { ScmSync, pickRepository } from './scm/Sync.js';
 import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
@@ -75,6 +74,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const provider = new IdentityTreeProvider(cli, git);
   provider.windowAlways = windowAlways;
+  // the ACTIVE identity's encrypted key is locked (not in the agent, no
+  // banked passphrase — e.g. the defaultIdentity prompt was skipped): the
+  // tree row swaps its ✓ for a green warning until the key is usable
+  provider.keyLocked = (row) =>
+    !!row.hasKey &&
+    !!row.keyEncrypted &&
+    !!row.sshKeyFingerprint &&
+    !row.inAgent &&
+    !sessionPassphrases.has(row.sshKeyFingerprint);
   context.subscriptions.push(vscode.window.createTreeView('gitColabor.identitiesView', { treeDataProvider: provider }));
 
   // setting rename (coAuthorIdentities → rememberedIdentities), once per
@@ -114,12 +122,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   context.subscriptions.push({ dispose: () => sessionCtl.clear() });
 
-  const statusbar = new StatusBar();
-  context.subscriptions.push(statusbar);
   const scmSync = new ScmSync(git);
   context.subscriptions.push(
     provider.onDidReload.event((s) => {
-      statusbar.update(s);
       scmSync.sync(s?.selected ?? []);
     }),
   );
@@ -472,15 +477,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const verified = verify.ok ? (verify.data as { verified?: boolean }).verified === true : false;
     void provider.reload();
     if (verified && !sessionCtl.active() && autoApplyOnRepoOpen()) {
-      // bootstrap catch-up: the passphrase prompt can fire (config-derived
-      // active identity) before the one-shot reconcile applied anything —
-      // without this, entering the CORRECT passphrase still left every repo
-      // in the window with no identity selected
-      const row = status?.identities.find((i) => i.id === active.id) ?? active;
-      logger.info(`passphrase verified — session-applying ${row.name} <${row.email}> (bootstrap catch-up)`);
-      await sessionCtl.apply(row).catch((e: unknown) =>
-        logger.warn(`session apply: ${e instanceof Error ? e.message : String(e)}`),
-      );
+      // bootstrap catch-up — ONLY for the session tier: a repo/global config
+      // identity works through its own file (no env layer, no "session only"
+      // label, signing from the config). Applying it here would needlessly
+      // overlay the window on top of the config.
+      const configCarries = !!status?.configIdentities?.repo || !!status?.configIdentities?.global;
+      if (!configCarries) {
+        const row = status?.identities.find((i) => i.id === active.id) ?? active;
+        logger.info(`passphrase verified — session-applying ${row.name} <${row.email}> (bootstrap catch-up)`);
+        await sessionCtl.apply(row).catch((e: unknown) =>
+          logger.warn(`session apply: ${e instanceof Error ? e.message : String(e)}`),
+        );
+      }
     }
     if (!verified) {
       sessionPassphrases.delete(fp); // wrong passphrase

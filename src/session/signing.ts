@@ -47,7 +47,7 @@ export function identitySigningKey(
  */
 export function overlayWindowSigning(file: SigningJson, win: WindowSigning): SigningJson {
   if (!win) return file;
-  const layer = { scope: 'window', origin: null, managed: true, below: file };
+  const layer = { scope: 'window', origin: null, below: file };
   return win === 'off'
     ? { ...layer, enabled: false, key: null, format: file.format }
     : { ...layer, enabled: true, key: win.key, format: win.format };
@@ -95,7 +95,7 @@ export function signingSource(s: SigningJson): string {
       return 'this window';
     case 'local':
     case 'worktree':
-      return s.managed ? 'repo config (colabor)' : 'repo config';
+      return 'repo config';
     case null:
       return 'git default';
     default:

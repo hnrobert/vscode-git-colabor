@@ -56,8 +56,6 @@ export type SigningJson = {
   scope: string | null;
   /** config file of that scope */
   origin: string | null;
-  /** colabor turned it on (repo `identity sign`, or this window) */
-  managed: boolean;
   /** OpenPGP: emails on the signing key (mismatch detection) */
   keyEmails?: string[];
   /** window overlay only: what the repo / global config alone would do */
@@ -88,8 +86,6 @@ export type ConfigIdentityJson = { name: string; email: string; id: string };
 export type StatusJson = {
   repo: string | null;
   inRepo: boolean;
-  managed: boolean;
-  managedBy: string | null;
   heldBy: HeldByJson | null;
   signing: SigningJson;
   activeIdentity: IdentityJson | null;

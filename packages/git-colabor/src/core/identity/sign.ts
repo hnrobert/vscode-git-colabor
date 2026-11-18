@@ -190,8 +190,6 @@ export type SigningStatus = {
   scope: string | null;
   /** the file that value lives in */
   origin: string | null;
-  /** colabor's own repo-local signing (`identity sign`) is on */
-  managed: boolean;
   /** OpenPGP only: emails on the signing key, so the UI can flag a key that is not the committer's */
   keyEmails?: string[];
 };
@@ -208,7 +206,6 @@ export async function signingStatus(cwd: string | undefined): Promise<SigningSta
     format: format?.value || 'openpgp',
     scope: sign?.scope ?? null,
     origin: sign?.origin ?? null,
-    managed: sign?.scope === 'local',
   };
   if (status.enabled && status.format === 'openpgp' && status.key) {
     // best effort: no gpg / unknown key just leaves the owner unknown

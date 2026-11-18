@@ -74,7 +74,7 @@ describe('listDirRows', () => {
   it('classifies plain vs encrypted keys and omits non-keys', async () => {
     const rows = await listDirRows(sshDir, new Map());
     expect(rows.find((r) => r.label === '$(key) id_plain')?.detail).toContain('OpenSSH');
-    expect(rows.find((r) => r.label === '$(lock) id_enc')?.detail).toContain('encrypted (passphrase needed)');
+    expect(rows.find((r) => r.label === '$(lock) id_enc')?.detail).toContain('encrypted');
     expect(rows.find((r) => r.label.includes('id_plain.pub'))).toBeUndefined();
     expect(rows.find((r) => r.label.includes('README'))).toBeUndefined();
   });

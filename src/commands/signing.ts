@@ -47,11 +47,12 @@ export async function stopCommitSigning(deps: CommandDeps): Promise<void> {
     const id = deps.provider?.current?.activeIdentity?.id ?? deps.session.get()?.id;
     if (id) await run(deps, ['identity', 'set', id, '--no-sign-commits'], { cwd: deps.git.selectedRepoRoot() });
   }
-  // name the config that was signing without colabor — it keeps signing
-  // everywhere else (other windows, terminal) and surprises users
+  // name the config that was signing — it keeps signing everywhere else
+  // (other windows, terminal) and surprises users
   const inherited = before?.scope === 'window' ? before.below : before;
+  const inheritedLocal = inherited?.scope === 'local' || inherited?.scope === 'worktree';
   const note =
-    inherited?.enabled && !inherited.managed
+    inherited?.enabled && inheritedLocal
       ? ` — overrides commit.gpgsign=true from ${inherited.scope} config${inherited.origin ? ` (${inherited.origin})` : ''}`
       : '';
   vscode.window.showInformationMessage(`Git Colabor: commit signing off (${repoId ? 'repo config' : 'this window'})${note}.`);

@@ -68,25 +68,12 @@ export type HeldBy = {
   source: Source;
 };
 
-export type Backups = {
-  /** undefined ⇒ originally unset */
-  userName?: string;
-  userEmail?: string;
-  sshCommand?: string;
-  commitTemplate?: string;
-  commitGpgsign?: string;
-  gpgFormat?: string;
-  signingKey?: string;
-};
-
 export type RepoState = {
   schemaVersion: 1;
   activeIdentity?: string;
   heldBy?: HeldBy;
   /** user opted into commit signing with the active identity's key for this repo (right-click toggle) */
   signing?: boolean;
-  /** captured on first touch */
-  backups?: Backups;
 };
 
 export type AuditAction =
