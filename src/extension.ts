@@ -14,6 +14,7 @@ import { registerCommands } from './commands/index.js';
 import { reconcile } from './reconcile/ReconcileController.js';
 import { SessionIdentityController } from './session/SessionIdentity.js';
 import { WindowAlwaysCoAuthors } from './coauthor/WindowAlwaysCoAuthors.js';
+import type { StatusJson } from './types.js';
 
 let askpass: AskpassServer | undefined;
 let stateWatchers: FSWatcher[] = [];
@@ -66,6 +67,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     askpass: askpassInfo ? { socketPath: askpassInfo.socketPath, token: askpassInfo.token } : undefined,
     session: sessionId,
     log: logger,
+    // drive the git the Source Control view drives — not whatever `git` this
+    // extension host's PATH happens to resolve (on Windows, often none)
+    gitPath: () => git.gitPath,
   });
 
   // window always-co-authors: pinned for EVERY repo in this window;
@@ -434,8 +438,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // prompts. `promptedKeys` keeps a completed decision from repeating; a null
   // activeIdentity leaves it free to retry.
   const promptedKeys = new Set<string>();
-  const maybePromptActiveKey = async (prefetched?: Awaited<ReturnType<IdentityTreeProvider['reload']>>): Promise<void> => {
-    const status = prefetched ?? (await provider.reload().catch(() => undefined));
+  // Looks at the status it is GIVEN — never fetches one of its own. A reload
+  // whose CLI call failed delivers `undefined`, and treating that as "no
+  // status at hand, fetch one" re-triggers the reload event that re-enters
+  // here: an endless loop spawning two CLI processes every ~50 ms for as
+  // long as the CLI keeps failing (a blank view plus a process storm).
+  const checkActiveKey = async (status: StatusJson | undefined): Promise<void> => {
     const active = status?.activeIdentity;
     if (!active?.hasKey || !active.keyEncrypted || !active.sshKeyFingerprint) return;
     const fp = active.sshKeyFingerprint;
@@ -501,10 +509,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void provider.reload();
     }
   };
+  // the pull variant, for callers that have no status yet (activation, late
+  // vscode.git acquisition)
+  const maybePromptActiveKey = async (): Promise<void> =>
+    checkActiveKey(await provider.reload().catch(() => undefined));
   // every tree/status refresh re-evaluates the prompt condition using the
   // delivered status (guards make the miss path free; the healed-flag case
   // above is exactly what this catches)
-  context.subscriptions.push(provider.onDidReload.event((s) => { void maybePromptActiveKey(s ?? undefined); }));
+  context.subscriptions.push(provider.onDidReload.event((s) => { void checkActiveKey(s); }));
   void maybePromptActiveKey();
 
   // (the old "git-config picked identity with an encrypted key" prompt died

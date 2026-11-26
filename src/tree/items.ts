@@ -5,6 +5,7 @@ export type ItemKind =
   | 'no-identity'
   | 'identity'
   | 'identities-group'
+  | 'status-error'
   | 'signing'
   | 'coauthor-group'
   | 'coauthor-item';

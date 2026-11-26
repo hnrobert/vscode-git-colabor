@@ -29,6 +29,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   readonly onDidChangeTreeData = this._onDidChange.event;
 
   private status: StatusJson | undefined;
+  /** why the last `identity status` failed (`CODE: message`) — shown as a row
+   *  instead of a silently blank view; undefined again once a reload succeeds */
+  private loadError: string | undefined;
   /** per-window identity overlay (see SessionIdentityController); when set it
    *  is displayed as THE active identity without any repo-state backing */
   private sessionOverride: { id: string; name: string; email: string; sshCommand?: string } | undefined;
@@ -97,6 +100,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
         : Promise.resolve(undefined),
     ]);
     this.status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
+    this.loadError = statusRes.ok ? undefined : `${statusRes.error.code}: ${statusRes.error.message}`;
     // session-identity overlay: the env-injected per-window identity plays
     // the active role on screen even though repo state says otherwise
     if (this.sessionOverride && this.status) {
@@ -167,7 +171,7 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   }
 
   async getChildren(element?: ColaborItem): Promise<ColaborItem[]> {
-    if (!this.status) return [];
+    if (!this.status) return this.loadError ? [this.statusErrorItem()] : [];
     if (!element) return this.roots();
     switch (element.kind) {
       case 'identities-group':
@@ -177,6 +181,19 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
       default:
         return [];
     }
+  }
+
+  /**
+   * The view is empty because `identity status` failed (git unreachable,
+   * unreadable store, …): say why and where to look, instead of a blank
+   * panel whose only trace is the output channel. No commands on this row.
+   */
+  private statusErrorItem(): ColaborItem {
+    return new ColaborItem('Cannot read repository status', 'status-error', {
+      description: this.loadError,
+      tooltip: `${this.loadError}\n\nDetails: Git Colabor output channel (View → Output).`,
+      icon: 'error',
+    });
   }
 
   private roots(): ColaborItem[] {

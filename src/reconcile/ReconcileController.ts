@@ -78,8 +78,13 @@ async function reconcileRepo(
   logger: vscode.LogOutputChannel,
 ): Promise<boolean> {
   const statusRes = await cli.run(['identity', 'status'], { cwd: root });
-  const status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
-  const rows = status?.identities ?? [];
+  if (!statusRes.ok) {
+    // "could not read" is not "nothing there" — CliClient logged the cause
+    logger.info(`reconcile[${root}]: identity status unavailable (${statusRes.error.code}) — skipping this repo`);
+    return false;
+  }
+  const status = statusRes.data as StatusJson;
+  const rows = status.identities;
 
   // Priority for the window bootstrap:
   // 1. A repo's OWN config identity — the deliberate per-repo choice
