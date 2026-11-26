@@ -10,6 +10,8 @@ type GitApiShape = {
   repositories: GitRepository[];
   onDidOpenRepository: vscode.Event<GitRepository>;
   onDidCloseRepository: vscode.Event<GitRepository>;
+  /** the git vscode.git is running: its resolved executable path + version */
+  git: { path: string; version: string };
 };
 
 /** Bridge to the built-in `vscode.git` extension's published API (v1). */
@@ -56,6 +58,19 @@ export class GitApi {
 
   get hasRepositories(): boolean {
     return (this._api?.repositories.length ?? 0) > 0;
+  }
+
+  /**
+   * The git executable vscode.git is actually running. It is often NOT the
+   * `git` on this process's PATH: on Windows VS Code also looks in Git's
+   * well-known install dirs, and `git.path` may point anywhere — so the SCM
+   * view opens repositories that a plain `spawn('git')` from this extension
+   * host cannot serve. Read on every call (never cached): `git.path` changes
+   * restart vscode.git's lookup and the API object follows.
+   */
+  get gitPath(): string | undefined {
+    const p = (this._api as { git?: { path?: unknown } } | undefined)?.git?.path;
+    return typeof p === 'string' && p !== '' ? p : undefined;
   }
 
   /** All open repository roots — identity actions apply to every one of them. */

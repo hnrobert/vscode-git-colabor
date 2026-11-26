@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { AppError, EXIT_CODES } from '../errors.js';
 
 export type GitResult = {
   stdout: string;
@@ -24,9 +25,35 @@ export class GitError extends Error {
   }
 }
 
+/**
+ * The git executable to run: `GIT_COLABOR_GIT` when set (the VS Code
+ * extension points it at the git vscode.git runs), else `git` from PATH.
+ */
+function gitCommand(): string {
+  return process.env.GIT_COLABOR_GIT?.trim() || 'git';
+}
+
+/**
+ * A git that cannot even be started is a setup problem, not a crash: say
+ * which binary was tried and how to point us at the right one.
+ */
+function gitNotFound(cmd: string, e: NodeJS.ErrnoException): AppError {
+  return new AppError({
+    code: 'GIT_NOT_FOUND',
+    message: `cannot start git ("${cmd}"): ${e.message}`,
+    exitCode: EXIT_CODES.RUNTIME,
+    hints: [
+      'install Git, or put its directory on PATH',
+      'VS Code extension: set the `git.path` setting to the git executable',
+      'standalone CLI: set GIT_COLABOR_GIT to the git executable',
+    ],
+  });
+}
+
 function run(args: string[], opts: GitOptions): Promise<GitResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', args, {
+    const cmd = gitCommand();
+    const child = spawn(cmd, args, {
       cwd: opts.cwd,
       env: opts.env ? { ...process.env, ...opts.env } : process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -39,7 +66,7 @@ function run(args: string[], opts: GitOptions): Promise<GitResult> {
     child.stderr.on('data', (d) => {
       stderr += d.toString('utf8');
     });
-    child.on('error', reject);
+    child.on('error', (e: NodeJS.ErrnoException) => reject(e.code === 'ENOENT' ? gitNotFound(cmd, e) : e));
     child.on('close', (code) => {
       resolve({ stdout, stderr, exitCode: code ?? 0 });
     });
