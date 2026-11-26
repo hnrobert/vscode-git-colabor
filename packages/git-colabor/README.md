@@ -158,7 +158,8 @@ Full threat model: [docs/SECURITY.md](../docs/SECURITY.md) in the extension repo
 | `GIT_COLABOR_AUDIT_FILE` | audit log path |
 | `GIT_COLABOR_MESSAGE_PATH` | commit template path |
 | `GIT_COLABOR_LOG_FILE` / `GIT_COLABOR_LOG_LEVEL` | CLI debug log |
-| `GIT_COLABOR_ASKPASS_SOCK` / `GIT_COLABOR_ASKPASS_TOKEN` | askpass bridge endpoint (set by the extension) |
+| `GIT_COLABOR_GIT` | git executable to run (default: `git` from `PATH`; the extension points it at the git vscode.git runs) |
+| `GIT_COLABOR_ASKPASS_SOCK` / `GIT_COLABOR_ASKPASS_TOKEN` | askpass bridge endpoint — UNIX socket, or a named pipe on Windows (set by the extension) |
 
 ## Library
 

@@ -3,7 +3,7 @@ import { connect } from 'node:net';
 const SOCKET_TIMEOUT_MS = 3000;
 
 /**
- * Query the extension's askpass UNIX-socket server for a passphrase.
+ * Query the extension's askpass server (UNIX socket; a named pipe on Windows) for a passphrase.
  * Request: a single JSON line `{token, fingerprint}`. Response: the passphrase text, then close.
  * Returns undefined on any failure (so callers fall through).
  */

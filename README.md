@@ -40,7 +40,7 @@ Git Colabor treats identity as explicit, per-repo, **reversible and auditable** 
     - ![add-github-flow-demo](docs/images/add-github-flow-demo.png)
   - **Generate a key**: pick type (ed25519 / rsa / ecdsa), directory, file name, comment (defaults to `user@host`), and an optional passphrase — fed through `SSH_ASKPASS`, never on `argv`, never on disk.
   - **Paste a key**: drop an existing private key into an editor pane, choose where it lives; the file is written `0600` and referenced in place.
-- **Safe key handling** — keys are referenced in place (never copied or modified); passphrases live in session memory only (never on disk) and reach `ssh-add` over a UNIX-socket askpass bridge — never on `argv`, never in `ps`, never in logs. Loading a key into ssh-agent is an explicit right-click action. A broken key reference degrades to a key-less apply.
+- **Safe key handling** — keys are referenced in place (never copied or modified); passphrases live in session memory only (never on disk) and reach `ssh-add` over a local askpass bridge (UNIX socket; named pipe on Windows) — never on `argv`, never in `ps`, never in logs. Loading a key into ssh-agent is an explicit right-click action. A broken key reference degrades to a key-less apply.
 - **Multi-session coordination** — advisory `heldBy` locking warns before one window/terminal overrides another's identity.
 - **Audit trail** — every identity change logged locally (fingerprint only) with repo / host / user / source.
 - **Truly remote-friendly** — the extension spawns the bundled CLI with the VS Code Server's own Node; nothing depends on remote `$PATH`.
@@ -118,7 +118,7 @@ The extension and a global install share the same `~/.config/git-colabor/` store
 ## Security
 
 - Private keys are referenced in place — never copied, modified, or deleted by the tool; a missing key file degrades the identity to key-less with a warning.
-- Passphrases are session-scoped (extension memory, never on disk) and delivered to `ssh-add`/`ssh` through a per-session `0600` UNIX socket with a constant-time-compared token.
+- Passphrases are session-scoped (extension memory, never on disk) and delivered to `ssh-add`/`ssh` through a per-session local socket — a `0600` UNIX socket, or a named pipe on Windows — guarded by a constant-time-compared token.
 - The audit log records fingerprints only — never key bodies or passphrases (pinned by unit + e2e tests).
 
 Threat model, protocol details, and explicit non-guarantees: [docs/SECURITY.md](docs/SECURITY.md).
@@ -129,7 +129,7 @@ Threat model, protocol details, and explicit non-guarantees: [docs/SECURITY.md](
 
 **What if I stop using it?** `Logout Identity` clears the repo-local `user.*` / `core.sshCommand` / signing keys (content-matched, with a scope confirmation when global config is involved). Nothing global is left behind except an optional `commit.template` it set only if you had none.
 
-**Windows?** Supported (config under `%APPDATA%\git-colabor`, `icacls` key permissions). The askpass socket requires the UNIX-socket support in your Node/Windows build.
+**Windows?** Supported (config under `%APPDATA%\git-colabor`). The passphrase bridge is a named pipe there — Node has no filesystem sockets on Windows. Git need not be on `PATH`: the extension drives the same `git` the Source Control view found (VS Code's `git.path` is followed).
 
 ## Documentation
 

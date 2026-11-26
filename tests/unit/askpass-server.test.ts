@@ -3,7 +3,7 @@ import { connect } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AskpassServer } from '../../src/askpass/AskpassServer.js';
+import { AskpassServer, askpassEndpoint, askpassEndpointKind, colaborDir } from '../../src/askpass/AskpassServer.js';
 
 const fakeLog = { info(_m: string) {}, warn(_m: string) {}, error(_m: string) {} };
 let server: AskpassServer | undefined;
@@ -71,5 +71,39 @@ describe('AskpassServer', () => {
     const info = await server.start();
     const resp = await query(info.socketPath, { token: info.token, fingerprint: 'SHA256:missing' });
     expect(resp).toBe('');
+  });
+});
+
+describe('askpass endpoint (per platform)', () => {
+  // assembled piece by piece so the test cannot repeat an escaping slip in the source
+  const winPipe = '\\\\' + ['.', 'pipe', 'git-colabor-askpass-ext_ab12'].join('\\');
+
+  it('is a named pipe on Windows — Node has no filesystem sockets there', () => {
+    expect(askpassEndpoint('ext_ab12', 'win32')).toBe(winPipe);
+    expect(winPipe.startsWith('\\\\.\\pipe\\')).toBe(true);
+  });
+
+  it('is a socket file inside the data dir everywhere else', () => {
+    expect(askpassEndpoint('ext_ab12', 'darwin')).toBe(join(colaborDir('darwin'), 'askpass-ext_ab12.sock'));
+    expect(askpassEndpoint('ext_ab12', 'linux')).toBe(join(colaborDir('linux'), 'askpass-ext_ab12.sock'));
+  });
+
+  it('classifies our socket file and our pipe as ours — nothing else', () => {
+    const dir = colaborDir('darwin');
+    expect(askpassEndpointKind(dir, join(dir, 'askpass-ext_ab12.sock'))).toBe('socket');
+    expect(askpassEndpointKind(dir, askpassEndpoint('ext_ab12', 'win32'), 'win32')).toBe('pipe');
+    // a pipe descriptor has no business on a socket platform
+    expect(askpassEndpointKind(dir, askpassEndpoint('ext_ab12', 'win32'), 'darwin')).toBeUndefined();
+    // outside our dir / not our naming pattern / absent
+    expect(askpassEndpointKind(dir, join(dir, '..', 'askpass-x.sock'))).toBeUndefined();
+    expect(askpassEndpointKind(dir, join(dir, 'not-ours.sock'))).toBeUndefined();
+    expect(askpassEndpointKind(dir, undefined)).toBeUndefined();
+  });
+
+  it('the server listens on the platform endpoint', async () => {
+    server = new AskpassServer({ sessionId: 'ext_ab12', secretLookup: async () => undefined, log: fakeLog });
+    const info = await server.start();
+    expect(info.socketPath).toBe(askpassEndpoint('ext_ab12'));
+    expect(askpassEndpointKind(colaborDir(), info.socketPath)).toBe('socket');
   });
 });

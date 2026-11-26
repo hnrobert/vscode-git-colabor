@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readdir, rm, unlink } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { sweepSessionFiles } from '../../src/askpass/AskpassServer.js';
+import { askpassEndpoint, sweepSessionFiles } from '../../src/askpass/AskpassServer.js';
 
 let dir: string;
 let prevXdg: string | undefined;
@@ -70,6 +70,22 @@ describe('sweepSessionFiles', () => {
     const removed = await sweepSessionFiles(dir);
     expect(removed.sessions).toBe(1);
     expect(removed.sockets).toBe(0); // the outside path was NOT touched
+  });
+  it('keeps a LIVE named-pipe session (Windows) and sweeps a dead one — a pipe leaves no file to remove', async () => {
+    const dead = deadPid();
+    const liveFile = `session-${process.pid}-pipe.json`;
+    await writeFile(join(dir, liveFile), JSON.stringify({ sessionId: 'live', socketPath: askpassEndpoint('ext_livepipe', 'win32'), token: 't', pid: process.pid }));
+    await writeFile(join(dir, `session-${dead}.json`), JSON.stringify({ sessionId: 'dead', socketPath: askpassEndpoint('ext_deadpipe', 'win32'), token: 't', pid: dead }));
+
+    const removed = await sweepSessionFiles(dir, undefined, 'win32');
+
+    const left = new Set(await readdir(dir));
+    expect(removed.sessions).toBe(1); // only the dead one
+    expect(removed.sockets).toBe(0); // nothing on disk belongs to a pipe
+    // live pipe session survives: there is no file to stat, the pid is the truth
+    expect(left.has(liveFile)).toBe(true);
+    expect(left.has(`session-${dead}.json`)).toBe(false);
+    await unlink(join(dir, liveFile)); // don't leak into the next test's sweep
   });
 });
 

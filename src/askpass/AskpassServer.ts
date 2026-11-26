@@ -21,8 +21,9 @@ export type AskpassDeps = {
 };
 
 /**
- * UNIX-domain socket server that serves session-scoped SSH key passphrases to the
- * CLI's SSH_ASKPASS helper (and to ssh-add). Matches the CLI's `askSocket` protocol:
+ * Serves session-scoped SSH key passphrases to the CLI's SSH_ASKPASS helper
+ * (and to ssh-add) over a UNIX-domain socket — a NAMED PIPE on Windows, see
+ * `askpassEndpoint`. Matches the CLI's `askSocket` protocol:
  * request = one JSON line `{token, fingerprint}`; response = the passphrase bytes (then close).
  * On any failure, close without writing so the helper falls through to tty.
  */
@@ -43,15 +44,20 @@ export class AskpassServer {
   }
   private server?: Server;
   private socketPath?: string;
+  /** what `socketPath` is on disk: a socket file we own and must remove, or a pipe (nothing to remove) */
+  private endpointKind: 'socket' | 'pipe' | undefined = 'socket';
 
   constructor(private readonly deps: AskpassDeps) {}
 
   async start(): Promise<{ socketPath: string; token: string }> {
     const dir = colaborDir();
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    const sock = join(dir, `askpass-${this.deps.sessionId}.sock`);
-    // clean any stale socket at this path
-    await unlink(sock).catch(() => {});
+    const sock = askpassEndpoint(this.deps.sessionId);
+    this.endpointKind = askpassEndpointKind(dir, sock);
+    if (this.endpointKind !== 'pipe') {
+      // clean any stale socket file at this path (a named pipe leaves no file)
+      await unlink(sock).catch(() => {});
+    }
 
     this.server = createServer((socket) => this.handle(socket));
     await new Promise<void>((resolve, reject) => {
@@ -62,7 +68,9 @@ export class AskpassServer {
         resolve();
       });
     });
-    await chmod(sock, 0o600).catch(() => {});
+    // 0600 is the socket FILE's access control. A pipe has no file: access
+    // is its OS security descriptor plus the token (constant-time compared)
+    if (this.endpointKind !== 'pipe') await chmod(sock, 0o600).catch(() => {});
     this.socketPath = sock;
     this.deps.log?.info(`askpass server listening on ${sock}`);
     return { socketPath: sock, token: this.token };
@@ -109,7 +117,8 @@ export class AskpassServer {
       if (!srv) return resolve();
       srv.close(() => resolve());
     });
-    if (this.socketPath) await unlink(this.socketPath).catch(() => {});
+    // a pipe vanishes with its server; only a socket file needs removing
+    if (this.socketPath && this.endpointKind !== 'pipe') await unlink(this.socketPath).catch(() => {});
     this.socketPath = undefined;
     // this exthost's session descriptor dies with its server
     await unlink(join(colaborDir(), `session-${process.pid}.json`)).catch(() => {});
@@ -134,9 +143,36 @@ function pidIsAlive(pid: unknown): boolean {
   }
 }
 
-/** only ever unlink sock FILES WE OWN, inside our dir, by our naming pattern */
-const isOurSocket = (dir: string, path: unknown): path is string =>
-  typeof path === 'string' && /^askpass-[\w.-]+\.sock$/.test(basename(path)) && join(dir, basename(path)) === path;
+const SOCKET_NAME_RE = /^askpass-[\w.-]+\.sock$/;
+const PIPE_RE = /^\\\\\.\\pipe\\git-colabor-askpass-[\w.-]+$/;
+
+/**
+ * The askpass bridge endpoint for a session. Node has no filesystem sockets
+ * on Windows: `listen()` on a `.sock` path is an invalid pipe name there and
+ * fails with EACCES whatever the directory. So the bridge is a NAMED PIPE on
+ * Windows and a UNIX socket file inside the data dir everywhere else.
+ */
+export function askpassEndpoint(sessionId: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? String.raw`\\.\pipe\git-colabor-askpass-${sessionId}`
+    : join(colaborDir(platform), `askpass-${sessionId}.sock`);
+}
+
+/**
+ * What a session descriptor's endpoint is: OUR socket file inside the data
+ * dir, OUR named pipe (Windows only), or `undefined` for anything else —
+ * which no sweep or cleanup may ever touch.
+ */
+export function askpassEndpointKind(
+  dir: string,
+  endpoint: unknown,
+  platform: NodeJS.Platform = process.platform,
+): 'socket' | 'pipe' | undefined {
+  if (typeof endpoint !== 'string') return undefined;
+  if (platform === 'win32' && PIPE_RE.test(endpoint)) return 'pipe';
+  if (!SOCKET_NAME_RE.test(basename(endpoint))) return undefined;
+  return join(dir, basename(endpoint)) === endpoint ? 'socket' : undefined;
+}
 
 /**
  * Best-effort sweep of the data dir: session-*.json whose extension-host pid
@@ -150,6 +186,7 @@ export async function sweepSessionFiles(
   dir = colaborDir(),
   /** this window's OWN socket — never an orphan, even before its session file lands */
   keep?: string,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<{ sessions: number; sockets: number }> {
   const removed = { sessions: 0, sockets: 0 };
   try {
@@ -158,16 +195,22 @@ export async function sweepSessionFiles(
     for (const f of entries.filter((n) => /^session-.*\.json$/.test(n))) {
       try {
         const parsed = JSON.parse(await readFile(join(dir, f), 'utf8')) as { pid?: unknown; socketPath?: string };
-        const ours = isOurSocket(dir, parsed.socketPath);
-        // stale = pid gone, OR the pid was REUSED by an unrelated process and
-        // the bridge socket it pointed at no longer exists
-        const stale = !pidIsAlive(parsed.pid) || !ours || (parsed.socketPath !== undefined && !existsSync(parsed.socketPath));
-        if (!stale && ours) {
-          liveSockets.add(basename(parsed.socketPath!));
+        const endpoint = parsed.socketPath;
+        const kind = askpassEndpointKind(dir, endpoint, platform);
+        // stale = pid gone, OR an endpoint that is not ours, OR (a socket
+        // file) the file no longer exists — the pid was REUSED by an
+        // unrelated process. A named pipe has no file to check: it exists
+        // exactly as long as its server process does.
+        const stale =
+          !pidIsAlive(parsed.pid) ||
+          kind === undefined ||
+          (kind === 'socket' && (endpoint === undefined || !existsSync(endpoint)));
+        if (!stale) {
+          if (kind === 'socket' && endpoint !== undefined) liveSockets.add(basename(endpoint));
           continue;
         }
         await unlink(join(dir, f)).catch(() => {});
-        removed.sockets += await rmIfOurs(dir, parsed.socketPath);
+        removed.sockets += await rmIfOurs(dir, endpoint, platform);
         removed.sessions += 1;
       } catch {
         // unreadable session file — leave it to the next sweep
@@ -185,14 +228,15 @@ export async function sweepSessionFiles(
   return removed;
 }
 
-async function rmIfOurs(dir: string, path: unknown): Promise<number> {
-  if (!isOurSocket(dir, path)) return 0;
+async function rmIfOurs(dir: string, path: unknown, platform?: NodeJS.Platform): Promise<number> {
+  // a socket file only — a pipe has nothing on disk, a foreign path is not ours to remove
+  if (typeof path !== 'string' || askpassEndpointKind(dir, path, platform) !== 'socket') return 0;
   await unlink(path).catch(() => {});
   return 1;
 }
 
-export function colaborDir(): string {
-  if (process.platform === 'win32') {
+export function colaborDir(platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'win32') {
     return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'git-colabor');
   }
   return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'git-colabor');

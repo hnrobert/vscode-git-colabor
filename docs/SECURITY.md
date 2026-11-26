@@ -51,13 +51,13 @@ GPG commit signing never touches a passphrase either: the tool only records *whi
 
 How `ssh-add` obtains an extension-stored passphrase ([ARCHITECTURE.md §4](ARCHITECTURE.md#4-the-askpass-bridge-passphrase-channel) for the sequence diagram):
 
-- **Endpoint:** a UNIX-domain socket at `<dataDir>/askpass-<sessionId>.sock`. The data dir is `0700`, the socket `0600` — only your OS user can connect.
+- **Endpoint:** a UNIX-domain socket at `<dataDir>/askpass-<sessionId>.sock`. The data dir is `0700`, the socket `0600` — only your OS user can connect. On Windows the endpoint is a named pipe (`\\.\pipe\git-colabor-askpass-<sessionId>`) instead — Node has no filesystem sockets there, so no file mode exists: access comes from the pipe's OS security descriptor (Windows' default grants the creating user, administrators and SYSTEM full control, and Everyone read access), and the token below gates every response.
 - **Authentication:** every request carries a token generated per extension session (`randomBytes(32).toString('hex')`), compared with `node:crypto.timingSafeEqual` after a length check. A wrong token gets no error message — the connection simply closes without a response.
 - **Request shape:** exactly one JSON line `{"token":"…","fingerprint":"…"}`. Only the first request per connection is handled. The response is the raw passphrase bytes; unknown fingerprint → silent close (the helper falls through to the next strategy instead of hanging).
 - **Discovery:** the socket endpoint is exported via `<dataDir>/session-<pid>.json` (`0600`) so a `git colabor` you run in the integrated terminal can use the bridge. Treat that file like a capability: its reader can *ask the extension for passphrases it already knows*, nothing more.
-- **Lifecycle:** the socket is unlinked on extension deactivate; stale sockets from crashed sessions are unlinked before listen.
+- **Lifecycle:** the socket is unlinked on extension deactivate; stale sockets from crashed sessions are unlinked before listen. A named pipe leaves no file — it exists exactly as long as the extension host serving it.
 
-What the token+socket protects against: *other OS users* connecting to the socket. What it cannot protect against: code running as your user (it can read the session file and query the bridge like any helper) — see §6.
+What the token+socket protects against: *other OS users* connecting to the socket — by file mode on POSIX; on Windows by the pipe's security descriptor, with the token as the gate for any connection that does get through. What it cannot protect against: code running as your user (it can read the session file and query the bridge like any helper) — see §6.
 
 ## 5. Audit & logging
 

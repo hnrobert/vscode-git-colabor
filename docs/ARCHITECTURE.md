@@ -9,10 +9,10 @@ Two packages, one product:
 ```mermaid
 flowchart LR
     subgraph ext ["VS Code extension (this repo)"]
-        UI ["SCM tree view / status bar<br/>commands"]
+        UI ["SCM tree view<br/>commands"]
         REC ["ReconcileController"]
         SYNC ["ScmSync (input box)"]
-        APS ["AskpassServer<br/>(UNIX socket)"]
+        APS ["AskpassServer<br/>(UNIX socket · Windows named pipe)"]
         CC ["CliClient"]
         SESS ["SessionIdentityController<br/>env injection (host + terminals)"]
     end
@@ -44,13 +44,12 @@ Key decisions:
 
 | Module | Responsibility |
 | --- | --- |
-| `extension.ts` | Activation: session id (`ext_<hex>`), AskpassServer + session file, GitApi, CliClient, tree view, status bar, ScmSync, commands, watchers, reconcile wiring; dispose logic |
-| `cli/CliClient.ts` | Spawns `resources/cli.cjs` with `process.execPath` (the VS Code Server's Node — no `$PATH` dependency), injects `GIT_COLABOR_SOURCE=ext` + askpass env, parses the JSON envelope, maps spawn/parse failures to `SPAWN_FAILED` / `BAD_JSON` |
-| `askpass/AskpassServer.ts` | `node:net` UNIX socket `<dataDir>/askpass-<sessionId>.sock` (dir `0700`, socket `0600`); one request per connection: `{"token","fingerprint"}` → passphrase bytes; silent close on any failure so callers fall through |
-| `git-ext/GitApi.ts` | Minimal typed wrapper over `vscode.git` API v1: repositories, open/close/`ui.onDidChange` subscription, selected-repo resolution **and `repoRoots` (all open repos — identity actions apply session-wide)** |
+| `extension.ts` | Activation: session id (`ext_<hex>`), AskpassServer + session file, GitApi, CliClient, tree view, ScmSync, commands, watchers, reconcile wiring; dispose logic |
+| `cli/CliClient.ts` | Spawns `resources/cli.cjs` with `process.execPath` (the VS Code Server's Node — no `$PATH` dependency), injects `GIT_COLABOR_SOURCE=ext` + askpass env + `GIT_COLABOR_GIT` (the git vscode.git runs), parses the JSON envelope, maps spawn/parse failures to `SPAWN_FAILED` / `BAD_JSON`, logs each failure's `code: message` once per distinct cause |
+| `askpass/AskpassServer.ts` | `node:net` UNIX socket `<dataDir>/askpass-<sessionId>.sock` (dir `0700`, socket `0600`), or a named pipe `\\.\pipe\git-colabor-askpass-<sessionId>` on Windows (Node has no filesystem sockets there — a `.sock` path fails to bind with `EACCES`); one request per connection: `{"token","fingerprint"}` → passphrase bytes; silent close on any failure so callers fall through |
+| `git-ext/GitApi.ts` | Minimal typed wrapper over `vscode.git` API v1: repositories, open/close/`ui.onDidChange` subscription, selected-repo resolution **and `repoRoots` (all open repos — identity actions apply session-wide)**; exposes `gitPath`, the git executable vscode.git actually runs (often not the `git` on this host's `PATH`) |
 | `tree/IdentityTreeProvider.ts`, `tree/items.ts` | SCM view `gitColabor.identitiesView`: guidance rows only at the top (no repo / no active identity — the active identity is NOT duplicated at root; the Identities group marks it ✓), Identities group, and **one merged Co-authors list** (all identities minus the active one ∪ `gitColabor.coAuthorIdentities` memory in user/machine/workspace layers ∪ repo commit history, email-deduped; empty state explains how to add) whose rows show `+`/`-` by whether the author's trailer is in the SCM input box (polled — the git API has no inputBox change event; no context menu on these rows — clicking toggles the trailer); identity rows instead carry the memory bits in their contextValue (`-k` key, `-a` key-in-agent, `-ss`/`-sg` signing with this identity's SSH/GPG key, `-ru`/`-rm` remembered), driving the right-click modify / agent load-remove / signing / remember-forget menus; a **Signing** row shows the effective commit signing and its layer (§5.1) |
 | `session/SessionIdentity.ts`, `session/signing.ts` | Window-scoped identity + signing via git env injection (`GIT_CONFIG_COUNT/KEY_n/VALUE_n`); pure helpers resolving an identity's signing key, overlaying the window layer on the CLI's effective signing, and detecting a key that is not the committer's |
-| `statusbar/StatusBar.ts` | `$(person) name · +N`; click → identity picker |
 | `scm/Sync.ts` | Idempotent reseed of `Co-authored-by:` trailers into the SCM input box (skip when the sorted-email key is unchanged) |
 | `reconcile/ReconcileController.ts` | Setting-wins enforcement (§6) |
 | `commands/` | All palette commands + internal tree-click commands, split by area (`identity.ts`, `coauthor.ts`, `signing.ts`, `misc.ts`, `shared.ts`, `index.ts`) |
@@ -67,7 +66,7 @@ Every CLI command accepts `--json` and prints one compact line:
 
 - `CliClient.run(args)` defaults to JSON mode and returns the parsed envelope; the process exit code travels inside `error.exitCode` (0 ok · 1 runtime · 2 usage · 3 not-a-repo · 4 secret-unavailable · 5 not-found · 6 conflict-blocked).
 - `types.ts` keeps a **hand-maintained mirror** of the CLI's JSON shapes (`StatusJson`, `IdentityJson`, `HeldByJson`, …) — there is no runtime dependency between the packages, so the mirror must be updated together with `git-colabor/src/core/types.ts`.
-- `identity status --json` is the UI's heartbeat: the tree provider, status bar, and ScmSync all re-render from it.
+- `identity status --json` is the UI's heartbeat: the tree provider and ScmSync re-render from it. When the call fails the view shows the CLI's `code: message` as a single row (nothing to act on) — it must never re-fetch from inside its own reload event, or a failing CLI turns the refresh into a loop.
 
 ## 4. The askpass bridge (passphrase channel)
 
@@ -82,7 +81,7 @@ sequenceDiagram
 
     C->>S: setsid ssh-add <key> (env: SSH_ASKPASS=askpass.cjs, SSH_ASKPASS_REQUIRE=force, GIT_COLABOR_ASKPASS_SOCK/TOKEN)
     S->>A: prompts for passphrase
-    A->>E: {"token","fingerprint"}\n over askpass-<sessionId>.sock
+    A->>E: {"token","fingerprint"}\n over the askpass endpoint (socket / named pipe)
     E->>E: timingSafeEqual(token); lookup in sessionPassphrases (memory)
     E-->>A: passphrase bytes (or silent close)
     A-->>S: passphrase on stdout
@@ -136,10 +135,10 @@ It runs only while **no session identity is active** — an explicit Use (or an 
 
 | Watcher | Event | Action |
 | --- | --- | --- |
-| `fs.watch(<each repo>/.git/colabor/state.json)` (one watcher per open repo) | terminal `git colabor` ran out-of-band in any repo | 300 ms debounce → tree/statusbar refresh only |
+| `fs.watch(<each repo>/.git/colabor/state.json)` (one watcher per open repo) | terminal `git colabor` ran out-of-band in any repo | 300 ms debounce → tree refresh only |
 | `onDidSaveTextDocument` | (reserved — no-op today) | refresh |
 | `vscode.git` subscription | repo open/close, selection change | 400 ms debounce → reconcile + refresh |
-| `provider.onDidReload` | every reload | status bar update + ScmSync reseed |
+| `provider.onDidReload` | every reload | ScmSync reseed + the active-key passphrase check (it only ever reads the status the event delivers) |
 
 ScmSync strips all existing `Co-authored-by:` lines from the SCM input box value and re-appends the current selection — but computes a key from the sorted selected emails and skips the write when unchanged, so a user typing in the box is never clobbered mid-keystroke. In the other direction, the co-author tree rows read the box (`scm/trailers.ts` parses/appends/removes single trailers) and a 1.5 s poll refreshes the `+`/`-` markers as the user types; toggling a row edits the box directly and syncs exactly the toggled author with `coauthor add`/`rm` so the commit template follows (manually typed trailers are never touched).
 

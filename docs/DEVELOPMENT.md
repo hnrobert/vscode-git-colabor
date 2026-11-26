@@ -26,7 +26,7 @@ vscode-git-colabor/          # ← this repo IS the extension package (flattened
 │   ├── askpass/AskpassServer.ts
 │   ├── secrets/Secrets.ts
 │   ├── git-ext/GitApi.ts
-│   ├── tree/, statusbar/, scm/, reconcile/
+│   ├── tree/, scm/, reconcile/
 │   ├── commands.ts, config.ts, log.ts, types.ts, extension.ts
 ├── git-colabor/             # git SUBMODULE — the CLI (standalone npm package)
 │   └── src/{cli,core,askpass}/

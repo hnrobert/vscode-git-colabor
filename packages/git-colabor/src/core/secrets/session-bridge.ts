@@ -13,6 +13,26 @@ function pidIsAlive(pid: unknown): boolean {
   }
 }
 
+const SOCKET_NAME_RE = /^askpass-[\w.-]+\.sock$/;
+const PIPE_RE = /^\\\\\.\\pipe\\git-colabor-askpass-[\w.-]+$/;
+
+/**
+ * What a session descriptor's `socketPath` is: the extension's socket file
+ * in the data dir, its named pipe (Windows only — Node has no filesystem
+ * sockets there), or `undefined` for anything else, which must never be
+ * connected to or removed.
+ */
+export function askpassEndpointKind(
+  dir: string,
+  endpoint: unknown,
+  platform: NodeJS.Platform = process.platform,
+): 'socket' | 'pipe' | undefined {
+  if (typeof endpoint !== 'string') return undefined;
+  if (platform === 'win32' && PIPE_RE.test(endpoint)) return 'pipe';
+  if (!SOCKET_NAME_RE.test(basename(endpoint))) return undefined;
+  return join(dir, basename(endpoint)) === endpoint ? 'socket' : undefined;
+}
+
 /**
  * All live candidate bridges from session-*.json in the data dir, NEWEST
  * first: {socketPath, token} per running extension instance. Several
@@ -42,16 +62,17 @@ export function discoverSessionBridges(): { socketPath: string; token: string }[
           pid?: unknown;
         };
         if (!parsed.socketPath || !parsed.token) continue;
-        const ourSock =
-          /^askpass-[\w.-]+\.sock$/.test(basename(parsed.socketPath)) &&
-          join(dir, basename(parsed.socketPath)) === parsed.socketPath;
+        const kind = askpassEndpointKind(dir, parsed.socketPath);
         // stale = pid gone (or reused by an unrelated process — the socket it
-        // pointed at no longer exists); such descriptors cannot answer anyway
+        // pointed at no longer exists); such descriptors cannot answer anyway.
+        // A named pipe has no file to stat: it lives exactly as long as its pid.
         const stale =
-          (parsed.pid !== undefined && !pidIsAlive(parsed.pid)) || !ourSock || !existsSync(parsed.socketPath);
+          (parsed.pid !== undefined && !pidIsAlive(parsed.pid)) ||
+          kind === undefined ||
+          (kind === 'socket' && !existsSync(parsed.socketPath));
         if (stale) {
           // only ever remove sock FILES WE OWN, inside our dir, by our pattern
-          if (ourSock && existsSync(parsed.socketPath)) {
+          if (kind === 'socket' && existsSync(parsed.socketPath)) {
             try {
               rmSync(parsed.socketPath);
             } catch {
