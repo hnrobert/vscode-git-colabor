@@ -66,7 +66,7 @@ Every CLI command accepts `--json` and prints one compact line:
 
 - `CliClient.run(args)` defaults to JSON mode and returns the parsed envelope; the process exit code travels inside `error.exitCode` (0 ok · 1 runtime · 2 usage · 3 not-a-repo · 4 secret-unavailable · 5 not-found · 6 conflict-blocked).
 - `types.ts` keeps a **hand-maintained mirror** of the CLI's JSON shapes (`StatusJson`, `IdentityJson`, `HeldByJson`, …) — there is no runtime dependency between the packages, so the mirror must be updated together with `git-colabor/src/core/types.ts`.
-- `identity status --json` is the UI's heartbeat: the tree provider and ScmSync re-render from it. When the call fails the view shows the CLI's `code: message` as a single row (nothing to act on) — it must never re-fetch from inside its own reload event, or a failing CLI turns the refresh into a loop.
+- `identity status --json` is the UI's heartbeat: the tree provider and ScmSync re-render from it. When the call fails the view shows the CLI's `code: message` as a single row and retries every 5 s until one succeeds (`tree/ReloadRetry.ts`: armed only by a failure, one attempt per interval — a reload event must never fetch a status of its own, or a failing CLI turns refreshing into a tight loop); the bootstrap re-runs on the first success afterwards.
 
 ## 4. The askpass bridge (passphrase channel)
 

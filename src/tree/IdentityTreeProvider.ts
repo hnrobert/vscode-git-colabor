@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ColaborItem } from './items.js';
+import { ReloadRetry } from './ReloadRetry.js';
 import { pickRepository } from '../scm/Sync.js';
 import { parseCoAuthors } from '../scm/trailers.js';
 import { coAuthorMemoryScopeMap } from '../config.js';
@@ -44,6 +45,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
   /** startup gate: hold the FIRST paint until the repo set is known (see reload) */
   private firstPaintDone = false;
   private startupTimer: NodeJS.Timeout | undefined;
+  /** a reload whose CLI call failed is tried again every 5 s until one succeeds
+   *  (one attempt per interval — see ReloadRetry; nothing runs while healthy) */
+  private readonly reloadRetry = new ReloadRetry(() => void this.reload().catch(() => {}));
   /** window-scoped always-co-authors (set at activation); drives the -aw row bit */
   windowAlways?: { isPinned(email: string): boolean };
   /** set at activation: is this identity's encrypted key locked (no agent copy,
@@ -101,6 +105,9 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
     ]);
     this.status = statusRes.ok ? (statusRes.data as StatusJson) : undefined;
     this.loadError = statusRes.ok ? undefined : `${statusRes.error.code}: ${statusRes.error.message}`;
+    // keep trying while the CLI fails; stop the moment it answers again
+    if (statusRes.ok) this.reloadRetry.cancel();
+    else this.reloadRetry.arm();
     // session-identity overlay: the env-injected per-window identity plays
     // the active role on screen even though repo state says otherwise
     if (this.sessionOverride && this.status) {
@@ -189,11 +196,17 @@ export class IdentityTreeProvider implements vscode.TreeDataProvider<ColaborItem
    * panel whose only trace is the output channel. No commands on this row.
    */
   private statusErrorItem(): ColaborItem {
-    return new ColaborItem('Cannot read repository status', 'status-error', {
+    return new ColaborItem('Cannot read repository status — retrying', 'status-error', {
       description: this.loadError,
-      tooltip: `${this.loadError}\n\nDetails: Git Colabor output channel (View → Output).`,
+      tooltip: `${this.loadError}\n\nRetrying every ${ReloadRetry.INTERVAL_MS / 1000} s.\nDetails: Git Colabor output channel (View → Output).`,
       icon: 'error',
     });
+  }
+
+  dispose(): void {
+    this.reloadRetry.cancel();
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.startupTimer = undefined;
   }
 
   private roots(): ColaborItem[] {

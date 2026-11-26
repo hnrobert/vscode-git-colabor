@@ -88,6 +88,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     !row.inAgent &&
     !sessionPassphrases.has(row.sshKeyFingerprint);
   context.subscriptions.push(vscode.window.createTreeView('gitColabor.identitiesView', { treeDataProvider: provider }));
+  context.subscriptions.push({ dispose() { provider.dispose(); } }); // drops any pending reload retry
 
   // setting rename (coAuthorIdentities → rememberedIdentities), once per
   // activation: carry old-key entries into the new key and drop the old one
@@ -314,6 +315,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.warn(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`),
     );
   };
+  // while the CLI keeps failing, the view retries its reload every 5 s. The
+  // bootstrap skipped the repo while status was unavailable — when a reload
+  // succeeds again, give it that turn (a reload delivers no status ONLY when
+  // its CLI call failed)
+  let reloadFailing = false;
+  context.subscriptions.push(
+    provider.onDidReload.event((s) => {
+      const failing = s === undefined;
+      if (reloadFailing && !failing) runReconcile();
+      reloadFailing = failing;
+    }),
+  );
 
   // repo open/close/selection: debounced reconcile (auto-apply) + refresh.
   // The vscode.git API may not be ready when we activate (notably under
